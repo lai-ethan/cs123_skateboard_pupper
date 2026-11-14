@@ -2,6 +2,10 @@
 
 # mjlab — Pupper v3 fork
 
+> **Team 9 skateboard project:** start at [`skateboard/README.md`](skateboard/README.md).
+> The plan is [`skateboard/PLAN.md`](skateboard/PLAN.md). Everything below is the
+> course repo's own README.
+
 This is a fork of [mjlab](https://github.com/mujocolab/mjlab) that adds the
 **Pupper v3** quadruped (Stanford CS 123): the robot model, locomotion and gait
 tasks, sim2real latency modeling, and an exporter that produces the
@@ -63,6 +67,8 @@ task from scratch (using the cartpole task as the example).
 | `Mjlab-Mystery-Flat-Pupper-v3` / `-Bumpy-` | ??? |
 | `Mjlab-SpiderWalk-Flat-Pupper-v3` | Walking in the spider stance (torso 1 cm up, legs splayed): velocity tracking plus the `spider` reference gait, a trot in place. The walking half of lab 6's spider trick. |
 | `Mjlab-Tracking-Flat-Pupper-v3` | Tricks: tracks one reference motion (root pose + joints, BeyondMimic-style) with no velocity command. Design motions and replay them in sim first; see `src/mjlab/tasks/tracking/config/pupper/README.md`. |
+| `Mjlab-Skate-Balance-Pupper-v3` | Final project: hold a split stance on a mini cruiser skateboard (left feet on the deck, right feet on the floor) while the board is free to roll. |
+| `Mjlab-Skate-Ride-Pupper-v3` | Final project: push with the floor-side legs so the board rolls at a commanded forward speed. |
 
 **The lift gait is yours**: only the trot reference ships
 (`src/mjlab/tasks/pupper_gait/mdp/gait_reference.py`). StableGait also needs a
@@ -156,6 +162,10 @@ mjlab is licensed under the [Apache License, Version 2.0](LICENSE). Portions
 under `src/mjlab/utils/lab_api/` are forked from
 [NVIDIA Isaac Lab](https://github.com/isaac-sim/IsaacLab) (BSD-3-Clause; see
 file headers).
+
+The skateboard model (`asset_zoo/robots/mini_cruiser`) follows the structure of
+HUSKY (Han et al., [arXiv:2602.03205](https://arxiv.org/abs/2602.03205)). No
+HUSKY code is included.
 
 If you use mjlab in your research, please cite the upstream project:
 
