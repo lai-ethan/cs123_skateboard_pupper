@@ -1,0 +1,96 @@
+"""Physics checks for the mini cruiser skateboard asset (plain MuJoCo, CPU)."""
+
+import mujoco
+import numpy as np
+import pytest
+
+from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
+  DECK_ROLL_JOINT_NAME,
+  SkateboardParams,
+  get_skateboard_cfg,
+  get_skateboard_spec,
+)
+from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import PUPPER_MUJOCO_OPTIONS
+from mjlab.entity import Entity
+from mjlab.sim.sim import MujocoCfg
+
+WHEEL_SPIN_JOINTS = (
+  "wheel_fl_spin",
+  "wheel_fr_spin",
+  "wheel_rl_spin",
+  "wheel_rr_spin",
+)
+
+
+@pytest.fixture
+def board() -> tuple[mujoco.MjModel, mujoco.MjData]:
+  """The board alone on a floor, under Pupper's solver settings, settled."""
+  spec = get_skateboard_spec()
+  spec.worldbody.add_geom(
+    name="floor", type=mujoco.mjtGeom.mjGEOM_PLANE, size=(0, 0, 0.05)
+  )
+  model = spec.compile()
+  MujocoCfg(**PUPPER_MUJOCO_OPTIONS).apply(model)
+  data = mujoco.MjData(model)
+  _step(model, data, 1.0)
+  return model, data
+
+
+def _step(model: mujoco.MjModel, data: mujoco.MjData, seconds: float) -> None:
+  for _ in range(round(seconds / model.opt.timestep)):
+    mujoco.mj_step(model, data)
+
+
+def _push_forward(model: mujoco.MjModel, data: mujoco.MjData, speed: float) -> None:
+  data.qvel[0] = speed
+  for name in WHEEL_SPIN_JOINTS:
+    data.qvel[model.joint(name).dofadr[0]] = speed / SkateboardParams().wheel_radius
+
+
+def test_skateboard_entity_compiles() -> None:
+  model = Entity(get_skateboard_cfg()).compile()
+  assert model.nq == 7 + 7  # Freejoint, deck roll, two truck yaws, four wheels.
+  assert model.nu == 0
+  assert model.neq == 2
+  assert model.body_subtreemass[1] == pytest.approx(SkateboardParams().mass, rel=0.02)
+
+
+def test_deck_rests_at_listed_height(board) -> None:
+  model, data = board
+  p = SkateboardParams()
+  deck_top = data.site("deck_site").xpos[2]
+  assert deck_top == pytest.approx(p.deck_top_height, abs=0.003)
+  assert np.abs(data.qvel).max() < 1e-2
+
+
+def test_board_rolls_straight_and_coasts_to_a_stop(board) -> None:
+  model, data = board
+  _push_forward(model, data, 1.0)
+  _step(model, data, 10.0)
+  assert 0.5 < data.qpos[0] < 5.0
+  assert abs(data.qpos[1]) < 0.01
+  assert abs(data.qvel[0]) < 0.05
+
+
+def test_board_resists_a_sideways_shove(board) -> None:
+  model, data = board
+  data.qvel[1] = 1.0
+  _step(model, data, 1.0)
+  assert abs(data.qpos[1]) < 0.05
+  deck_up = data.body("deck").xmat.reshape(3, 3)[2, 2]
+  assert deck_up > 0.99
+
+
+def test_leaning_right_steers_right(board) -> None:
+  model, data = board
+  _push_forward(model, data, 1.0)
+  roll_dof = model.joint(DECK_ROLL_JOINT_NAME).dofadr[0]
+  for _ in range(500):
+    data.qfrc_applied[roll_dof] = 3.0  # +x torque pushes the right edge down.
+    mujoco.mj_step(model, data)
+  roll = data.joint(DECK_ROLL_JOINT_NAME).qpos[0]
+  gain = SkateboardParams().steer_gain
+  assert roll > 0.01
+  assert data.joint("truck_f_yaw").qpos[0] == pytest.approx(-gain * roll, abs=0.01)
+  assert data.joint("truck_r_yaw").qpos[0] == pytest.approx(gain * roll, abs=0.01)
+  assert data.qpos[1] < -0.02
