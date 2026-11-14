@@ -1,0 +1,340 @@
+"""The Pupper skateboard tasks: stance keyframe, MDP terms, envs, export."""
+
+from __future__ import annotations
+
+import math
+from types import SimpleNamespace
+from typing import Any
+
+import mujoco
+import numpy as np
+import pytest
+import torch
+from conftest import get_test_device
+from rsl_rl.modules import MLP, EmpiricalNormalization
+
+from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
+  JOINT_NAMES,
+  SKATE_BOARD_OFFSET,
+  SKATE_HEIGHT,
+  SKATE_KEYFRAME,
+  SKATE_POSE,
+  SKATE_ROLL,
+  get_spec,
+)
+from mjlab.envs import ManagerBasedRlEnv
+from mjlab.tasks.pupper_gait.export import (
+  export_pupper_gait_policy_from_env,
+  gait_frame_kind,
+)
+from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
+from mjlab.tasks.pupper_skate import mdp
+from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
+  RIDE_SPEED_RANGE,
+  pupper_skate_balance_env_cfg,
+  pupper_skate_ride_env_cfg,
+)
+from mjlab.tasks.registry import list_tasks
+from mjlab.utils.lab_api.math import euler_xyz_from_quat
+
+NUM_ENVS = 4
+
+##
+# Keyframe.
+##
+
+
+def _foot_in_base(model: mujoco.MjModel, data: mujoco.MjData, leg: str) -> np.ndarray:
+  site = data.site(f"leg_{leg}_3_foot_site").xpos
+  return site - data.body("base_link").xpos
+
+
+@pytest.fixture(scope="module")
+def stance() -> tuple[mujoco.MjModel, mujoco.MjData]:
+  """The robot alone, base at the origin and level, joints at SKATE_POSE."""
+  model = get_spec().compile()
+  data = mujoco.MjData(model)
+  data.qpos[3] = 1.0
+  for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True):
+    data.qpos[model.joint(name).qposadr[0]] = angle
+  mujoco.mj_kinematics(model, data)
+  return model, data
+
+
+def test_skate_pose_is_inside_joint_limits(stance):
+  model, _ = stance
+  for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True):
+    low, high = model.joint(name).range
+    assert low + 0.2 < angle < high - 0.2, name
+
+
+def test_skate_pose_lifts_the_left_feet_over_the_deck(stance):
+  model, data = stance
+  left = [_foot_in_base(model, data, leg) for leg in ("front_l", "back_l")]
+  right = [_foot_in_base(model, data, leg) for leg in ("front_r", "back_r")]
+  for foot in left:
+    assert foot[1] == pytest.approx(SKATE_BOARD_OFFSET[1], abs=0.005)
+    assert foot[2] == pytest.approx(-0.070, abs=0.005)
+  for foot in right:
+    assert foot[1] < -0.08
+    assert foot[2] == pytest.approx(-0.145, abs=0.005)
+  # The deck sits midway between the left feet, fore and aft.
+  assert (left[0][0] + left[1][0]) / 2 == pytest.approx(
+    SKATE_BOARD_OFFSET[0], abs=0.005
+  )
+
+
+def test_skate_keyframe_spawns_the_pose_already_tilted():
+  assert SKATE_KEYFRAME.joint_pos is not None
+  assert list(SKATE_KEYFRAME.joint_pos.values()) == list(SKATE_POSE)
+  w, x, y, z = SKATE_KEYFRAME.rot
+  assert 2 * math.atan2(x, w) == pytest.approx(SKATE_ROLL)
+  assert (y, z) == (0.0, 0.0)
+  assert SKATE_KEYFRAME.pos[2] == pytest.approx(SKATE_HEIGHT + 0.01)
+
+
+##
+# MDP terms on hand-built states. A fake env is enough: each term only reads
+# ``env.scene[name].data``, ``env.device`` and the command.
+##
+
+
+def _fake_env(**entities) -> Any:
+  scene = {
+    name: SimpleNamespace(data=SimpleNamespace(**data))
+    for name, data in entities.items()
+  }
+  return SimpleNamespace(scene=scene, device="cpu")
+
+
+def _sensor_env(**fields) -> Any:
+  return _fake_env(feet=fields)
+
+
+def test_contact_count_counts_touching_geoms():
+  env = _sensor_env(found=torch.tensor([[1.0, 1.0], [0.0, 2.0], [0.0, 0.0]]))
+  assert mdp.contact_count(env, "feet").tolist() == [2.0, 1.0, 0.0]
+  assert mdp.contact_flags(env, "feet").tolist() == [[1.0, 1.0], [0.0, 1.0], [0.0, 0.0]]
+
+
+def test_contact_lost_waits_for_the_grace_period():
+  env = _sensor_env(current_air_time=torch.tensor([[0.0, 0.0], [0.4, 0.0], [0.0, 0.6]]))
+  assert mdp.contact_lost(env, "feet", grace_s=0.5).tolist() == [False, False, True]
+
+
+def test_gravity_tracking_peaks_at_the_stance_tilt():
+  target = (0.0, -math.sin(SKATE_ROLL))
+  gravity = torch.tensor([[0.0, target[1], -1.0], [0.0, 0.0, -1.0], [0.0, 0.5, -0.87]])
+  env = _fake_env(robot={"projected_gravity_b": gravity})
+  reward = mdp.gravity_tracking(env, target_xy=target, std=0.2)
+  assert reward[0] == pytest.approx(1.0)
+  assert reward[0] > reward[1] > reward[2]
+
+
+def test_stance_pose_peaks_at_the_keyframe():
+  default = torch.tensor([SKATE_POSE, SKATE_POSE])
+  joint_pos = default.clone()
+  joint_pos[1] += 0.3
+  env = _fake_env(robot={"joint_pos": joint_pos, "default_joint_pos": default})
+  reward = mdp.stance_pose(env, std=0.3)
+  assert reward[0] == pytest.approx(1.0)
+  assert reward[1] == pytest.approx(math.exp(-1.0))
+
+
+def _yaw_quat(yaw: float) -> list[float]:
+  return [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)]
+
+
+def test_board_alignment_follows_the_robot_heading():
+  # Env 0: board at the target offset. Env 1: robot turned 90 degrees left, so
+  # "0.14 m to my left" is now world -x. Env 2: board 10 cm out of place.
+  # Env 3: right place, board turned 0.3 rad.
+  robot_pos = torch.zeros(4, 3)
+  robot_quat = torch.tensor(
+    [_yaw_quat(0.0), _yaw_quat(math.pi / 2), _yaw_quat(0.0), _yaw_quat(0.0)]
+  )
+  board_pos = torch.tensor(
+    [
+      [-0.01, 0.14, 0.03],
+      [-0.14, -0.01, 0.03],
+      [-0.01, 0.24, 0.03],
+      [-0.01, 0.14, 0.03],
+    ]
+  )
+  board_quat = torch.tensor(
+    [_yaw_quat(0.0), _yaw_quat(math.pi / 2), _yaw_quat(0.0), _yaw_quat(0.3)]
+  )
+  env = _fake_env(
+    robot={"root_link_pos_w": robot_pos, "root_link_quat_w": robot_quat},
+    board={"root_link_pos_w": board_pos, "root_link_quat_w": board_quat},
+  )
+  reward = mdp.board_alignment(
+    env, target_offset=SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3
+  )
+  assert reward[0] == pytest.approx(1.0, abs=1e-5)
+  assert reward[1] == pytest.approx(1.0, abs=1e-5)
+  assert reward[2] == pytest.approx(math.exp(-4.0), abs=1e-5)
+  assert reward[3] == pytest.approx(math.exp(-1.0), abs=1e-5)
+
+
+def test_board_penalties_measure_board_motion():
+  env = _fake_env(
+    board={
+      "root_link_lin_vel_w": torch.tensor([[0.3, 0.4, 9.0]]),
+      "root_link_ang_vel_w": torch.tensor([[9.0, 9.0, 0.5]]),
+      "joint_pos": torch.tensor([[0.1]]),
+    }
+  )
+  assert mdp.board_speed_l2(env).item() == pytest.approx(0.25)
+  assert mdp.board_yaw_rate_l2(env).item() == pytest.approx(0.25)
+  assert mdp.deck_roll_l2(env).item() == pytest.approx(0.01)
+
+
+def test_track_board_velocity_peaks_at_the_commanded_speed():
+  env = _fake_env(
+    board={
+      "root_link_lin_vel_b": torch.tensor(
+        [[0.3, 0.0, 0.0], [0.0, 0.3, 0.0], [-0.3, 0.0, 0.0]]
+      )
+    }
+  )
+  command = torch.tensor([[0.3, 0.0, 0.0]] * 3)
+  env.command_manager = SimpleNamespace(get_command=lambda name: command)
+  reward = mdp.track_board_velocity(env, command_name="twist", std=0.15)
+  assert reward[0] == pytest.approx(1.0)
+  assert reward[1] == pytest.approx(math.exp(-4.0))  # Sideways is not forward.
+  assert reward[2] < reward[1]  # Backwards is worse than still.
+
+
+##
+# The balance env, stepped on the real simulator.
+##
+
+
+@pytest.fixture(scope="module")
+def balance_env():
+  cfg = pupper_skate_balance_env_cfg()
+  cfg.scene.num_envs = NUM_ENVS
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  yield env
+  env.close()
+
+
+def test_skate_tasks_are_registered():
+  tasks = list_tasks()
+  assert "Mjlab-Skate-Balance-Pupper-v3" in tasks
+  assert "Mjlab-Skate-Ride-Pupper-v3" in tasks
+
+
+def test_balance_env_keeps_the_deployable_actor_frame(balance_env):
+  obs, _ = balance_env.reset()
+  assert obs["actor"].shape == (NUM_ENVS, 48 * 20)
+  assert gait_frame_kind(balance_env) == "zeroref"
+  # 7 board pose + 3 + 3 board velocity + 2 deck roll + 2 + 2 foot contacts.
+  stock = pupper_velocity_fs_env_cfg().observations["critic"].terms
+  assert len(balance_env.cfg.observations["critic"].terms) == len(stock) + 6
+
+
+@pytest.mark.slow
+def test_stance_holds_with_zero_actions(balance_env):
+  env = balance_env
+  env.reset()
+  robot, board = env.scene["robot"], env.scene["board"]
+  actions = torch.zeros(NUM_ENVS, 12, device=env.device)
+  for _ in range(150):  # 3 s.
+    _, reward, terminated, _, _ = env.step(actions)
+    assert torch.isfinite(reward).all()
+    assert not terminated.any()
+  assert (mdp.contact_count(env, "deck_feet_contact") == 2).all()
+  assert (mdp.contact_count(env, "ground_feet_contact") == 2).all()
+  for wrong in ("deck_feet_on_ground", "ground_feet_on_deck", "knees_on_deck"):
+    assert (mdp.contact_count(env, wrong) == 0).all()
+  roll, pitch, _ = euler_xyz_from_quat(robot.data.root_link_quat_w)
+  assert torch.allclose(roll, torch.full_like(roll, SKATE_ROLL), atol=0.05)
+  assert pitch.abs().max() < 0.08
+  height = robot.data.root_link_pos_w[:, 2]
+  assert torch.allclose(height, torch.full_like(height, SKATE_HEIGHT), atol=0.015)
+  assert board.data.root_link_lin_vel_w[:, :2].norm(dim=1).max() < 0.02
+  assert (
+    mdp.board_alignment(env, SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3).min() > 0.3
+  )
+
+
+@pytest.mark.slow
+def test_leaving_the_deck_ends_the_episode(balance_env):
+  env = balance_env
+  env.reset()
+  robot = env.scene["robot"]
+  lifted = robot.data.default_root_state.clone()
+  lifted[:, :3] += env.scene.env_origins
+  lifted[:, 2] += 0.3
+  actions = torch.zeros(NUM_ENVS, 12, device=env.device)
+  fired = torch.zeros(NUM_ENVS, dtype=torch.bool, device=env.device)
+  for _ in range(40):  # 0.8 s held in the air; the grace period is 0.5 s.
+    robot.write_root_state_to_sim(lifted)
+    env.step(actions)
+    fired |= env.termination_manager.get_term("feet_off_deck")
+  assert fired.all()
+
+
+##
+# Export: the stance ships as the policy's default pose, with no new C++.
+##
+
+
+class _Actor(torch.nn.Module):
+  """Minimal MLPModel-like holder: has ``.mlp`` and ``.obs_normalizer``."""
+
+  def __init__(self, in_dim: int):
+    super().__init__()
+    self.mlp = MLP(in_dim, 12, (64, 64), activation="elu")
+    self.obs_normalizer = EmpiricalNormalization(in_dim)
+
+
+def test_balance_policy_exports_with_the_stance_as_default_pose(balance_env):
+  policy = export_pupper_gait_policy_from_env(_Actor(48 * 20).eval(), balance_env)
+  assert policy["default_joint_pos"] == pytest.approx(list(SKATE_POSE))
+  assert policy["command_clip"] == {
+    "vx": [0.0, 0.0],
+    "vy": [0.0, 0.0],
+    "wz": [0.0, 0.0],
+  }
+  assert "heading_hold" not in policy
+  assert "gait_reference" in policy
+
+
+##
+# The ride task (config only; training is what tests the behavior).
+##
+
+
+def test_ride_task_commands_forward_speed_only():
+  cfg = pupper_skate_ride_env_cfg()
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
+  assert twist.ranges.lin_vel_y == (0.0, 0.0) and twist.ranges.ang_vel_z == (0.0, 0.0)
+  assert "board_still" not in cfg.rewards
+  for name in ("track_board_velocity", "board_yaw_rate", "push_air_time"):
+    assert cfg.rewards[name].weight != 0.0
+  # The balance task is untouched by building the ride task.
+  assert "board_still" in pupper_skate_balance_env_cfg().rewards
+
+
+@pytest.mark.slow
+def test_ride_env_steps_with_random_actions():
+  cfg = pupper_skate_ride_env_cfg()
+  cfg.scene.num_envs = NUM_ENVS
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  obs, _ = env.reset()
+  torch.manual_seed(0)
+  for _ in range(100):
+    actions = 0.3 * torch.randn(NUM_ENVS, 12, device=env.device)
+    obs, reward, _, _, _ = env.step(actions)
+    assert torch.isfinite(reward).all()
+    for group in ("actor", "critic"):
+      values = obs[group]
+      assert isinstance(values, torch.Tensor) and torch.isfinite(values).all()
+  command = env.command_manager.get_command("twist")
+  assert command is not None and command[:, 0].min() >= 0.0
+  env.close()

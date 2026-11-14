@@ -6,6 +6,7 @@ model that the original Colab notebook trained against, so a policy trained here
 targets the same dynamics the on-robot ``neural_controller`` deploys against.
 """
 
+import math
 from pathlib import Path
 
 import mujoco
@@ -64,6 +65,21 @@ SPIDER_POSE: tuple[float, ...] = (
   0.414, -1.14, 0.337,
 )  # fmt: skip
 SPIDER_HEIGHT: float = 0.042  # base_link height in the spider stance, feet down
+
+# The skateboard split stance: left feet on the deck of the mini cruiser (0.10 m
+# above the floor), right feet on the floor. The legs cannot make up the whole
+# deck height, so the stance is rolled toward the floor side. Left feet sit
+# 0.14 m out and 0.070 m below the base; right feet 0.145 m below it.
+SKATE_POSE: tuple[float, ...] = (
+  0.3, 0.0, -0.594,
+  0.282, -0.479, -0.33,
+  0.3, 0.0, -0.594,
+  0.22, -0.579, -0.229,
+)  # fmt: skip
+SKATE_HEIGHT: float = 0.156  # base_link height once settled in the split stance
+SKATE_ROLL: float = 0.09  # settled roll [rad], floor (right) side lower
+# Board centre in the robot's heading frame (x forward, y left).
+SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.14)
 
 FOOT_SITE_NAMES: tuple[str, ...] = (
   "leg_front_r_3_foot_site",
@@ -145,6 +161,14 @@ HOME_KEYFRAME = EntityCfg.InitialStateCfg(
 SPIDER_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, SPIDER_HEIGHT + 0.02),
   joint_pos={name: angle for name, angle in zip(JOINT_NAMES, SPIDER_POSE, strict=True)},
+  joint_vel={".*": 0.0},
+)
+
+# Spawns already rolled, so the robot settles into the stance instead of tipping.
+SKATE_KEYFRAME = EntityCfg.InitialStateCfg(
+  pos=(0.0, 0.0, SKATE_HEIGHT + 0.01),
+  rot=(math.cos(SKATE_ROLL / 2), math.sin(SKATE_ROLL / 2), 0.0, 0.0),
+  joint_pos={name: angle for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True)},
   joint_vel={".*": 0.0},
 )
 
