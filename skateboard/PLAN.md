@@ -33,7 +33,7 @@ b# Pupper Skateboard RL Training Implementation Plan (v3)
 - The stance changed. A level stance is impossible: the deck top is 0.10 m but the legs can only make up about 0.075 m. The stance is now rolled 0.09 rad toward the floor side and spawns already rolled.
 - Left feet moved out to y = 0.14 m (v1 guessed 0.12). Board centre sits 0.14 m left of the base (v1: 0.17).
 - Riding is now in scope as its own task (`Mjlab-Skate-Ride-Pupper-v3`), not "after the checkpoint".
-- Board randomization (mass, friction, bushing stiffness) is in. Deck-height randomization (±1.5 cm) is in too (Task 14).
+- Board randomization (mass, friction, bushing stiffness) is in. Deck-height randomization is in too (Task 14); widened from ±1.5 cm to ±3 cm on 2026-11-16 after the stance audit (`SIM2REAL.md`).
 - Added: Colab notebook, tuning playbook, real-board refit procedure, deploy steps.
 
 ## Design
@@ -282,13 +282,13 @@ The board is not measured yet, so the policy must tolerate a deck that is not ex
 
 **Interfaces:**
 - Consumes: `DECK_GEOM_NAME` from `mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants`; `dr.geom_pos` (`src/mjlab/envs/mdp/dr/geom.py`); `mdp.push_by_setting_velocity` (`src/mjlab/envs/mdp/events.py`). Read both functions' signatures before use.
-- Produces: event term names `deck_height`, `push_robot`, `nudge_board`, and module constants `DECK_HEIGHT_RANGE = (-0.015, 0.015)`, `PUSH_INTERVAL_S = (2.0, 4.0)`.
+- Produces: event term names `deck_height`, `push_robot`, `nudge_board`, and module constants `DECK_HEIGHT_RANGE = (-0.03, 0.03)` (was ±0.015 until 2026-11-16), `PUSH_INTERVAL_S = (2.0, 4.0)`.
 
 Exact values:
 
 | Event name | Mode | Function | Target | Values |
 | --- | --- | --- | --- | --- |
-| `deck_height` | `startup` | `dr.geom_pos` | board geom `DECK_GEOM_NAME`, z axis only, operation `add` | `DECK_HEIGHT_RANGE = (-0.015, 0.015)` m |
+| `deck_height` | `startup` | `dr.geom_pos` | board geom `DECK_GEOM_NAME`, z axis only, operation `add` | `DECK_HEIGHT_RANGE = (-0.03, 0.03)` m |
 | `push_robot` | `interval`, `interval_range_s=PUSH_INTERVAL_S` | `mdp.push_by_setting_velocity` | robot root | `velocity_range = {"x": (-0.2, 0.2), "y": (-0.2, 0.2)}` (linear only) |
 | `nudge_board` | `interval`, `interval_range_s=PUSH_INTERVAL_S` | `mdp.push_by_setting_velocity` | board root (`SceneEntityCfg("board")`) | `velocity_range = {"x": (-0.15, 0.15)}` ; **balance task only** |
 
@@ -556,7 +556,7 @@ JOINT_SPEED_LIMIT: float = 8.0
 - [ ] **Step 4: run it on the two saved policies** and paste the output into your report:
   - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4` — expected `GAIT: FAIL` (this is the windmill policy; peak joint speed far above 8 rad/s).
   - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json` — expected `GAIT: PASS`.
-  - Added after the final review: a fifth row, `board_speed_ratio` (mean forward board speed divided by `--speed`, `("min", 0.5)`), and `--speed` turns off standing commands. Deck-height randomization is still plus or minus 1.5 cm; `SIM2REAL.md` says to widen it.
+  - Added after the final review: a fifth row, `board_speed_ratio` (mean forward board speed divided by `--speed`, `("min", 0.5)`), and `--speed` turns off standing commands. Deck-height randomization was widened to plus or minus 3 cm afterwards.
   - If either verdict is not the expected one, report DONE_WITH_CONCERNS with the numbers; do not change `GAIT_LIMITS` to force it.
   - Also confirm the refactored renderer still works: `FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json /tmp/sdd_render_check/balance.mp4 --steps 50` writes the mp4 (delete that folder afterwards).
 - [ ] **Step 5: training-curve check.** In `run_summary.py`, add to the ride entry of `PASS_CRITERIA`: `"Episode_Reward/joint_speed_limit": -0.1` and `"Episode_Reward/torque_saturation": -0.2` (both are penalties logged as weight × mean cost, so "at least" a small negative number means the penalty is rarely paid). Add a test in `tests/test_skate_run_summary.py` that a ride run with good length and tracking but `Episode_Reward/joint_speed_limit` of -0.5 gets `RESULT: FAIL`, and passes at -0.01 with `torque_saturation` -0.05. Update any existing ride test there that now lacks the two tags.
@@ -687,5 +687,5 @@ and not a guess. It does not train anything and changes no task.
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** left side on the deck; board is 0.10 m tall and 1.8 kg until measured (deck height is randomized ±1.5 cm to cover it); W&B project name `mjlab` as in the course notebook.
+- **Assumed:** left side on the deck; board is 0.10 m tall and 1.8 kg until measured (deck height is randomized ±3 cm to cover it); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.

@@ -96,8 +96,9 @@ signs off before the first powered run (PLAN Task 12).
 1. **Measure the board** with a ruler and a scale, update
    `skateboard_constants.py`, and rerun the audit. If the deck is more than 2 cm
    off, retrain balance.
-2. **Widen deck-height randomization** on the next balance training run, from
-   plus or minus 1.5 cm to plus or minus 3 cm, and rerun the audit on the result.
+2. **Retrain balance with the wider deck-height randomization.** The range in
+   the code is now plus or minus 3 cm (7 to 13 cm), up from 1.5 cm. Rerun the
+   audit on the new policy; the deck +2.5 and +3 cm rows should pass.
 3. **Fit test, robot powered off.** Place the robot on the board by hand in the
    stance. Check that the feet reach, the left feet sit on the deck and not the
    edge, and nothing collides.
@@ -125,7 +126,8 @@ right foot is in the air.
 
 ## Accounting
 
-- **Skipped:** any hardware test; retraining; a three-foot reward term.
+- **Skipped:** any hardware test; retraining (the saved policies still come from
+  the plus or minus 1.5 cm range); a three-foot reward term.
 - **Assumed:** the board dimensions marked "guess" in `README.md`; the 3 N·m torque
   limit; the pass limits of the audit (60% torque, 3 cm margin).
 - **Issues:** deck height must be measured before the first run; pushing needs a

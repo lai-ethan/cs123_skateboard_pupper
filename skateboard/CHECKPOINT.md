@@ -22,7 +22,7 @@ Balance is the only robot candidate. The ride policy passes the curve check but 
 
 ## What to do Monday
 
-0. **Measure the deck height before powering on.** The policy was trained for 8.5 to 11.5 cm (floor to top of deck). Outside that, do not run it; retrain with the real number first.
+0. **Measure the deck height before powering on.** The saved balance policy was trained for 8.5 to 11.5 cm (floor to top of deck). Outside that, do not run it; retrain first. Training now covers 7 to 13 cm, so the next balance run will handle a wider range.
 1. **Show a TA the sim result and get a sign-off.** Balance first. No skate policy runs on the robot without it.
 2. **Wedge or tape the wheels** so the board cannot roll on the first try.
 3. **Deploy balance** on the robot over SSH:
@@ -40,7 +40,7 @@ Balance is the only robot candidate. The ride policy passes the curve check but 
 - The robot-side deploy (`pupper_gait_deploy`) has never been run with a skate policy. Not checked in sim: torso touching the deck, and truck steering direction against the real board.
 
 - The joint speed limit the gait check enforces (8 rad/s) is a first guess, not a measured motor limit. The ride reward's speed penalty starts at 75% of it (6 rad/s), so the best-paid gait stays inside the check.
-- Board dimensions in sim are estimates. Deck height is randomized ±1.5 cm to cover the error.
+- Board dimensions in sim are estimates. Deck height is randomized ±3 cm to cover the error (the saved policies were trained with ±1.5 cm).
 - To retrain: open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, paste your own W&B key, Run all. About 55 min for 1500 iterations on a T4, about 9 min on a G4. Never commit a key.
 - `Metrics/twist/error_vel_xy` in W&B is not a tracking error; it grows with episode length. Read `Episode_Reward/track_board_velocity` instead.
 

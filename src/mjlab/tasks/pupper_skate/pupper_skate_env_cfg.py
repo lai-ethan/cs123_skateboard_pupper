@@ -63,8 +63,10 @@ RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 JOINT_SPEED_LIMIT: float = 8.0
 
 # The real board is not measured yet: deck height offset from the nominal
-# 0.10 m [m], and the seconds between shoves to the robot and the board.
-DECK_HEIGHT_RANGE: tuple[float, float] = (-0.015, 0.015)
+# 0.10 m [m], and the seconds between shoves to the robot and the board. The
+# range (7 to 13 cm) is wide enough for a 23 inch mini cruiser on 60 mm wheels;
+# a policy trained on +-1.5 cm saturated its motors on a deck 2.5 cm too high.
+DECK_HEIGHT_RANGE: tuple[float, float] = (-0.03, 0.03)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 
 
