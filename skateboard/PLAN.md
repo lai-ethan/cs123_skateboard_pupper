@@ -201,6 +201,7 @@ FORCE_CPU=1 uv run python skateboard/tools/check_stance.py 0.14 0.17 <the 12 ang
 - At iteration ~1120: `track_board_velocity` about 2.4 (need 2.0), `feet_on_deck` about 1.9, episode length about 485 (need 450). `board_tipped` and `base_too_low` near zero.
 - No reward hacking seen: tracking, feet on deck and episode length rose together.
 - No `RESULT:` line, because the VM died before `run_summary.py` could run.
+- `policy.json` on that run was re-exported from `model_1100.pt` and uploaded (parity error 1.4e-6), so the run's file is the trained policy.
 - Do not read `Metrics/twist/error_vel_xy` as tracking error. It sums the robot body's (not the board's) error over the episode, so it grows as episodes get longer.
 
 - [ ] **Step 1:** notebook with `TASK = "Mjlab-Skate-Ride-Pupper-v3"`, 4096 envs, 1500 iterations.
