@@ -153,8 +153,9 @@ out = [
   ),
   md(
     "## 4. Reward weights ✏️\n\n"
-    "Unlike the course tasks, the skate tasks ship with working weights. Leave\n"
-    "the dict empty to use them; add an entry to override one. Defaults:\n\n"
+    "Unlike the course tasks, the skate tasks ship with working weights. The\n"
+    "cell below lists every one; change a number to tune it. A term the chosen\n"
+    "task does not have is ignored. Shipped defaults, for reference:\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
     "| `feet_on_deck` | 1.0 | 1.0 | +1 per left foot touching the deck |\n"
     "| `feet_on_ground` | 0.5 | 0.1 | +1 per right foot touching the floor |\n"
@@ -174,7 +175,31 @@ out = [
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
   ),
-  code('REWARD_WEIGHTS = {\n  # "board_still": -2.0,\n}\n'),
+  code(
+    'RIDE = TASK == "Mjlab-Skate-Ride-Pupper-v3"\n\n'
+    "# These are the shipped defaults. Change a number, then rerun from here.\n"
+    "REWARD_WEIGHTS = {\n"
+    '  "feet_on_deck": 1.0,\n'
+    '  "feet_on_ground": 0.1 if RIDE else 0.5,\n'
+    '  "deck_feet_on_ground": -2.0,\n'
+    '  "ground_feet_on_deck": -2.0,\n'
+    '  "knees_on_deck": -1.0,\n'
+    '  "tilt": 1.0,\n'
+    '  "base_height": 1.0,\n'
+    '  "stance_pose": 1.0,\n'
+    '  "board_alignment": 1.0,\n'
+    '  "deck_flat": -5.0,\n'
+    '  "action_rate_l2": -0.01,\n'
+    '  "joint_torques_l2": -0.0002,\n'
+    '  "termination": -100.0,\n'
+    "  # Balance only (ignored by Ride)\n"
+    '  "board_still": -2.0,\n'
+    "  # Ride only (ignored by Balance)\n"
+    '  "track_board_velocity": 3.0,\n'
+    '  "board_yaw_rate": -0.5,\n'
+    '  "push_air_time": 0.5,\n'
+    "}\n"
+  ),
   md(dr_md),
   cells[12],
   md(
