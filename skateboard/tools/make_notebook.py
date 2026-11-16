@@ -113,6 +113,22 @@ else:
 print("logger:", LOGGER)
 """
 
+GAIT_CELL = """\
+from pathlib import Path
+
+if RIDE:
+  runs = sorted(Path("logs/rsl_rl").glob("*/*"), key=lambda p: p.stat().st_mtime)
+  assert runs, "No runs yet -- train first."
+  ckpts = sorted(
+    runs[-1].glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1])
+  )
+  ckpt = ckpts[-1]
+  print("Gait check on:", ckpt)
+  !python skateboard/tools/gait_report.py {TASK} {ckpt} --speed 0.4
+else:
+  print("Gait check is for the ride task only.")
+"""
+
 out = [
   md(
     "# Pupper on a skateboard 🛹\n\n"
@@ -170,7 +186,12 @@ out = [
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `push_air_time` | n/a | 0.5 | right feet take 0.05 to 0.4 s strides |\n"
+    "| `push_stride` | n/a | 0.3 | right feet take planted strides: 0.4 s on the"
+    " floor, then a 0.1 to 0.5 s swing |\n"
+    "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
+    "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
+    "| `joint_speed_limit` | n/a | -0.02 | joint speed above 8 rad/s |\n"
+    "| `torque_saturation` | n/a | -0.5 | motors above 80% of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
@@ -197,7 +218,11 @@ out = [
     "  # Ride only (ignored by Balance)\n"
     '  "track_board_velocity": 3.0,\n'
     '  "board_yaw_rate": -0.5,\n'
-    '  "push_air_time": 0.5,\n'
+    '  "push_stride": 0.3,\n'
+    '  "push_leg_pose": 0.3,\n'
+    '  "joint_vel_l2": -0.001,\n'
+    '  "joint_speed_limit": -0.02,\n'
+    '  "torque_saturation": -0.5,\n'
     "}\n"
   ),
   md(dr_md),
@@ -225,6 +250,14 @@ out = [
     "`RESULT: PASS` or `RESULT: FAIL`.\n"
   ),
   code("!python skateboard/tools/run_summary.py {TASK}\n"),
+  md(
+    "### Gait check (ride)\n\n"
+    "Curves can pass while the gait is one the robot cannot do. This rolls out the\n"
+    "newest checkpoint at 0.4 m/s and checks joint speed, torque and how the right\n"
+    "feet step. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too\n"
+    "before trusting a pass.\n"
+  ),
+  code(GAIT_CELL),
   md(viewer_md),
   code(only_if("OPEN_VIEWER", viewer)),
   md(

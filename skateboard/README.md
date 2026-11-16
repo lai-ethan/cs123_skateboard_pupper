@@ -18,13 +18,15 @@ has all four feet on the board. The right legs balance, and later push.
 | Stance (joint angles, height, roll) | `SKATE_*` in [`pupper_constants.py`](../src/mjlab/asset_zoo/robots/pupper_v3/pupper_constants.py) |
 | Tasks: scene, rewards, terminations | [`src/mjlab/tasks/pupper_skate/`](../src/mjlab/tasks/pupper_skate/) |
 | Tests | `tests/test_pupper_skate.py`, `tests/test_pupper_skateboard.py` |
-| Stance helper scripts, video renderer | [`tools/`](tools/) |
+| Stance helper scripts, video renderer, pass check, gait report | [`tools/`](tools/) |
 | Trained policies, sim videos | [`policies/`](policies/), [`media/`](media/) |
 
 ## Status
 
-- Done: board model, stance, both training tasks, tests, notebook. Balance and ride policies are trained in sim (see [`CHECKPOINT.md`](CHECKPOINT.md)).
-- Not done: measuring the real board, anything on the robot.
+- Done: board model, stance, both training tasks, tests, notebook.
+- Balance is trained in sim and passes the gait check. It is the candidate for the robot (see [`CHECKPOINT.md`](CHECKPOINT.md)).
+- Ride must be retrained. Its rewards were reshaped so the gait fits the motors (PLAN Task 16). The saved ride policy passes the curve check but fails the gait check, so it is for reference only. The retrain has not run yet.
+- Not done: the ride retrain, measuring the real board, anything on the robot.
 
 Two tasks are registered:
 
@@ -86,14 +88,18 @@ FORCE_CPU=1 uv run play Mjlab-Skate-Balance-Pupper-v3 --agent zero
 5. Read the last line of section 7, *Did it pass?*: `RESULT: PASS` or
    `RESULT: FAIL`, with the numbers above it. The same check works on any run
    from the repo root: `python skateboard/tools/run_summary.py <task-id>` (on a laptop: `uv run python ...`).
+   For ride, section 7 also runs the gait check on the newest checkpoint. Its
+   last line is `GAIT: PASS` or `GAIT: FAIL`. Curves can pass while the gait is
+   one the robot cannot do, so a ride run needs both passes. Watch the video too.
 
 The thresholds live in `PASS_CRITERIA` in `tools/run_summary.py`. What to change
 when a run fails is in Tasks 9 and 11 of the plan.
 
 ### 4. Replay the trained policies (laptop)
 
-The two passing policies are in [`policies/`](policies/), so no W&B login is
-needed. From the repo root:
+The two saved policies are in [`policies/`](policies/), so no W&B login is
+needed. Balance is the robot candidate. The ride policy is for reference only
+(see Status). From the repo root:
 
 ```bash
 # Ride, in the interactive viewer
@@ -106,6 +112,20 @@ FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Ride-Pup
 FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 \
   skateboard/policies/balance_2ace1uqa_policy.json out/balance.mp4
 ```
+
+To run the gait check on both saved policies:
+
+```bash
+FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 \
+  skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4
+FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 \
+  skateboard/policies/balance_2ace1uqa_policy.json
+```
+
+The last line is `GAIT: PASS` or `GAIT: FAIL`. Expect `GAIT: PASS` for balance
+and `GAIT: FAIL` for the saved ride policy: its legs move too fast and its
+motors sit at the torque limit. The numbers change a little between runs; the
+verdict does not.
 
 Each video takes about a minute on a Mac. The balance run kept only its
 exported `policy.json`, so it replays through `render_policy.py`, not `play`.

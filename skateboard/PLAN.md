@@ -204,17 +204,30 @@ FORCE_CPU=1 uv run python skateboard/tools/check_stance.py 0.14 0.17 <the 12 ang
 - Earlier run `me6p0pdw` (free T4) was cut off near iteration 1120 by Colab's GPU limit; superseded.
 - Do not read `Metrics/twist/error_vel_xy` as tracking error. It sums the robot body's (not the board's) error over the episode, so it grows as episodes get longer.
 
+**Note (Mon Nov 16): the `29p4j81t` gait cannot run on the robot.**
+- At 0.4 m/s the front-right hip swings 2.3 rad at 3 Hz and peaks near 39 rad/s.
+- Five joints sit at the 3 Nm torque limit.
+- "No reward hacking seen" above was wrong. The check looked at the curves, never at the gait.
+- `gait_report.py` prints `GAIT: FAIL` for this policy.
+- The ride rewards were reshaped in Task 16. Ride needs a fresh 1500-iteration run with them. That run has not happened yet.
+
 - [ ] **Step 1:** notebook with `TASK = "Mjlab-Skate-Ride-Pupper-v3"`, 4096 envs, 1500 iterations.
 - [ ] **Step 2: Pass criteria:**
   - `Episode_Reward/track_board_velocity` ≥ 2.0 (of 3.0; about 0.1 m/s speed error).
   - `Train/mean_episode_length` ≥ 450.
+  - `Episode_Reward/joint_speed_limit` ≥ -0.1.
+  - `Episode_Reward/torque_saturation` ≥ -0.2.
+  - `GAIT: PASS` from `skateboard/tools/gait_report.py` at `--speed 0.4` (notebook section 7).
   - In the viewer the right legs take visible strides and the board rolls straight.
 - [ ] **Step 3: Tuning playbook.** Change one thing per run, stop a bad run by iteration 1000.
 
 | Symptom | Change |
 | --- | --- |
 | Stands still, board does not move | `track_board_velocity` 3.0 → 6.0; `feet_on_ground` → 0.0 |
-| Shuffles or drags the right feet | `push_air_time` 0.5 → 1.5 |
+| Shuffles or drags the right feet | `push_stride` 0.3 → 0.6; `push_leg_pose` 0.3 → 0.1 |
+| Fast leg flailing (`GAIT: FAIL` on joint speed) | `joint_speed_limit` -0.02 → -0.1; `joint_vel_l2` -1e-3 → -5e-3 |
+| Motors pinned at the limit | `torque_saturation` -0.5 → -1.5 |
+| Stands still after the reshaping | `push_leg_pose` → 0.1; `joint_vel_l2` → -2e-4; then `track_board_velocity` → 6.0 |
 | Board moves but left feet slide off | `board_alignment` → 2.0; `feet_on_deck` → 2.0 |
 | Board curves away | `board_yaw_rate` -0.5 → -2.0; `deck_flat` -5 → -10 |
 | Lunges, then falls | `RIDE_SPEED_RANGE` to `(0.0, 0.3)` in `pupper_skate_env_cfg.py`; `action_rate_l2` → -0.05 |
@@ -360,6 +373,200 @@ print("logger:", LOGGER)
 - [ ] **Step 3:** implement, regenerate the notebook.
 - [ ] **Step 4:** `FORCE_CPU=1 uv run pytest tests/test_skate_run_summary.py tests/test_pupper_skate.py -q` passes; `uv run ruff format`, `uv run ruff check`, `uv run ty check` clean for the files you touched (notebook-level ruff errors inherited from the course notebook are known; do not add new ones).
 - [ ] **Step 5:** update `skateboard/README.md` training steps to match (key optional, Run all, read the `RESULT:` line). Commit `feat: make skate notebook run unattended with a pass/fail summary`.
+
+### Task 16: Ride gait shaping rewards (hardware-feasible push)
+
+**Why:** run `29p4j81t` passed on metrics but its gait cannot run on the robot. Measured at 0.4 m/s: the front-right hip swings 2.3 rad at 3 Hz and peaks near 39 rad/s, that foot is on the floor 14% of the time, and five joints sit at the 3 Nm limit. Causes: `push_air_time` pays the right feet for time in the air, `stance_pose` covers only the left legs, and nothing penalizes joint speed. This task changes the **ride** rewards only. The balance task and its trained policy must not change.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`, `src/mjlab/tasks/pupper_skate/mdp/__init__.py`, `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Test: `tests/test_pupper_skate.py`
+
+**Interfaces produced (later tasks use these exact names):**
+- `mdp.joint_speed_over_limit(env, limit: float, asset_cfg=_ROBOT) -> Tensor[B]`
+- `mdp.torque_saturation(env, limit: float, soft_ratio: float = 0.8, asset_cfg=_ROBOT) -> Tensor[B]`
+- `mdp.push_stride(env, sensor_name: str, stance_s: float, air_range: tuple[float, float], command_name: str, command_threshold: float) -> Tensor[B]`
+- `JOINT_SPEED_LIMIT: float = 8.0` in `pupper_skate_env_cfg.py`
+- Ride reward term names: `push_stride`, `push_leg_pose`, `joint_vel_l2`, `joint_speed_limit`, `torque_saturation`. `push_air_time` is removed.
+
+- [ ] **Step 1: failing tests.** In `tests/test_pupper_skate.py`, next to the other fake-env term tests (use the existing `_fake_env` / `_sensor_env` helpers; give the fake env `step_dt` and `command_manager` attributes where needed, as `test_track_board_velocity_peaks_at_the_commanded_speed` does):
+  - `test_joint_speed_over_limit_ignores_speeds_under_the_limit`: `joint_vel = [[7.0, -8.0, 0.0], [10.0, -11.0, 0.0]]`, `limit=8.0` gives `[0.0, 13.0]` (2² + 3²).
+  - `test_torque_saturation_ramps_from_the_soft_limit`: `actuator_force = [[2.4, -1.0], [2.7, -3.0], [3.5, 0.0]]`, `limit=3.0`, `soft_ratio=0.8` gives `[0.0, 1.5, 1.0]` (2.4 Nm is the soft limit; 2.7 is halfway; values past the limit clamp to 1 per joint).
+  - `test_push_stride_pays_a_planted_stride_once_at_touchdown`: `step_dt = 0.02`, command `[[0.4, 0, 0]] * 5`, two feet per env, `stance_s=0.4`, `air_range=(0.1, 0.5)`, `command_threshold=0.1`. Rows, foot 0 varies and foot 1 is standing (`current_contact_time=1.0`, `last_air_time=0.0`, `last_contact_time=0.0`):
+    1. just landed (`current_contact_time=0.02`), `last_air_time=0.2`, `last_contact_time=0.4` → `1 / 0.02 = 50.0`
+    2. just landed, `last_air_time=0.2`, `last_contact_time=0.1` (a tap) → `0.25 / 0.02 = 12.5`
+    3. just landed, `last_air_time=0.04` (too quick) , `last_contact_time=0.4` → `0.0`
+    4. just landed, `last_air_time=0.8` (foot held up), `last_contact_time=0.4` → `0.0`
+    5. landed earlier (`current_contact_time=0.06`), `last_air_time=0.2`, `last_contact_time=0.4` → `0.0`
+    Then the same call with command `[[0.05, 0, 0]] * 5` returns all zeros.
+  - Update `test_ride_task_commands_forward_speed_only`: the nonzero-weight loop covers `track_board_velocity`, `board_yaw_rate`, `push_stride`, `push_leg_pose`, `joint_vel_l2`, `joint_speed_limit`, `torque_saturation`; assert `"push_air_time" not in cfg.rewards`; assert the ride `stance_pose` joint names match only left legs and `push_leg_pose` only right legs; assert none of the five new names is in `pupper_skate_balance_env_cfg().rewards`.
+- [ ] **Step 2:** run `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py -q -k "speed_over_limit or torque_saturation or push_stride or ride_task"`; expect failures (missing attributes).
+- [ ] **Step 3: implement** in `mdp/rewards.py` (export all three from `mdp/__init__.py`):
+
+```python
+def joint_speed_over_limit(
+  env: ManagerBasedRlEnv, limit: float, asset_cfg: SceneEntityCfg = _ROBOT
+) -> torch.Tensor:
+  """Penalize joint speed past what the motors can do: sum((|qd| - limit)+^2)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  speed = torch.abs(asset.data.joint_vel[:, asset_cfg.joint_ids])
+  return torch.sum(torch.square(torch.clamp(speed - limit, min=0.0)), dim=1)
+
+
+def torque_saturation(
+  env: ManagerBasedRlEnv,
+  limit: float,
+  soft_ratio: float = 0.8,
+  asset_cfg: SceneEntityCfg = _ROBOT,
+) -> torch.Tensor:
+  """Penalize motors working near their torque limit.
+
+  Per joint: 0 below ``soft_ratio * limit``, rising linearly to 1 at ``limit``.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  ratio = torch.abs(asset.data.actuator_force[:, asset_cfg.actuator_ids]) / limit
+  over = (ratio - soft_ratio) / (1.0 - soft_ratio)
+  return torch.sum(torch.clamp(over, 0.0, 1.0), dim=1)
+
+
+def push_stride(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  stance_s: float,
+  air_range: tuple[float, float],
+  command_name: str,
+  command_threshold: float,
+) -> torch.Tensor:
+  """Reward slow, planted push strides, paid once per touchdown.
+
+  A stride is the stance that ended at lift-off plus the swing that just
+  landed. It scores min(stance / stance_s, 1) when the swing lasted within
+  ``air_range`` seconds, and 0 otherwise, so quick taps and feet held in the air
+  earn little. The score is divided by the step so the weight is the reward for
+  one full stride. Paid only above ``command_threshold`` m/s of commanded speed.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  data = sensor.data
+  contact_time, air_time = data.current_contact_time, data.last_air_time
+  stance_time = data.last_contact_time
+  assert contact_time is not None and air_time is not None and stance_time is not None
+  landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
+  swing_ok = (air_time >= air_range[0]) & (air_time <= air_range[1])
+  score = torch.clamp(stance_time / stance_s, max=1.0)
+  reward = torch.sum(score * (landed & swing_ok).float(), dim=1) / env.step_dt
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  return reward * (command[:, 0] > command_threshold).float()
+```
+
+  Before relying on it, read `_update_air_time_tracking` in `src/mjlab/sensor/contact_sensor.py` and confirm that on the touchdown step `last_air_time` is the swing that just ended and `last_contact_time` is the stance before it. If that is not what the sensor does, stop and report NEEDS_CONTEXT with what it does instead.
+
+  In `pupper_skate_env_cfg.py`: import `PUPPER_EFFORT_LIMIT`; add next to `RIDE_SPEED_RANGE`:
+
+```python
+# Joint speed [rad/s] above which the ride task penalizes the motors. A design
+# guess, not a datasheet number: replace it with the real motor's limit.
+JOINT_SPEED_LIMIT: float = 8.0
+```
+
+  and in `pupper_skate_ride_env_cfg` replace the `push_air_time` block and the comment above it, and extend the stance-pose block, so the ride rewards end as:
+
+```python
+  # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
+  # swing of 0.1-0.5 s (only when a speed is commanded). Paying for air time
+  # taught a 3 Hz leg windmill; this cannot be earned by tapping the floor.
+  r["push_stride"] = RewardTermCfg(
+    func=mdp.push_stride,
+    weight=0.3,
+    params={
+      "sensor_name": "ground_feet_contact",
+      "stance_s": 0.4,
+      "air_range": (0.1, 0.5),
+      "command_name": "twist",
+      "command_threshold": 0.1,
+    },
+  )
+  r["feet_on_ground"].weight = 0.1
+  # Hold the keyframe firmly on the deck-side legs and loosely on the pushing
+  # legs, so they stride around the stance instead of flailing.
+  r["stance_pose"].params["asset_cfg"] = SceneEntityCfg(
+    "robot", joint_names=(rf"leg_(front|back)_{DECK_SIDE}_[123]",)
+  )
+  r["push_leg_pose"] = RewardTermCfg(
+    func=mdp.stance_pose,
+    weight=0.3,
+    params={
+      "std": 0.6,
+      "asset_cfg": SceneEntityCfg(
+        "robot", joint_names=(rf"leg_(front|back)_{GROUND_SIDE}_[123]",)
+      ),
+    },
+  )
+  # Keep the motion inside what the motors can do. The sim actuator limits
+  # torque but not speed, so speed is limited here.
+  r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
+  r["joint_speed_limit"] = RewardTermCfg(
+    func=mdp.joint_speed_over_limit, weight=-0.02, params={"limit": JOINT_SPEED_LIMIT}
+  )
+  r["torque_saturation"] = RewardTermCfg(
+    func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}
+  )
+  return cfg
+```
+
+- [ ] **Step 4:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py tests/test_skate_run_summary.py -q` all pass (this includes the slow ride env test that steps the real simulator with every reward term). `uv run ruff format`, `uv run ruff check`, `uv run ty check` clean for touched files.
+- [ ] **Step 5:** commit `feat: shape the ride gait for hardware (planted strides, speed and torque limits)`.
+
+### Task 17: Gait report tool and stricter ride pass check
+
+**Why:** `RESULT: PASS` only checked episode length and speed tracking, so the windmill gait passed. Add (a) a rollout tool that measures the gait of any saved policy and prints `GAIT: PASS` or `GAIT: FAIL`, and (b) gait terms in the training-curve pass check.
+
+**Files:**
+- Create: `skateboard/tools/policy_loader.py`, `skateboard/tools/gait_report.py`, `tests/test_skate_gait_report.py`
+- Modify: `skateboard/tools/render_policy.py` (use the shared loader), `skateboard/tools/run_summary.py`, `tests/test_skate_run_summary.py`
+
+**Interfaces:**
+- Consumes from Task 16: `JOINT_SPEED_LIMIT` (8.0) from `mjlab.tasks.pupper_skate.pupper_skate_env_cfg`; reward term names `joint_speed_limit` and `torque_saturation`; `PUPPER_EFFORT_LIMIT` (3.0) from `mjlab.asset_zoo.robots.pupper_v3.pupper_constants`; contact sensor `ground_feet_contact` (two right feet, `data.found` shape `[B, 2]`).
+- Produces: `policy_loader.load_policy(task: str, policy_path: Path, speed: float | None) -> tuple[raw_env, wrapped_env, policy]`; `gait_report.gait_metrics(...)`, `gait_report.gait_verdict(...)`, `gait_report.GAIT_LIMITS`.
+
+- [ ] **Step 1: shared loader.** Read `skateboard/tools/render_policy.py`. Move its env construction and policy loading (both the `.pt` runner path and the `policy.json` path) into `skateboard/tools/policy_loader.py` as `load_policy(task, policy_path, speed)`, returning the raw `ManagerBasedRlEnv`, the `RslRlVecEnvWrapper`, and a callable `policy(obs) -> actions`. One env, play mode, CPU. `render_policy.py` keeps its command line and behavior and calls `load_policy`. Tools in this folder are run as scripts, so import the sibling module the way a script in the same folder can (`from policy_loader import load_policy`).
+- [ ] **Step 2: failing tests** in `tests/test_skate_gait_report.py` (load the module by path as `tests/test_skate_run_summary.py` does; the test must not need a simulator, so `gait_report.py` must import heavy modules such as the loader only inside `main`, with a comment saying why):
+  - `gait_metrics(joint_vel, torque, ground_contact, dt, effort_limit)` takes numpy arrays `[T, 12]`, `[T, 12]`, `[T, 2]` (1.0 = foot on the floor) and returns a dict with exactly these keys:
+    - `peak_joint_speed`: the largest per-joint 99th percentile of `|joint_vel|` [rad/s] (per joint, so one fast joint cannot hide among eleven slow ones)
+    - `saturated_fraction`: fraction of steps where any joint has `|torque| >= 0.95 * effort_limit`
+    - `min_foot_duty`: the smaller of the two feet's fraction of steps on the floor
+    - `max_stride_rate`: the larger of the two feet's touchdowns per second (a touchdown is a 0 → 1 change in that foot's contact column; rate = count / (T * dt))
+  - Test a calm case: `joint_vel` all 2.0, `torque` all 1.0, both feet in contact for 40 of every 50 steps over 500 steps at `dt=0.02`, expecting `peak_joint_speed == 2.0`, `saturated_fraction == 0.0`, `min_foot_duty == 0.8`, `max_stride_rate == pytest.approx(1.0, abs=0.11)`, and `gait_verdict` all passing.
+  - Test a windmill case: one joint at 39.0 rad/s for 5% of steps, one joint at 3.0 Nm for half the steps, foot 0 in contact 1 step of every 16; expect the verdict rows for `peak_joint_speed`, `saturated_fraction`, `min_foot_duty` and `max_stride_rate` to all fail.
+  - `GAIT_LIMITS` is exactly `{"peak_joint_speed": ("max", JOINT_SPEED_LIMIT), "saturated_fraction": ("max", 0.05), "min_foot_duty": ("min", 0.4), "max_stride_rate": ("max", 2.0)}`. Because the test cannot import the simulator package cheaply, assert the first limit equals 8.0.
+  - `gait_verdict(metrics) -> list[tuple[str, float, str, float, bool]]` rows of `(name, value, "max" | "min", limit, passed)`.
+- [ ] **Step 3: implement `gait_report.py`.** Command line: `gait_report.py task policy [--speed 0.4] [--steps 500] [--skip 100]`. It rolls the policy out with `load_policy`, drops the first `--skip` steps (settling), records `robot.data.joint_vel`, `robot.data.actuator_force` and `ground_feet_contact` `found > 0` each step, prints each metric with its limit and PASS or FAIL, then a last line `GAIT: PASS` or `GAIT: FAIL`. Exit code always 0, like `run_summary.py`. Module docstring carries the usage, as the other tools do.
+- [ ] **Step 4: run it on the two saved policies** and paste the output into your report:
+  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4` — expected `GAIT: FAIL` (this is the windmill policy; peak joint speed far above 8 rad/s).
+  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json` — expected `GAIT: PASS`.
+  - If either verdict is not the expected one, report DONE_WITH_CONCERNS with the numbers; do not change `GAIT_LIMITS` to force it.
+  - Also confirm the refactored renderer still works: `FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json /tmp/sdd_render_check/balance.mp4 --steps 50` writes the mp4 (delete that folder afterwards).
+- [ ] **Step 5: training-curve check.** In `run_summary.py`, add to the ride entry of `PASS_CRITERIA`: `"Episode_Reward/joint_speed_limit": -0.1` and `"Episode_Reward/torque_saturation": -0.2` (both are penalties logged as weight × mean cost, so "at least" a small negative number means the penalty is rarely paid). Add a test in `tests/test_skate_run_summary.py` that a ride run with good length and tracking but `Episode_Reward/joint_speed_limit` of -0.5 gets `RESULT: FAIL`, and passes at -0.01 with `torque_saturation` -0.05. Update any existing ride test there that now lacks the two tags.
+- [ ] **Step 6:** `FORCE_CPU=1 uv run pytest tests/test_skate_gait_report.py tests/test_skate_run_summary.py tests/test_pupper_skate.py -q` pass; `uv run ruff format`, `uv run ruff check`, `uv run ty check` clean for touched files. Commit `feat: add a gait report tool and gait terms in the ride pass check`.
+
+### Task 18: Notebook and docs for the reshaped ride task
+
+**Files:**
+- Modify: `skateboard/tools/make_notebook.py`, `notebooks/CS123_Pupper_Skate.ipynb` (regenerated, never hand-edited), `skateboard/README.md`, `skateboard/CHECKPOINT.md`, `skateboard/PLAN.md` (Task 11 only), `tests/test_skate_run_summary.py` if it checks notebook contents
+
+**Interfaces consumed:** ride reward terms and default weights from Task 16: `push_stride` 0.3, `push_leg_pose` 0.3, `joint_vel_l2` -0.001, `joint_speed_limit` -0.02, `torque_saturation` -0.5; `push_air_time` no longer exists. `skateboard/tools/gait_report.py` from Task 17 prints `GAIT: PASS` or `GAIT: FAIL`.
+
+- [ ] **Step 1: notebook generator.** In `make_notebook.py`:
+  - Reward table (section 4): remove the `push_air_time` row; change the `stance_pose` description to `joints near the keyframe (ride: left legs only)` (unchanged) and add rows, Balance column `n/a`: `push_stride` 0.3 "right feet take planted strides: 0.4 s on the floor, then a 0.1 to 0.5 s swing"; `push_leg_pose` 0.3 "right legs stay loosely near the keyframe"; `joint_vel_l2` -1e-3 "joint speed"; `joint_speed_limit` -0.02 "joint speed above 8 rad/s"; `torque_saturation` -0.5 "motors above 80% of their 3 Nm limit".
+  - `REWARD_WEIGHTS` cell: remove `"push_air_time"`; add the five terms with those weights under the "Ride only" comment.
+  - Section 7 ("Did it pass?"): after the `run_summary.py` cell add a markdown cell and a code cell that run the gait report on the newest checkpoint for the ride task only. Markdown: "### Gait check (ride)\n\nCurves can pass while the gait is one the robot cannot do. This rolls out the newest checkpoint at 0.4 m/s and checks joint speed, torque and how the right feet step. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too before trusting a pass." Code: find the newest `model_*.pt` under `logs/rsl_rl` (same glob the viewer cell uses for `ckpts`; read that cell) and, `if RIDE:`, run `!python skateboard/tools/gait_report.py {TASK} {ckpt} --speed 0.4`.
+  - Regenerate: `python3 skateboard/tools/make_notebook.py notebooks/CS123_Pupper_mjlab.ipynb notebooks/CS123_Pupper_Skate.ipynb`. Confirm the notebook is valid JSON and every code cell parses with `ast.parse` after dropping lines that start with `!` or `%` (if a test already does this, run it).
+- [ ] **Step 2: docs.**
+  - `skateboard/PLAN.md`, Task 11 only: under the result block add a dated note (Mon Nov 16) that the `29p4j81t` gait is not hardware-feasible (front-right hip 2.3 rad at 3 Hz, peak about 39 rad/s, five joints at the 3 Nm limit), that the line "No reward hacking seen" was wrong because the check never looked at the gait, and that the rewards were reshaped in Task 16 and need a fresh 1500-iteration run. Add pass criteria to Step 2: `Episode_Reward/joint_speed_limit` ≥ -0.1, `Episode_Reward/torque_saturation` ≥ -0.2, and `GAIT: PASS` from `gait_report.py`. In the tuning table replace the `push_air_time` row with `Shuffles or drags the right feet | push_stride 0.3 → 0.6; push_leg_pose 0.3 → 0.1` and add rows `Fast leg flailing (GAIT: FAIL on joint speed) | joint_speed_limit -0.02 → -0.1; joint_vel_l2 -1e-3 → -5e-3`, `Motors pinned at the limit | torque_saturation -0.5 → -1.5`, and `Stands still after the reshaping | push_leg_pose → 0.1; joint_vel_l2 → -2e-4; then track_board_velocity → 6.0`.
+  - `skateboard/README.md`: Status line says balance is trained and is the robot candidate, ride must be retrained with the reshaped rewards and the saved ride policy is for reference only; step 3 item 5 also mentions the gait check; step 4 adds the `gait_report.py` command for both saved policies and says the saved ride policy is expected to print `GAIT: FAIL`; the "Where things are" tools row mentions the gait report.
+  - `skateboard/CHECKPOINT.md`: read it, then correct any statement that the ride policy is ready for, or next in line for, the robot; say the gait fails the gait check and ride will be retrained first.
+  - Plain language, short sentences, no em-dash asides, matching the surrounding docs.
+- [ ] **Step 3:** `FORCE_CPU=1 uv run pytest tests/test_skate_run_summary.py tests/test_skate_gait_report.py -q` pass; `uv run ruff format` and `uv run ruff check` clean for `make_notebook.py` (notebook-level ruff errors inherited from the course notebook are known; add no new ones). Commit `docs: notebook and docs for the reshaped ride rewards and gait check`.
 
 ## Self-review
 
