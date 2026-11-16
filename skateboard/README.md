@@ -22,8 +22,8 @@ has all four feet on the board. The right legs balance, and later push.
 
 ## Status
 
-- Done: board model, stance, both training tasks, tests, notebook.
-- Not done: measuring the real board, any training run, anything on the robot.
+- Done: board model, stance, both training tasks, tests, notebook. Balance and ride policies are trained in sim (see [`CHECKPOINT.md`](CHECKPOINT.md)).
+- Not done: measuring the real board, anything on the robot.
 
 Two tasks are registered:
 
@@ -62,7 +62,7 @@ cd cs123_skateboard_pupper
 FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q
 ```
 
-Expected: `31 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
+Expected: `36 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
 NVIDIA GPU.
 
 To see the stance in a viewer:
@@ -84,7 +84,7 @@ FORCE_CPU=1 uv run play Mjlab-Skate-Balance-Pupper-v3 --agent zero
    one at a time.
 5. Read the last line of section 7, *Did it pass?*: `RESULT: PASS` or
    `RESULT: FAIL`, with the numbers above it. The same check works on any run
-   from the repo root: `python skateboard/tools/run_summary.py <task-id>`.
+   from the repo root: `python skateboard/tools/run_summary.py <task-id>` (on a laptop: `uv run python ...`).
 
 The thresholds live in `PASS_CRITERIA` in `tools/run_summary.py`. What to change
 when a run fails is in Tasks 9 and 11 of the plan.

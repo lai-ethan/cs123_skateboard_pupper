@@ -101,6 +101,9 @@ if not WANDB_API_KEY:
 if WANDB_API_KEY:
   import wandb
 
+  # A pasted key often carries a stray space or newline; W&B rejects those.
+  WANDB_API_KEY = "".join(c for c in WANDB_API_KEY if c.isalnum() or c == "_")
+
   os.environ["WANDB_API_KEY"] = WANDB_API_KEY
   wandb.login(key=WANDB_API_KEY, relogin=True)
   LOGGER = "wandb"
