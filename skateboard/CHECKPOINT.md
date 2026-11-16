@@ -38,3 +38,7 @@ Both skateboard policies are trained in simulation and saved to W&B. Nothing has
 - Board dimensions in sim are estimates. Deck height is randomized ±1.5 cm to cover the error.
 - To retrain: open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, paste your own W&B key, Run all. About 50 min for 1500 iterations on a free T4. Never commit a key.
 - `Metrics/twist/error_vel_xy` in W&B is not a tracking error; it grows with episode length. Read `Episode_Reward/track_board_velocity` instead.
+
+## After the checkpoint
+
+- Rerun ride for the full 1500 iterations (about 50 min on a free T4, less on Colab Pro) to get a real PASS line. The current ride policy is a stopgap from iteration 1100.
