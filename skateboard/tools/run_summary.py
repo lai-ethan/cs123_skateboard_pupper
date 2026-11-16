@@ -27,6 +27,9 @@ PASS_CRITERIA: dict[str, dict[str, float]] = {
   "Mjlab-Skate-Ride-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
     "Episode_Reward/track_board_velocity": 2.0,
+    # Penalties, logged as weight x mean cost: near zero means rarely paid.
+    "Episode_Reward/joint_speed_limit": -0.1,
+    "Episode_Reward/torque_saturation": -0.2,
   },
 }
 SHOWN_PREFIXES = ("Train/", "Episode_Reward/", "Episode_Termination/")

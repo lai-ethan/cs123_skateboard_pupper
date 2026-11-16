@@ -11,6 +11,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 REPO = Path(__file__).parent.parent
 BALANCE = "Mjlab-Skate-Balance-Pupper-v3"
+RIDE = "Mjlab-Skate-Ride-Pupper-v3"
 
 
 def _load_run_summary():
@@ -87,6 +88,36 @@ def test_cli_prints_result_line(tmp_path, capsys):
   assert "Episode_Termination/time_out" in out
   assert "Loss/value" not in out
   assert "iterations: 5" in out
+
+
+def test_ride_fails_on_joint_speed_penalty(tmp_path, capsys):
+  good = {
+    "Train/mean_episode_length": [480.0] * 5,
+    "Episode_Reward/track_board_velocity": [2.5] * 5,
+  }
+  windmill = tmp_path / "exp" / "windmill"
+  _write_run(
+    windmill,
+    {
+      **good,
+      "Episode_Reward/joint_speed_limit": [-0.5] * 5,
+      "Episode_Reward/torque_saturation": [-0.05] * 5,
+    },
+  )
+  assert rs.main([RIDE, "--run-dir", str(windmill)]) == 0
+  assert capsys.readouterr().out.rstrip().endswith("RESULT: FAIL")
+
+  calm = tmp_path / "exp" / "calm"
+  _write_run(
+    calm,
+    {
+      **good,
+      "Episode_Reward/joint_speed_limit": [-0.01] * 5,
+      "Episode_Reward/torque_saturation": [-0.05] * 5,
+    },
+  )
+  assert rs.main([RIDE, "--run-dir", str(calm)]) == 0
+  assert capsys.readouterr().out.rstrip().endswith("RESULT: PASS")
 
 
 def test_cli_without_event_files_is_unknown(tmp_path, capsys):
