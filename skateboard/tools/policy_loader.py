@@ -18,6 +18,19 @@ from mjlab.tasks.pupper_skate.mdp import PupperVelocityCommandCfg
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
 
+def fix_speed(env_cfg: Any, speed: float) -> None:
+  """Command a fixed board speed in m/s and turn off standing commands.
+
+  Without the second edit, each command resample has a `rel_standing_envs`
+  chance of commanding 0 m/s, so a check at a fixed speed would sometimes
+  measure a robot told to stand still.
+  """
+  twist = env_cfg.commands["twist"]
+  assert isinstance(twist, PupperVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (speed, speed)
+  twist.rel_standing_envs = 0.0
+
+
 def load_policy(
   task: str,
   policy_path: Path,
@@ -29,8 +42,8 @@ def load_policy(
 ) -> tuple[ManagerBasedRlEnv, RslRlVecEnvWrapper, Callable]:
   """One env in play mode, its rsl_rl wrapper, and `policy(obs) -> actions`.
 
-  `speed` fixes the board speed command in m/s (ride); None keeps the task's
-  range. `render_mode` and `viewer` (attributes set on the env's viewer config)
+  `speed` fixes the board speed command in m/s (ride) and turns off standing
+  commands (see `fix_speed`); None keeps the task's range and standing share. `render_mode` and `viewer` (attributes set on the env's viewer config)
   are only needed for rendering. `configure(env_cfg)`, if given, edits the env
   config after the edits above and before the env is built.
   """
@@ -40,9 +53,7 @@ def load_policy(
   for key, value in (viewer or {}).items():
     setattr(env_cfg.viewer, key, value)
   if speed is not None:
-    twist = env_cfg.commands["twist"]
-    assert isinstance(twist, PupperVelocityCommandCfg)
-    twist.ranges.lin_vel_x = (speed, speed)
+    fix_speed(env_cfg, speed)
   if configure is not None:
     configure(env_cfg)
   agent_cfg = load_rl_cfg(task)
