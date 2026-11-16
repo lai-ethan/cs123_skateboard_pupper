@@ -14,6 +14,7 @@ Both skateboard policies are trained in simulation and saved to W&B. Nothing has
 - Default reward weights worked for both tasks, so they were not tuned.
 - Each run has a `policy.json` in its W&B Files, ready for the robot.
 - The ride run is the full 1500 iterations (Colab Pro T4, 55 min). An earlier ride run, `me6p0pdw`, stopped at iteration ~1120; use `29p4j81t`.
+- Sim videos of both policies are in `skateboard/media/`; the policy files are in `skateboard/policies/`. To replay them, see step 4 of `skateboard/README.md`.
 
 ## What to do Monday
 

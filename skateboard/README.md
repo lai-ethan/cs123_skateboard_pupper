@@ -18,7 +18,8 @@ has all four feet on the board. The right legs balance, and later push.
 | Stance (joint angles, height, roll) | `SKATE_*` in [`pupper_constants.py`](../src/mjlab/asset_zoo/robots/pupper_v3/pupper_constants.py) |
 | Tasks: scene, rewards, terminations | [`src/mjlab/tasks/pupper_skate/`](../src/mjlab/tasks/pupper_skate/) |
 | Tests | `tests/test_pupper_skate.py`, `tests/test_pupper_skateboard.py` |
-| Stance helper scripts | [`tools/`](tools/) |
+| Stance helper scripts, video renderer | [`tools/`](tools/) |
+| Trained policies, sim videos | [`policies/`](policies/), [`media/`](media/) |
 
 ## Status
 
@@ -89,7 +90,29 @@ FORCE_CPU=1 uv run play Mjlab-Skate-Balance-Pupper-v3 --agent zero
 The thresholds live in `PASS_CRITERIA` in `tools/run_summary.py`. What to change
 when a run fails is in Tasks 9 and 11 of the plan.
 
-### 4. Robot
+### 4. Replay the trained policies (laptop)
+
+The two passing policies are in [`policies/`](policies/), so no W&B login is
+needed. From the repo root:
+
+```bash
+# Ride, in the interactive viewer
+FORCE_CPU=1 uv run play Mjlab-Skate-Ride-Pupper-v3 \
+  --checkpoint-file skateboard/policies/ride_29p4j81t_model_1499.pt --num-envs 1
+
+# Ride or balance, saved as a video plus stills (no viewer needed)
+FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Ride-Pupper-v3 \
+  skateboard/policies/ride_29p4j81t_model_1499.pt out/ride.mp4 --speed 0.4
+FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 \
+  skateboard/policies/balance_2ace1uqa_policy.json out/balance.mp4
+```
+
+Each video takes about a minute on a Mac. The balance run kept only its
+exported `policy.json`, so it replays through `render_policy.py`, not `play`.
+Rendered clips and stills are in [`media/`](media/): ride at 0.4 m/s from both
+sides, and balance.
+
+### 5. Robot
 
 No skate policy runs on the robot without a TA sign-off. Steps are in Task 12.
 
