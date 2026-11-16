@@ -33,6 +33,7 @@ from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_c
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   DECK_HEIGHT_RANGE,
+  JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
   RIDE_SPEED_RANGE,
   pupper_skate_balance_env_cfg,
@@ -376,6 +377,9 @@ def test_ride_task_commands_forward_speed_only():
   for name in ("track_board_velocity", "board_yaw_rate", *new_terms):
     assert cfg.rewards[name].weight != 0.0
   assert "push_air_time" not in cfg.rewards
+  # The best-paid gait must sit inside the gait check's limits.
+  assert cfg.rewards["push_stride"].params["air_range"] == (0.2, 0.5)
+  assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
 
   def matched(term: str) -> set[str]:
     patterns = cfg.rewards[term].params["asset_cfg"].joint_names

@@ -57,8 +57,9 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 # Forward speed range for the ride task [m/s].
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 
-# Joint speed [rad/s] above which the ride task penalizes the motors. A design
-# guess, not a datasheet number: replace it with the real motor's limit.
+# Joint speed limit [rad/s] the gait check enforces; the ride task's penalty
+# starts at 75% of it. A design guess, not a datasheet number: replace it with
+# the real motor's limit.
 JOINT_SPEED_LIMIT: float = 8.0
 
 # The real board is not measured yet: deck height offset from the nominal
@@ -346,15 +347,16 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
   # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
-  # swing of 0.1-0.5 s (only when a speed is commanded). Paying for air time
-  # taught a 3 Hz leg windmill; this cannot be earned by tapping the floor.
+  # swing of 0.2 to 0.5 s (only when a speed is commanded). Short stances pay
+  # proportionally less, so the speed and torque penalties below are what make a
+  # fast tap unattractive. Paying for air time taught a 3 Hz leg windmill.
   r["push_stride"] = RewardTermCfg(
     func=mdp.push_stride,
     weight=0.3,
     params={
       "sensor_name": "ground_feet_contact",
       "stance_s": 0.4,
-      "air_range": (0.1, 0.5),
+      "air_range": (0.2, 0.5),
       "command_name": "twist",
       "command_threshold": 0.1,
     },
@@ -376,10 +378,14 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     },
   )
   # Keep the motion inside what the motors can do. The sim actuator limits
-  # torque but not speed, so speed is limited here.
+  # torque but not speed, so speed is limited here. The penalty starts at 75% of
+  # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait
+  # stays inside the check.
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
-    func=mdp.joint_speed_over_limit, weight=-0.02, params={"limit": JOINT_SPEED_LIMIT}
+    func=mdp.joint_speed_over_limit,
+    weight=-0.02,
+    params={"limit": 0.75 * JOINT_SPEED_LIMIT},
   )
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}

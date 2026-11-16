@@ -39,7 +39,7 @@ Balance is the only robot candidate. The ride policy passes the curve check but 
 
 - The robot-side deploy (`pupper_gait_deploy`) has never been run with a skate policy. Not checked in sim: torso touching the deck, and truck steering direction against the real board.
 
-- The joint speed limit in the ride rewards and the gait check (8 rad/s) is a first guess, not a measured motor limit.
+- The joint speed limit the gait check enforces (8 rad/s) is a first guess, not a measured motor limit. The ride reward's speed penalty starts at 75% of it (6 rad/s), so the best-paid gait stays inside the check.
 - Board dimensions in sim are estimates. Deck height is randomized ±1.5 cm to cover the error.
 - To retrain: open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, paste your own W&B key, Run all. About 55 min for 1500 iterations on a T4, about 9 min on a G4. Never commit a key.
 - `Metrics/twist/error_vel_xy` in W&B is not a tracking error; it grows with episode length. Read `Episode_Reward/track_board_velocity` instead.

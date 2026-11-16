@@ -75,10 +75,10 @@ Positive terms are `exp(-error²/std²)` or contact counts, so the weight is the
 | `board_still` | -2.0 | none | `board_speed_l2` | |
 | `track_board_velocity` | none | 3.0 | `track_board_velocity` | board forward speed vs command, std 0.15 |
 | `board_yaw_rate` | none | -0.5 | `board_yaw_rate_l2` | |
-| `push_stride` | none | 0.3 | `push_stride` | one payment per right-foot stride: planted about 0.4 s, swing 0.1 to 0.5 s, only when command > 0.1 |
+| `push_stride` | none | 0.3 | `push_stride` | one payment per right-foot stride: planted about 0.4 s, swing 0.2 to 0.5 s, only when command > 0.1 |
 | `push_leg_pose` | none | 0.3 | `stance_pose` | right-leg joints near the stance, std 0.6 |
 | `joint_vel_l2` | none | -1e-3 | stock | |
-| `joint_speed_limit` | none | -0.02 | `joint_speed_over_limit` | speed above 8 rad/s (a guess at the motor limit) |
+| `joint_speed_limit` | none | -0.02 | `joint_speed_over_limit` | speed above 6 rad/s, 75% of the 8 rad/s gait-check limit (a guess at the motor limit) |
 | `torque_saturation` | none | -0.5 | `torque_saturation` | torque above 80% of the 3 N·m limit |
 | `action_rate_l2` | -0.01 | -0.01 | stock | |
 | `joint_torques_l2` | -2e-4 | -2e-4 | stock | |
@@ -468,8 +468,9 @@ def push_stride(
   In `pupper_skate_env_cfg.py`: import `PUPPER_EFFORT_LIMIT`; add next to `RIDE_SPEED_RANGE`:
 
 ```python
-# Joint speed [rad/s] above which the ride task penalizes the motors. A design
-# guess, not a datasheet number: replace it with the real motor's limit.
+# Joint speed limit [rad/s] the gait check enforces; the ride task's penalty
+# starts at 75% of it. A design guess, not a datasheet number: replace it with
+# the real motor's limit.
 JOINT_SPEED_LIMIT: float = 8.0
 ```
 
@@ -477,15 +478,16 @@ JOINT_SPEED_LIMIT: float = 8.0
 
 ```python
   # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
-  # swing of 0.1-0.5 s (only when a speed is commanded). Paying for air time
-  # taught a 3 Hz leg windmill; this cannot be earned by tapping the floor.
+  # swing of 0.2 to 0.5 s (only when a speed is commanded). Short stances pay
+  # proportionally less, so the speed and torque penalties below are what make a
+  # fast tap unattractive. Paying for air time taught a 3 Hz leg windmill.
   r["push_stride"] = RewardTermCfg(
     func=mdp.push_stride,
     weight=0.3,
     params={
       "sensor_name": "ground_feet_contact",
       "stance_s": 0.4,
-      "air_range": (0.1, 0.5),
+      "air_range": (0.2, 0.5),
       "command_name": "twist",
       "command_threshold": 0.1,
     },
@@ -507,10 +509,14 @@ JOINT_SPEED_LIMIT: float = 8.0
     },
   )
   # Keep the motion inside what the motors can do. The sim actuator limits
-  # torque but not speed, so speed is limited here.
+  # torque but not speed, so speed is limited here. The penalty starts at 75% of
+  # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait
+  # stays inside the check.
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
-    func=mdp.joint_speed_over_limit, weight=-0.02, params={"limit": JOINT_SPEED_LIMIT}
+    func=mdp.joint_speed_over_limit,
+    weight=-0.02,
+    params={"limit": 0.75 * JOINT_SPEED_LIMIT},
   )
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}
@@ -561,7 +567,7 @@ JOINT_SPEED_LIMIT: float = 8.0
 **Interfaces consumed:** ride reward terms and default weights from Task 16: `push_stride` 0.3, `push_leg_pose` 0.3, `joint_vel_l2` -0.001, `joint_speed_limit` -0.02, `torque_saturation` -0.5; `push_air_time` no longer exists. `skateboard/tools/gait_report.py` from Task 17 prints `GAIT: PASS` or `GAIT: FAIL`.
 
 - [ ] **Step 1: notebook generator.** In `make_notebook.py`:
-  - Reward table (section 4): remove the `push_air_time` row; change the `stance_pose` description to `joints near the keyframe (ride: left legs only)` (unchanged) and add rows, Balance column `n/a`: `push_stride` 0.3 "right feet take planted strides: 0.4 s on the floor, then a 0.1 to 0.5 s swing"; `push_leg_pose` 0.3 "right legs stay loosely near the keyframe"; `joint_vel_l2` -1e-3 "joint speed"; `joint_speed_limit` -0.02 "joint speed above 8 rad/s"; `torque_saturation` -0.5 "motors above 80% of their 3 Nm limit".
+  - Reward table (section 4): remove the `push_air_time` row; change the `stance_pose` description to `joints near the keyframe (ride: left legs only)` (unchanged) and add rows, Balance column `n/a`: `push_stride` 0.3 "right feet take planted strides: 0.4 s on the floor, then a 0.2 to 0.5 s swing"; `push_leg_pose` 0.3 "right legs stay loosely near the keyframe"; `joint_vel_l2` -1e-3 "joint speed"; `joint_speed_limit` -0.02 "joint speed above 6 rad/s"; `torque_saturation` -0.5 "motors above 80% of their 3 Nm limit".
   - `REWARD_WEIGHTS` cell: remove `"push_air_time"`; add the five terms with those weights under the "Ride only" comment.
   - Section 7 ("Did it pass?"): after the `run_summary.py` cell add a markdown cell and a code cell that run the gait report on the newest checkpoint for the ride task only. Markdown: "### Gait check (ride)\n\nCurves can pass while the gait is one the robot cannot do. This rolls out the newest checkpoint at 0.4 m/s and checks joint speed, torque and how the right feet step. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too before trusting a pass." Code: find the newest `model_*.pt` under `logs/rsl_rl` (same glob the viewer cell uses for `ckpts`; read that cell) and, `if RIDE:`, run `!python skateboard/tools/gait_report.py {TASK} {ckpt} --speed 0.4`.
   - Regenerate: `python3 skateboard/tools/make_notebook.py notebooks/CS123_Pupper_mjlab.ipynb notebooks/CS123_Pupper_Skate.ipynb`. Confirm the notebook is valid JSON and every code cell parses with `ast.parse` after dropping lines that start with `!` or `%` (if a test already does this, run it).
