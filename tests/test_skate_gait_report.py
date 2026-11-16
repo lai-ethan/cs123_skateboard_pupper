@@ -55,8 +55,8 @@ def test_calm_gait_passes():
 def test_windmill_gait_fails():
   steps = np.arange(T)
   joint_vel = np.zeros((T, 12))
-  # 39 rad/s on half the steps of one joint: over 1% of all samples.
-  joint_vel[steps % 2 == 0, 0] = 39.0
+  # 39 rad/s on 5% of steps of one joint: above its own 99th percentile.
+  joint_vel[steps % 20 == 0, 0] = 39.0
   torque = np.zeros((T, 12))
   torque[steps % 2 == 1, 1] = 3.0
   contact = np.ones((T, 2))

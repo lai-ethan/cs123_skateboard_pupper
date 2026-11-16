@@ -7,10 +7,11 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
     Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt \\
     --speed 0.4 [--steps 500] [--skip 100]
 
-Drops the first `--skip` steps (settling), then measures peak joint speed,
-time at the torque limit, how long each floor-side foot stays down and how
-often it lands. The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code
-is always 0.
+Drops the first `--skip` steps (settling), then measures peak joint speed
+(the largest per-joint 99th percentile), time at the torque limit, how long
+each floor-side foot stays down and how often it lands. Any episode reset in
+the measured steps fails the gait: a policy that falls is not a passing gait.
+The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ def gait_metrics(
   saturated = np.abs(torque) >= 0.95 * effort_limit
   touchdowns = np.sum(contact[1:] & ~contact[:-1], axis=0)
   return {
-    "peak_joint_speed": float(np.percentile(np.abs(joint_vel), 99)),
+    "peak_joint_speed": float(np.max(np.percentile(np.abs(joint_vel), 99, axis=0))),
     "saturated_fraction": float(np.mean(np.any(saturated, axis=1))),
     "min_foot_duty": float(np.min(np.mean(contact, axis=0))),
     "max_stride_rate": float(np.max(touchdowns) / (len(contact) * dt)),
@@ -73,6 +74,8 @@ def main(argv: list[str] | None = None) -> int:
   parser.add_argument("--steps", type=int, default=500, help="50 per second")
   parser.add_argument("--skip", type=int, default=100, help="settling steps")
   args = parser.parse_args(argv)
+  if args.steps <= args.skip:
+    parser.error(f"--steps ({args.steps}) must be greater than --skip ({args.skip})")
 
   # Imported here so the tests can load this module without the simulator.
   import torch
@@ -108,12 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     PUPPER_EFFORT_LIMIT,
   )
   print(f"task: {args.task}  policy: {args.policy}  speed: {args.speed}")
-  print(f"measured {len(joint_vel)} steps after {args.skip}, resets {resets}")
+  print(f"measured {len(joint_vel)} steps after {args.skip}")
   rows = gait_verdict(metrics)
   for name, value, kind, limit, passed in rows:
     op = "<=" if kind == "max" else ">="
     print(f"{'PASS' if passed else 'FAIL'}  {name} = {value:.3f} (need {op} {limit})")
-  print("GAIT:", "PASS" if all(row[4] for row in rows) else "FAIL")
+  if resets:
+    print(f"FAIL  {resets} resets while measuring: a policy that falls does not pass")
+  else:
+    print("PASS  no resets while measuring")
+  passed = resets == 0 and all(row[4] for row in rows)
+  print("GAIT:", "PASS" if passed else "FAIL")
   return 0
 
 
