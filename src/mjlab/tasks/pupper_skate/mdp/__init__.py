@@ -14,7 +14,10 @@ from .rewards import (  # noqa: F401
   contact_count,
   deck_roll_l2,
   gravity_tracking,
+  joint_speed_over_limit,
+  push_stride,
   stance_pose,
+  torque_saturation,
   track_board_velocity,
 )
 from .terminations import contact_lost  # noqa: F401

@@ -128,3 +128,58 @@ def track_board_velocity(
   assert command is not None
   error = command[:, 0] - board.data.root_link_lin_vel_b[:, 0]
   return torch.exp(-torch.square(error) / std**2)
+
+
+def joint_speed_over_limit(
+  env: ManagerBasedRlEnv, limit: float, asset_cfg: SceneEntityCfg = _ROBOT
+) -> torch.Tensor:
+  """Penalize joint speed past what the motors can do: sum((|qd| - limit)+^2)."""
+  asset: Entity = env.scene[asset_cfg.name]
+  speed = torch.abs(asset.data.joint_vel[:, asset_cfg.joint_ids])
+  return torch.sum(torch.square(torch.clamp(speed - limit, min=0.0)), dim=1)
+
+
+def torque_saturation(
+  env: ManagerBasedRlEnv,
+  limit: float,
+  soft_ratio: float = 0.8,
+  asset_cfg: SceneEntityCfg = _ROBOT,
+) -> torch.Tensor:
+  """Penalize motors working near their torque limit.
+
+  Per joint: 0 below ``soft_ratio * limit``, rising linearly to 1 at ``limit``.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  ratio = torch.abs(asset.data.actuator_force[:, asset_cfg.actuator_ids]) / limit
+  over = (ratio - soft_ratio) / (1.0 - soft_ratio)
+  return torch.sum(torch.clamp(over, 0.0, 1.0), dim=1)
+
+
+def push_stride(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  stance_s: float,
+  air_range: tuple[float, float],
+  command_name: str,
+  command_threshold: float,
+) -> torch.Tensor:
+  """Reward slow, planted push strides, paid once per touchdown.
+
+  A stride is the stance that ended at lift-off plus the swing that just
+  landed. It scores min(stance / stance_s, 1) when the swing lasted within
+  ``air_range`` seconds, and 0 otherwise, so quick taps and feet held in the air
+  earn little. The score is divided by the step so the weight is the reward for
+  one full stride. Paid only above ``command_threshold`` m/s of commanded speed.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  data = sensor.data
+  contact_time, air_time = data.current_contact_time, data.last_air_time
+  stance_time = data.last_contact_time
+  assert contact_time is not None and air_time is not None and stance_time is not None
+  landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
+  swing_ok = (air_time >= air_range[0]) & (air_time <= air_range[1])
+  score = torch.clamp(stance_time / stance_s, max=1.0)
+  reward = torch.sum(score * (landed & swing_ok).float(), dim=1) / env.step_dt
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  return reward * (command[:, 0] > command_threshold).float()

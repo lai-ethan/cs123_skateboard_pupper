@@ -27,6 +27,7 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   get_skateboard_cfg,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
+  PUPPER_EFFORT_LIMIT,
   PUPPER_MUJOCO_OPTIONS,
   SKATE_BOARD_OFFSET,
   SKATE_HEIGHT,
@@ -55,6 +56,10 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
 # Forward speed range for the ride task [m/s].
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
+
+# Joint speed [rad/s] above which the ride task penalizes the motors. A design
+# guess, not a datasheet number: replace it with the real motor's limit.
+JOINT_SPEED_LIMIT: float = 8.0
 
 # The real board is not measured yet: deck height offset from the nominal
 # 0.10 m [m], and the seconds between shoves to the robot and the board.
@@ -340,22 +345,43 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"command_name": "twist", "std": 0.15},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
-  # Pushing means the floor-side feet leave the floor: pay for strides of
-  # 0.05-0.4 s (only when a speed is commanded), and stop paying for standing.
-  r["push_air_time"] = RewardTermCfg(
-    func=mdp.feet_air_time,
-    weight=0.5,
+  # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
+  # swing of 0.1-0.5 s (only when a speed is commanded). Paying for air time
+  # taught a 3 Hz leg windmill; this cannot be earned by tapping the floor.
+  r["push_stride"] = RewardTermCfg(
+    func=mdp.push_stride,
+    weight=0.3,
     params={
       "sensor_name": "ground_feet_contact",
-      "threshold_min": 0.05,
-      "threshold_max": 0.4,
+      "stance_s": 0.4,
+      "air_range": (0.1, 0.5),
       "command_name": "twist",
       "command_threshold": 0.1,
     },
   )
   r["feet_on_ground"].weight = 0.1
-  # Hold the keyframe only on the deck-side legs; the pushing legs are free.
+  # Hold the keyframe firmly on the deck-side legs and loosely on the pushing
+  # legs, so they stride around the stance instead of flailing.
   r["stance_pose"].params["asset_cfg"] = SceneEntityCfg(
     "robot", joint_names=(rf"leg_(front|back)_{DECK_SIDE}_[123]",)
+  )
+  r["push_leg_pose"] = RewardTermCfg(
+    func=mdp.stance_pose,
+    weight=0.3,
+    params={
+      "std": 0.6,
+      "asset_cfg": SceneEntityCfg(
+        "robot", joint_names=(rf"leg_(front|back)_{GROUND_SIDE}_[123]",)
+      ),
+    },
+  )
+  # Keep the motion inside what the motors can do. The sim actuator limits
+  # torque but not speed, so speed is limited here.
+  r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
+  r["joint_speed_limit"] = RewardTermCfg(
+    func=mdp.joint_speed_over_limit, weight=-0.02, params={"limit": JOINT_SPEED_LIMIT}
+  )
+  r["torque_saturation"] = RewardTermCfg(
+    func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}
   )
   return cfg

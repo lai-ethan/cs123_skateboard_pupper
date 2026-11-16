@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -209,6 +210,50 @@ def test_track_board_velocity_peaks_at_the_commanded_speed():
   assert reward[2] < reward[1]  # Backwards is worse than still.
 
 
+def test_joint_speed_over_limit_ignores_speeds_under_the_limit():
+  env = _fake_env(
+    robot={"joint_vel": torch.tensor([[7.0, -8.0, 0.0], [10.0, -11.0, 0.0]])}
+  )
+  assert mdp.joint_speed_over_limit(env, limit=8.0).tolist() == [0.0, 13.0]
+
+
+def test_torque_saturation_ramps_from_the_soft_limit():
+  force = torch.tensor([[2.4, -1.0], [2.7, -3.0], [3.5, 0.0]])
+  env = _fake_env(robot={"actuator_force": force})
+  cost = mdp.torque_saturation(env, limit=3.0, soft_ratio=0.8)
+  assert cost.tolist() == pytest.approx([0.0, 1.5, 1.0], abs=1e-5)
+
+
+def test_push_stride_pays_a_planted_stride_once_at_touchdown():
+  # Foot 0 varies per row; foot 1 has been standing a while.
+  # Rows: planted stride, a tap, too quick a swing, foot held up, landed earlier.
+  env = _sensor_env(
+    current_contact_time=torch.tensor(
+      [[0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.06, 1.0]]
+    ),
+    last_air_time=torch.tensor(
+      [[0.2, 0.0], [0.2, 0.0], [0.04, 0.0], [0.8, 0.0], [0.2, 0.0]]
+    ),
+    last_contact_time=torch.tensor(
+      [[0.4, 0.0], [0.1, 0.0], [0.4, 0.0], [0.4, 0.0], [0.4, 0.0]]
+    ),
+  )
+  env.step_dt = 0.02
+  command = torch.tensor([[0.4, 0.0, 0.0]] * 5)
+  env.command_manager = SimpleNamespace(get_command=lambda name: command)
+  params: dict[str, Any] = {
+    "sensor_name": "feet",
+    "stance_s": 0.4,
+    "air_range": (0.1, 0.5),
+    "command_name": "twist",
+    "command_threshold": 0.1,
+  }
+  reward = mdp.push_stride(env, **params)
+  assert reward.tolist() == pytest.approx([50.0, 12.5, 0.0, 0.0, 0.0])
+  command = torch.tensor([[0.05, 0.0, 0.0]] * 5)
+  assert mdp.push_stride(env, **params).tolist() == [0.0] * 5
+
+
 ##
 # The balance env, stepped on the real simulator.
 ##
@@ -321,10 +366,27 @@ def test_ride_task_commands_forward_speed_only():
   assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
   assert twist.ranges.lin_vel_y == (0.0, 0.0) and twist.ranges.ang_vel_z == (0.0, 0.0)
   assert "board_still" not in cfg.rewards
-  for name in ("track_board_velocity", "board_yaw_rate", "push_air_time"):
+  new_terms = (
+    "push_stride",
+    "push_leg_pose",
+    "joint_vel_l2",
+    "joint_speed_limit",
+    "torque_saturation",
+  )
+  for name in ("track_board_velocity", "board_yaw_rate", *new_terms):
     assert cfg.rewards[name].weight != 0.0
+  assert "push_air_time" not in cfg.rewards
+
+  def matched(term: str) -> set[str]:
+    patterns = cfg.rewards[term].params["asset_cfg"].joint_names
+    return {j for j in JOINT_NAMES if any(re.fullmatch(p, j) for p in patterns)}
+
+  assert matched("stance_pose") == {j for j in JOINT_NAMES if "_l_" in j}
+  assert matched("push_leg_pose") == {j for j in JOINT_NAMES if "_r_" in j}
   # The balance task is untouched by building the ride task.
-  assert "board_still" in pupper_skate_balance_env_cfg().rewards
+  balance_rewards = pupper_skate_balance_env_cfg().rewards
+  assert "board_still" in balance_rewards
+  assert not set(new_terms) & set(balance_rewards)
 
 
 @pytest.mark.slow
