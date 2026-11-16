@@ -33,7 +33,7 @@ b# Pupper Skateboard RL Training Implementation Plan (v3)
 - The stance changed. A level stance is impossible: the deck top is 0.10 m but the legs can only make up about 0.075 m. The stance is now rolled 0.09 rad toward the floor side and spawns already rolled.
 - Left feet moved out to y = 0.14 m (v1 guessed 0.12). Board centre sits 0.14 m left of the base (v1: 0.17).
 - Riding is now in scope as its own task (`Mjlab-Skate-Ride-Pupper-v3`), not "after the checkpoint".
-- Board randomization (mass, friction, bushing stiffness) is in. Deck-height randomization is still out.
+- Board randomization (mass, friction, bushing stiffness) is in. Deck-height randomization (±1.5 cm) is in too (Task 14).
 - Added: Colab notebook, tuning playbook, real-board refit procedure, deploy steps.
 
 ## Design
@@ -148,7 +148,11 @@ Expected: Pupper stands tilted with left feet on the board and stays there.
 
 ### Task 9: Train balance on Colab (checkpoint, Mon Nov 16)
 
-- [ ] **Step 1:** open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, runtime G4 GPU, run top to bottom. `TASK = "Mjlab-Skate-Balance-Pupper-v3"`, 4096 envs, 3000 iterations (about 18 min). Whoever runs it pastes their own W&B key; never commit a key.
+**Result (Sun Nov 15):** PASS in sim, default weights.
+- `bal1`, no pushes: W&B `ethanlai-stanford-university/mjlab/2zxd46yi`.
+- `bal2`, pushes + deck-height randomization, 1500 iterations: episode length 500, `feet_on_deck` 2.00. W&B `ethanlai-stanford-university/mjlab/2ace1uqa`. This is the one to try on the robot first.
+
+- [ ] **Step 1:** open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, runtime G4 GPU, run top to bottom. `TASK = "Mjlab-Skate-Balance-Pupper-v3"`, 4096 envs, 1500 iterations (about 50 min on a free T4). Whoever runs it pastes their own W&B key; never commit a key.
 - [ ] **Step 2: Pass criteria** on W&B:
   - `Train/mean_episode_length` ≥ 450 (500 is a full 10 s episode).
   - `Episode_Reward/feet_on_deck` ≥ 1.8 (2.0 is both left feet on the deck all episode).
@@ -192,7 +196,14 @@ FORCE_CPU=1 uv run python skateboard/tools/check_stance.py 0.14 0.17 <the 12 ang
 
 ### Task 11: Train riding
 
-- [ ] **Step 1:** notebook with `TASK = "Mjlab-Skate-Ride-Pupper-v3"`, 4096 envs, 3000 iterations.
+**Result (Mon Nov 16, about 00:25 CST):** passing by the curves, default weights, run cut short.
+- W&B `ethanlai-stanford-university/mjlab/me6p0pdw`, free T4. Colab's GPU limit ended it near iteration 1120 of 1500. Last checkpoint `model_1100.pt`.
+- At iteration ~1120: `track_board_velocity` about 2.4 (need 2.0), `feet_on_deck` about 1.9, episode length about 485 (need 450). `board_tipped` and `base_too_low` near zero.
+- No reward hacking seen: tracking, feet on deck and episode length rose together.
+- No `RESULT:` line, because the VM died before `run_summary.py` could run.
+- Do not read `Metrics/twist/error_vel_xy` as tracking error. It sums the robot body's (not the board's) error over the episode, so it grows as episodes get longer.
+
+- [ ] **Step 1:** notebook with `TASK = "Mjlab-Skate-Ride-Pupper-v3"`, 4096 envs, 1500 iterations.
 - [ ] **Step 2: Pass criteria:**
   - `Episode_Reward/track_board_velocity` ≥ 2.0 (of 3.0; about 0.1 m/s speed error).
   - `Train/mean_episode_length` ≥ 450.
@@ -357,6 +368,6 @@ print("logger:", LOGGER)
 
 ## Accounting
 
-- **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); deck-height randomization; a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** left side on the deck; board is 0.10 m tall and 1.8 kg until measured; W&B project name `mjlab` as in the course notebook.
-- **Issues:** riding may not be physically reachable. The right legs have about 1 cm of extension left for pushing, and it has only been tested with random actions. The notebook has not been run on Colab. `uv run play` for the skate tasks has not been run (it opens a viewer). Reward weights are starting values, not tuned.
+- **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
+- **Assumed:** left side on the deck; board is 0.10 m tall and 1.8 kg until measured (deck height is randomized ±1.5 cm to cover it); W&B project name `mjlab` as in the course notebook.
+- **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.
