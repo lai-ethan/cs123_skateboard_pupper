@@ -102,7 +102,11 @@ def support_margin(feet_xy: Any, com_xy: Any) -> float:
 def lifted_foot_margins(
   feet_xy: Any, com_xy: Any, names: Sequence[str]
 ) -> dict[str, float]:
-  """{foot name: support_margin of the other feet} for every foot."""
+  """{foot name: support_margin of the other feet} for every foot.
+
+  Needs at least four feet, and the feet left after removing any one of them
+  must not lie on a line.
+  """
   points = np.asarray(feet_xy, dtype=float)
   return {
     name: support_margin(np.delete(points, i, axis=0), com_xy)
@@ -120,26 +124,80 @@ def condition_verdict(row: dict[str, float]) -> bool:
   )
 
 
+# Play-mode events that randomize nothing, so there is nothing to pin.
+UNPINNED_EVENTS = ("reset_imu_latency",)
+
+
+def _pin(events: dict[str, Any], name: str, key: str, value: Any) -> None:
+  """Set `events[name].params[key]`; fail loudly if the event or key is gone."""
+  if name not in events or key not in events[name].params:
+    raise KeyError(f"event {name!r} with param {key!r} not in the env config")
+  events[name].params[key] = value
+
+
 def _configure(env_cfg: Any, o: dict[str, float]) -> None:
   """Pin every randomized event to a fixed value, then apply the overrides."""
   events = env_cfg.events
-  events["deck_height"].params["ranges"] = (o["deck"], o["deck"])
-  events["truck_stiffness"].params["ranges"] = (o["truck"], o["truck"])
-  events["deck_friction"].params["ranges"] = (o["mu"], o["mu"])
-  events["wheel_friction"].params["ranges"] = (WHEEL_FRICTION, WHEEL_FRICTION)
-  events["board_inertial"].params["alpha_range"] = (0.0, 0.0)
-  events["reset_board"].params["pose_range"] = {
-    "x": (o["board_x"], o["board_x"]),
-    "y": (o["board_y"], o["board_y"]),
-    "yaw": (o["board_yaw"], o["board_yaw"]),
-  }
-  events["reset_base"].params["pose_range"] = {
-    "z": (0.0, 0.0),
-    "roll": (0.0, 0.0),
-    "yaw": (o["robot_yaw"], o["robot_yaw"]),
-  }
+  # Board.
+  _pin(events, "deck_height", "ranges", (o["deck"], o["deck"]))
+  _pin(events, "truck_stiffness", "ranges", (o["truck"], o["truck"]))
+  _pin(events, "deck_friction", "ranges", (o["mu"], o["mu"]))
+  _pin(events, "wheel_friction", "ranges", (WHEEL_FRICTION, WHEEL_FRICTION))
+  _pin(events, "board_inertial", "alpha_range", (0.0, 0.0))
+  _pin(
+    events,
+    "reset_board",
+    "pose_range",
+    {
+      "x": (o["board_x"], o["board_x"]),
+      "y": (o["board_y"], o["board_y"]),
+      "yaw": (o["board_yaw"], o["board_yaw"]),
+    },
+  )
+  _pin(events, "reset_board", "velocity_range", {})
+  # Robot. pd_gains scales on top of the actuator gains set below, so it must
+  # be exactly 1 for kp to mean what the condition says.
+  _pin(
+    events,
+    "reset_base",
+    "pose_range",
+    {
+      "x": (0.0, 0.0),
+      "y": (0.0, 0.0),
+      "z": (0.0, 0.0),
+      "roll": (0.0, 0.0),
+      "yaw": (o["robot_yaw"], o["robot_yaw"]),
+    },
+  )
+  _pin(events, "reset_base", "velocity_range", {})
   offset = o["joint_offset"]
-  events["reset_robot_joints"].params["position_range"] = (-offset, offset)
+  _pin(events, "reset_robot_joints", "position_range", (-offset, offset))
+  _pin(events, "reset_robot_joints", "velocity_range", (0.0, 0.0))
+  _pin(events, "pd_gains", "kp_range", (1.0, 1.0))
+  _pin(events, "pd_gains", "kd_range", (1.0, 1.0))
+  _pin(events, "inertial", "alpha_range", (0.0, 0.0))
+  _pin(events, "encoder_bias", "bias_range", (0.0, 0.0))
+  _pin(events, "foot_friction", "ranges", (1.0, 1.0))
+  com_ranges = events["base_com"].params["ranges"] if "base_com" in events else {}
+  _pin(events, "base_com", "ranges", {axis: (0.0, 0.0) for axis in com_ranges})
+  pinned = {
+    "deck_height",
+    "truck_stiffness",
+    "deck_friction",
+    "wheel_friction",
+    "board_inertial",
+    "reset_board",
+    "reset_base",
+    "reset_robot_joints",
+    "pd_gains",
+    "inertial",
+    "encoder_bias",
+    "foot_friction",
+    "base_com",
+  }
+  unknown = set(events) - pinned - set(UNPINNED_EVENTS)
+  if unknown:
+    raise KeyError(f"events {sorted(unknown)} are not pinned by the stance audit")
   robot = env_cfg.scene.entities["robot"]
   articulation = robot.articulation
   actuator = dataclasses.replace(
