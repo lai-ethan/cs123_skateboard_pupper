@@ -56,6 +56,11 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 # Forward speed range for the ride task [m/s].
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 
+# The real board is not measured yet: deck height offset from the nominal
+# 0.10 m [m], and the seconds between shoves to the robot and the board.
+DECK_HEIGHT_RANGE: tuple[float, float] = (-0.015, 0.015)
+PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
+
 
 def _contact(
   name: str, feet: str, on_deck: bool, track_air_time: bool = False
@@ -225,6 +230,38 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "ranges": (0.5, 2.0),
     },
   )
+  cfg.events["deck_height"] = EventTermCfg(
+    mode="startup",
+    func=dr.geom_pos,
+    params={
+      "asset_cfg": SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,)),
+      "operation": "add",
+      "ranges": DECK_HEIGHT_RANGE,
+      "axes": [2],
+    },
+  )
+
+  ##
+  # Shoves (training only). The stock base kick is off for Pupper; this one is
+  # linear and small. Both add to the root velocity, so the deck roll joint is
+  # untouched. Board yaw stays within +-0.05 rad, so world x is its heading.
+  ##
+  if not play:
+    cfg.events["push_robot"] = EventTermCfg(
+      func=mdp.push_by_setting_velocity,
+      mode="interval",
+      interval_range_s=PUSH_INTERVAL_S,
+      params={"velocity_range": {"x": (-0.2, 0.2), "y": (-0.2, 0.2)}},
+    )
+    cfg.events["nudge_board"] = EventTermCfg(
+      func=mdp.push_by_setting_velocity,
+      mode="interval",
+      interval_range_s=PUSH_INTERVAL_S,
+      params={
+        "velocity_range": {"x": (-0.15, 0.15)},
+        "asset_cfg": SceneEntityCfg("board"),
+      },
+    )
 
   ##
   # Command: zero. The actor still sees the three command dims (as zeros).
@@ -292,6 +329,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
   twist.ranges.lin_vel_x = RIDE_SPEED_RANGE
   twist.rel_standing_envs = 0.1
+  # The board is meant to roll here: no shoving it.
+  cfg.events.pop("nudge_board", None)
 
   r = cfg.rewards
   del r["board_still"]

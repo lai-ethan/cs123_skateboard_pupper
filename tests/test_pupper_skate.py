@@ -13,6 +13,7 @@ import torch
 from conftest import get_test_device
 from rsl_rl.modules import MLP, EmpiricalNormalization
 
+from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import DECK_GEOM_NAME
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
   SKATE_BOARD_OFFSET,
@@ -30,6 +31,8 @@ from mjlab.tasks.pupper_gait.export import (
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
+  DECK_HEIGHT_RANGE,
+  PUSH_INTERVAL_S,
   RIDE_SPEED_RANGE,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -215,6 +218,9 @@ def test_track_board_velocity_peaks_at_the_commanded_speed():
 def balance_env():
   cfg = pupper_skate_balance_env_cfg()
   cfg.scene.num_envs = NUM_ENVS
+  # The nominal 0.10 m board with no shoves: what the keyframe was solved for.
+  for name in ("deck_height", "push_robot", "nudge_board"):
+    del cfg.events[name]
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
   yield env
   env.close()
@@ -338,3 +344,63 @@ def test_ride_env_steps_with_random_actions():
   command = env.command_manager.get_command("twist")
   assert command is not None and command[:, 0].min() >= 0.0
   env.close()
+
+
+##
+# Robustness: an unmeasured deck height and small shoves.
+##
+
+
+def test_balance_cfg_has_robustness_events():
+  events = pupper_skate_balance_env_cfg().events
+  assert events["deck_height"].mode == "startup"
+  assert PUSH_INTERVAL_S == (2.0, 4.0)
+  for name in ("push_robot", "nudge_board"):
+    assert events[name].mode == "interval"
+    assert events[name].interval_range_s == (2.0, 4.0)
+
+
+def test_ride_cfg_has_no_board_nudge():
+  events = pupper_skate_ride_env_cfg().events
+  assert "deck_height" in events and "push_robot" in events
+  assert "nudge_board" not in events
+
+
+def test_play_cfg_drops_pushes():
+  for make_cfg in (pupper_skate_balance_env_cfg, pupper_skate_ride_env_cfg):
+    events = make_cfg(play=True).events
+    assert "deck_height" in events
+    assert "push_robot" not in events and "nudge_board" not in events
+
+
+@pytest.fixture(scope="module")
+def robust_env():
+  cfg = pupper_skate_balance_env_cfg()
+  cfg.scene.num_envs = 8
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  yield env
+  env.close()
+
+
+def test_deck_height_is_randomized_per_env(robust_env):
+  env = robust_env
+  deck = env.sim.mj_model.geom(f"board/{DECK_GEOM_NAME}").id
+  nominal = float(env.sim.mj_model.geom_pos[deck, 2])
+  z = env.sim.model.geom_pos[:, deck, 2]
+  assert z.shape == (8,)
+  assert not torch.allclose(z, z[0].expand_as(z))
+  low, high = DECK_HEIGHT_RANGE
+  assert ((z >= nominal + low - 1e-6) & (z <= nominal + high + 1e-6)).all()
+
+
+@pytest.mark.slow
+def test_balance_env_survives_pushes(robust_env):
+  env = robust_env
+  env.reset()
+  actions = torch.zeros(8, 12, device=env.device)
+  for _ in range(150):  # 3 s: at least one push interval.
+    obs, reward, _, _, _ = env.step(actions)
+    assert torch.isfinite(reward).all()
+    for group in ("actor", "critic"):
+      values = obs[group]
+      assert isinstance(values, torch.Tensor) and torch.isfinite(values).all()

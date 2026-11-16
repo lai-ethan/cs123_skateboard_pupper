@@ -241,6 +241,42 @@ cd ~/pupper_gait_deploy
 | Wed Dec 2 | demo video due |
 | Thu Dec 3 | Demo Day |
 
+### Task 14: Robustness randomization for an unmeasured board
+
+The board is not measured yet, so the policy must tolerate a deck that is not exactly 0.10 m tall and must recover from small shoves. Add three event terms in `_skate_base_env_cfg` style shared code (both tasks get them unless noted), next to the existing board randomization.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Test: `tests/test_pupper_skate.py`
+
+**Interfaces:**
+- Consumes: `DECK_GEOM_NAME` from `mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants`; `dr.geom_pos` (`src/mjlab/envs/mdp/dr/geom.py`); `mdp.push_by_setting_velocity` (`src/mjlab/envs/mdp/events.py`). Read both functions' signatures before use.
+- Produces: event term names `deck_height`, `push_robot`, `nudge_board`, and module constants `DECK_HEIGHT_RANGE = (-0.015, 0.015)`, `PUSH_INTERVAL_S = (2.0, 4.0)`.
+
+Exact values:
+
+| Event name | Mode | Function | Target | Values |
+| --- | --- | --- | --- | --- |
+| `deck_height` | `startup` | `dr.geom_pos` | board geom `DECK_GEOM_NAME`, z axis only, operation `add` | `DECK_HEIGHT_RANGE = (-0.015, 0.015)` m |
+| `push_robot` | `interval`, `interval_range_s=PUSH_INTERVAL_S` | `mdp.push_by_setting_velocity` | robot root | `velocity_range = {"x": (-0.2, 0.2), "y": (-0.2, 0.2)}` (linear only) |
+| `nudge_board` | `interval`, `interval_range_s=PUSH_INTERVAL_S` | `mdp.push_by_setting_velocity` | board root (`SceneEntityCfg("board")`) | `velocity_range = {"x": (-0.15, 0.15)}` ; **balance task only** |
+
+Rules:
+- In `play=True` configs remove `push_robot` and `nudge_board` (the stock play branch already pops `push_robot`; make sure ours is added before that or popped again), and keep `deck_height`.
+- If `push_by_setting_velocity` overwrites the whole root velocity (check), that is acceptable for the robot; for the board it must not zero the deck-roll joint. If it cannot target the board's free root cleanly, write a small `mdp/events.py` in the skate package with `nudge_board_velocity(env, env_ids, x_range, asset_cfg)` that adds a sampled x velocity (board heading frame is fine as world x because board yaw stays within ±0.05 rad at reset) to the board root linear velocity, and export it from the skate `mdp/__init__.py`.
+- Do not change any reward, termination, observation or the keyframe.
+
+- [ ] **Step 1: Write failing tests** in `tests/test_pupper_skate.py`, following the file's existing style (plain functions; reuse its existing env-building helpers/fixtures):
+  - `test_balance_cfg_has_robustness_events`: the balance cfg has `deck_height`, `push_robot`, `nudge_board`; `deck_height` mode is `startup`; both push terms have `interval_range_s == (2.0, 4.0)`.
+  - `test_ride_cfg_has_no_board_nudge`: ride cfg has `deck_height` and `push_robot`, not `nudge_board`.
+  - `test_play_cfg_drops_pushes`: both tasks with `play=True` have neither `push_robot` nor `nudge_board`.
+  - `test_deck_height_is_randomized_per_env`: build the balance env on CPU with 8 envs (same way the file's existing env tests do), read the deck geom z position from the per-env model field, assert the values are not all equal and all lie within ±0.015 m of the nominal value.
+  - `test_balance_env_survives_pushes`: 8 envs, step 150 zero-action steps (3 s, covers at least one push interval); assert observations and rewards are finite.
+- [ ] **Step 2:** run `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py -q`; the new tests fail.
+- [ ] **Step 3:** implement.
+- [ ] **Step 4:** run `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q`; all pass. Run `uv run ruff format`, `uv run ruff check`, `uv run ty check` (`make check` has one known upstream pyright failure in `notebooks/watch_live.py:94`; anything else must be clean).
+- [ ] **Step 5:** add the three rows to the randomization list in `skateboard/README.md` if it has one, else skip. Commit `feat: add deck-height and push randomization to skate tasks`.
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
