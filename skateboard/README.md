@@ -75,10 +75,19 @@ FORCE_CPU=1 uv run play Mjlab-Skate-Balance-Pupper-v3 --agent zero
 
 1. Open `notebooks/CS123_Pupper_Skate.ipynb` in Colab (File → Open notebook → GitHub → this repo).
 2. Runtime → Change runtime type → G4 GPU.
-3. Paste your own W&B key in the login cell. Never commit a key.
-4. Run top to bottom. Balance first: 3,000 iterations, about 18 minutes.
+3. Optional: give it a W&B key, either pasted in the W&B cell or stored once as
+   the Colab secret `WANDB_API_KEY`. Without one the run logs to TensorBoard
+   only and `policy.json` stays on the runtime (no W&B upload for `deploy.sh`).
+   Never commit a key.
+4. Set the task in section 3 (Balance first), then Runtime → Run all. Nothing
+   prompts. 1,500 iterations take about 9 minutes. You can also run the cells
+   one at a time.
+5. Read the last line of section 7, *Did it pass?*: `RESULT: PASS` or
+   `RESULT: FAIL`, with the numbers above it. The same check works on any run
+   from the repo root: `python skateboard/tools/run_summary.py <task-id>`.
 
-Pass criteria and what to change when a run fails are in Tasks 9 and 11 of the plan.
+The thresholds live in `PASS_CRITERIA` in `tools/run_summary.py`. What to change
+when a run fails is in Tasks 9 and 11 of the plan.
 
 ### 4. Robot
 

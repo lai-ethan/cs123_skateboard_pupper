@@ -277,6 +277,78 @@ Rules:
 - [ ] **Step 4:** run `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q`; all pass. Run `uv run ruff format`, `uv run ruff check`, `uv run ty check` (`make check` has one known upstream pyright failure in `notebooks/watch_live.py:94`; anything else must be clean).
 - [ ] **Step 5:** add the three rows to the randomization list in `skateboard/README.md` if it has one, else skip. Commit `feat: add deck-height and push randomization to skate tasks`.
 
+### Task 15: Notebook that runs unattended and by hand
+
+The same notebook must work two ways: a person opens it and runs cells, or "Runtime → Run all" trains and prints a verdict with no prompts. Today the W&B cell blocks on an interactive prompt when no key is pasted, and there is no pass/fail readout.
+
+**Files:**
+- Create: `skateboard/tools/run_summary.py`
+- Create: `tests/test_skate_run_summary.py`
+- Modify: `skateboard/tools/make_notebook.py`, then regenerate `notebooks/CS123_Pupper_Skate.ipynb` with `python3 skateboard/tools/make_notebook.py notebooks/CS123_Pupper_mjlab.ipynb notebooks/CS123_Pupper_Skate.ipynb`
+- Modify: `skateboard/README.md` (the "how to train" steps)
+
+**Interfaces:**
+- Produces: `run_summary.py` with
+  - `PASS_CRITERIA: dict[str, dict[str, float]]` = `{"Mjlab-Skate-Balance-Pupper-v3": {"Train/mean_episode_length": 450.0, "Episode_Reward/feet_on_deck": 1.8}, "Mjlab-Skate-Ride-Pupper-v3": {"Train/mean_episode_length": 450.0, "Episode_Reward/track_board_velocity": 2.0}}` (each value is a minimum).
+  - `latest_run_dir(log_root: Path) -> Path` — newest directory matching `log_root/*/*` by mtime; raises `FileNotFoundError` with a clear message if none.
+  - `read_scalars(run_dir: Path, last_n: int = 20) -> dict[str, float]` — for every scalar tag in the run's TensorBoard event files, the mean of its last `last_n` points.
+  - `verdict(task: str, scalars: dict[str, float]) -> list[tuple[str, float, float, bool]]` — one `(tag, value, minimum, passed)` per criterion; a missing tag counts as failed with value `nan`.
+  - CLI: `python skateboard/tools/run_summary.py <task-id> [--log-root logs/rsl_rl] [--run-dir DIR]` prints the iteration count, every `Train/*`, `Episode_Reward/*` and `Episode_Termination/*` scalar sorted by tag, then one `PASS`/`FAIL` line per criterion and a final `RESULT: PASS` or `RESULT: FAIL`. Exit code 0 either way.
+- The exact scalar tag names rsl_rl writes are not guaranteed to be the names above. Find the real tags first: `logs/rsl_rl/` in the repo already holds a short local run; if not, make one with `FORCE_CPU=1 CUDA_VISIBLE_DEVICES="" WANDB_MODE=disabled uv run train Mjlab-Skate-Balance-Pupper-v3 --gpu-ids None --env.scene.num-envs 64 --agent.max-iterations 2 --agent.logger tensorboard` (about a minute). If the episode-length tag is spelled differently, use the real spelling in `PASS_CRITERIA` and say so in the report.
+
+Notebook changes (all in `make_notebook.py`; never hand-edit the `.ipynb`):
+
+1. **Settings cell** (the existing task cell) becomes:
+```python
+TASK = "Mjlab-Skate-Balance-Pupper-v3"
+NUM_ENVS = 4096  # halve it if you hit GPU OOM
+ITERATIONS = 1500
+WATCH_LIVE = False  # True: start the live viewer before training
+OPEN_VIEWER = True  # False: skip the interactive viewer at the end
+```
+2. **W&B cell** replaces the course cell. No interactive prompt, ever:
+```python
+WANDB_API_KEY = ""  # optional: paste a key, or store it as the Colab secret WANDB_API_KEY
+
+import os
+
+if not WANDB_API_KEY:
+  try:
+    from google.colab import userdata
+
+    WANDB_API_KEY = userdata.get("WANDB_API_KEY") or ""
+  except Exception:
+    WANDB_API_KEY = ""
+
+if WANDB_API_KEY:
+  import wandb
+
+  os.environ["WANDB_API_KEY"] = WANDB_API_KEY
+  wandb.login(key=WANDB_API_KEY, relogin=True)
+  LOGGER = "wandb"
+else:
+  LOGGER = "tensorboard"
+  print("No W&B key: logging to TensorBoard only. policy.json stays on this runtime.")
+print("logger:", LOGGER)
+```
+   Rewrite the markdown above it to say the key is optional and what you lose without it (W&B curves and the automatic `policy.json` upload needed for `deploy.sh`).
+3. **Watch-live cell:** wrap its body in `if WATCH_LIVE:`.
+4. **Train cell:** `agent_cfg.logger = LOGGER` instead of the hard-coded `"wandb"`.
+5. **New "Results" cell** right after the train cell (markdown heading `## 7. Did it pass?` plus code): `!python skateboard/tools/run_summary.py {TASK}`.
+6. **Viewer cell:** wrap its body in `if OPEN_VIEWER:`. Fix the duplicated section numbers so headings count 1..N in order.
+7. The top markdown says: "Run all works unattended; or run cells one at a time."
+
+- [ ] **Step 1: Failing tests** in `tests/test_skate_run_summary.py` (load the script by path with `importlib.util`, since `skateboard/` is not a package). Write event files with `torch.utils.tensorboard.SummaryWriter` into `tmp_path / "exp" / "run1"`:
+  - `test_read_scalars_averages_last_points`: tag with 30 points 0..29, `last_n=10` → 24.5.
+  - `test_latest_run_dir_picks_newest` and `test_latest_run_dir_raises_when_empty`.
+  - `test_verdict_passes_and_fails`: balance task, scalars at 480/1.9 → all passed; at 480/1.0 → second failed; missing tag → failed with nan.
+  - `test_cli_prints_result_line`: run `main([...])` with `--run-dir`, capture stdout, assert it ends with `RESULT: PASS` for passing data.
+  - `test_notebook_has_no_interactive_login`: load `notebooks/CS123_Pupper_Skate.ipynb`; no code cell contains a bare `wandb.login()`; some cell contains `run_summary.py`; the train cell contains `agent_cfg.logger = LOGGER`.
+- [ ] **Step 2:** run them, see them fail.
+- [ ] **Step 3:** implement, regenerate the notebook.
+- [ ] **Step 4:** `FORCE_CPU=1 uv run pytest tests/test_skate_run_summary.py tests/test_pupper_skate.py -q` passes; `uv run ruff format`, `uv run ruff check`, `uv run ty check` clean for the files you touched (notebook-level ruff errors inherited from the course notebook are known; do not add new ones).
+- [ ] **Step 5:** update `skateboard/README.md` training steps to match (key optional, Run all, read the `RESULT:` line). Commit `feat: make skate notebook run unattended with a pass/fail summary`.
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
