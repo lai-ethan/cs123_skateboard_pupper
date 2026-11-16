@@ -7,7 +7,7 @@ Shared by `render_policy.py` and `gait_report.py`. Takes a training checkpoint
 import json
 from dataclasses import asdict
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 
@@ -25,12 +25,14 @@ def load_policy(
   *,
   render_mode: str | None = None,
   viewer: dict[str, float] | None = None,
+  configure: Callable[[Any], None] | None = None,
 ) -> tuple[ManagerBasedRlEnv, RslRlVecEnvWrapper, Callable]:
   """One env in play mode, its rsl_rl wrapper, and `policy(obs) -> actions`.
 
   `speed` fixes the board speed command in m/s (ride); None keeps the task's
   range. `render_mode` and `viewer` (attributes set on the env's viewer config)
-  are only needed for rendering.
+  are only needed for rendering. `configure(env_cfg)`, if given, edits the env
+  config after the edits above and before the env is built.
   """
   device = "cuda" if torch.cuda.is_available() else "cpu"
   env_cfg = load_env_cfg(task, play=True)
@@ -41,6 +43,8 @@ def load_policy(
     twist = env_cfg.commands["twist"]
     assert isinstance(twist, PupperVelocityCommandCfg)
     twist.ranges.lin_vel_x = (speed, speed)
+  if configure is not None:
+    configure(env_cfg)
   agent_cfg = load_rl_cfg(task)
   raw = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
   env = RslRlVecEnvWrapper(raw, clip_actions=agent_cfg.clip_actions)
