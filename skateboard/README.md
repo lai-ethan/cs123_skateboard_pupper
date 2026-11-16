@@ -124,8 +124,8 @@ FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pu
 
 The last line is `GAIT: PASS` or `GAIT: FAIL`. Expect `GAIT: PASS` for balance
 and `GAIT: FAIL` for the saved ride policy: its legs move too fast and its
-motors sit at the torque limit. The numbers change a little between runs; the
-verdict does not.
+motors sit at the torque limit. The numbers change between runs (the play env
+is unseeded). Single rows can flip; the overall verdict has not.
 
 Each video takes about a minute on a Mac. The balance run kept only its
 exported `policy.json`, so it replays through `render_policy.py`, not `play`.

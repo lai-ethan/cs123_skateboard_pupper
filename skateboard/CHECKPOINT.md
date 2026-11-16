@@ -15,7 +15,7 @@ Balance is the only robot candidate. The ride policy passes the curve check but 
 - Board model, split stance (left feet on deck, right feet on floor), both tasks, tests and the Colab notebook are in this repo.
 - Default reward weights passed the curve check for both tasks. For ride, that check missed the gait.
 - Each run has a `policy.json` in its W&B Files. Only the balance ones are for the robot.
-- Gait check (`skateboard/tools/gait_report.py`, ride at 0.4 m/s): balance prints `GAIT: PASS`; ride prints `GAIT: FAIL` (peak joint speed 24 to 26 rad/s against a limit of 8, a motor at the torque limit in almost every step, and the right feet stepping more than 2 times per second). The numbers change a little between runs because the play env is unseeded; the verdict does not.
+- Gait check (`skateboard/tools/gait_report.py`): balance prints `GAIT: PASS`; ride at 0.4 m/s prints `GAIT: FAIL` (99th-percentile joint speed 24 to 26 rad/s against a limit of 8, a motor at the torque limit in almost every step, and the right feet stepping more than 2 times per second). The numbers change between runs because the play env is unseeded. Single rows can flip; the overall verdict has not.
 - The ride rewards were reshaped for the motors (PLAN Task 16). Ride needs a fresh 1500-iteration run with them; see PLAN Task 11.
 - The ride run is the full 1500 iterations (Colab Pro T4, 55 min). An earlier ride run, `me6p0pdw`, stopped at iteration ~1120; use `29p4j81t`.
 - Sim videos of both policies are in `skateboard/media/`; the policy files are in `skateboard/policies/`. To replay them, see step 4 of `skateboard/README.md`.

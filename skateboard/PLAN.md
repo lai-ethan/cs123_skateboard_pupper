@@ -75,7 +75,11 @@ Positive terms are `exp(-error²/std²)` or contact counts, so the weight is the
 | `board_still` | -2.0 | none | `board_speed_l2` | |
 | `track_board_velocity` | none | 3.0 | `track_board_velocity` | board forward speed vs command, std 0.15 |
 | `board_yaw_rate` | none | -0.5 | `board_yaw_rate_l2` | |
-| `push_air_time` | none | 0.5 | `feet_air_time` | right-foot strides of 0.05 to 0.4 s, only when command > 0.1 |
+| `push_stride` | none | 0.3 | `push_stride` | one payment per right-foot stride: planted about 0.4 s, swing 0.1 to 0.5 s, only when command > 0.1 |
+| `push_leg_pose` | none | 0.3 | `stance_pose` | right-leg joints near the stance, std 0.6 |
+| `joint_vel_l2` | none | -1e-3 | stock | |
+| `joint_speed_limit` | none | -0.02 | `joint_speed_over_limit` | speed above 8 rad/s (a guess at the motor limit) |
+| `torque_saturation` | none | -0.5 | `torque_saturation` | torque above 80% of the 3 N·m limit |
 | `action_rate_l2` | -0.01 | -0.01 | stock | |
 | `joint_torques_l2` | -2e-4 | -2e-4 | stock | |
 | `termination` | -100 | -100 | `is_terminated` | |
@@ -567,6 +571,103 @@ JOINT_SPEED_LIMIT: float = 8.0
   - `skateboard/CHECKPOINT.md`: read it, then correct any statement that the ride policy is ready for, or next in line for, the robot; say the gait fails the gait check and ride will be retrained first.
   - Plain language, short sentences, no em-dash asides, matching the surrounding docs.
 - [ ] **Step 3:** `FORCE_CPU=1 uv run pytest tests/test_skate_run_summary.py tests/test_skate_gait_report.py -q` pass; `uv run ruff format` and `uv run ruff check` clean for `make_notebook.py` (notebook-level ruff errors inherited from the course notebook are known; add no new ones). Commit `docs: notebook and docs for the reshaped ride rewards and gait check`.
+
+### Task 19: Stance audit tool (sim2real check on the pose)
+
+A TA doubted that Pupper can stay balanced in the split stance on the real
+board. This tool measures how much margin the stance has in simulation when
+the board, the motors and the placement are wrong, so the answer is a table
+and not a guess. It does not train anything and changes no task.
+
+**Files:**
+- Create: `skateboard/tools/stance_audit.py`
+- Modify: `skateboard/tools/policy_loader.py` (one optional keyword)
+- Test: `tests/test_skate_stance_audit.py`
+
+**Interfaces:**
+- Consumes: `load_policy(task, policy_path, speed, *, render_mode, viewer)`
+  from `skateboard/tools/policy_loader.py` (Task 17). A working, unpolished
+  prototype of the whole rollout is at
+  `.superpowers/sdd/PLAN/audit-prototype.py`; it shows which event names,
+  sensors and data fields to use. Port its behaviour, not its style.
+- Produces: `support_margin`, `lifted_foot_margins`, `condition_verdict`,
+  `CONDITIONS`, `STANCE_LIMITS`, and a command line that ends with
+  `STANCE: PASS` or `STANCE: FAIL`.
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_skate_stance_audit.py`
+  (load the module by path, the same way `tests/test_skate_gait_report.py`
+  does). Pure numpy, no simulator:
+  - `support_margin(feet_xy, com_xy)`: `feet_xy` is `(N, 2)`, `com_xy` is
+    `(2,)`. Returns the signed distance in metres from the point to the
+    nearest edge of the convex hull of the feet, positive inside. Cases: unit
+    square `[(0,0),(1,0),(1,1),(0,1)]` with the point `(0.5, 0.5)` gives 0.5;
+    `(0.5, 0.1)` gives 0.1; `(0.5, -0.2)` gives -0.2. The result must not
+    depend on the order of the feet.
+  - `lifted_foot_margins(feet_xy, com_xy, names)`: returns
+    `{name: support_margin of the other feet}` for every foot. Case: the unit
+    square with the point `(0.4, 0.4)` and names `a, b, c, d` in the order
+    above: lifting `a` (the corner at the origin) gives a negative margin
+    (about -0.141), lifting `c` gives a positive margin (about +0.141).
+  - `condition_verdict(row)` with `STANCE_LIMITS`: a row with `resets` 0,
+    `min_deck_contact` 1.0, `max_torque_use` 0.2 and `margin` 0.06 passes;
+    changing any one of them to `resets` 1, `min_deck_contact` 0.5,
+    `max_torque_use` 0.8 or `margin` 0.01 fails.
+  - `STANCE_LIMITS == {"min_deck_contact": 0.9, "max_torque_use": 0.6,
+    "margin": 0.03}` and every entry of `CONDITIONS` uses only the override
+    keys listed in Step 3.
+- [ ] **Step 2: Run them and see them fail.**
+  `FORCE_CPU=1 uv run pytest tests/test_skate_stance_audit.py -q`
+- [ ] **Step 3: Implement.**
+  - `policy_loader.load_policy` gains a keyword `configure: Callable[[Any],
+    None] | None = None`, called with the env config after the existing
+    edits and before the env is built. Existing callers are unchanged.
+  - `stance_audit.py` keeps heavy imports inside `main` (as `gait_report.py`
+    does) so the tests stay cheap. Use `scipy.spatial.ConvexHull` (scipy is a
+    project dependency) or plain numpy for the hull.
+  - Override keys (all optional floats, defaults in brackets): `deck` (0,
+    metres added to deck height), `truck` (1, truck stiffness scale), `mu`
+    (0.9, deck friction), `kp` (1, position gain scale), `effort` (3.0, N·m),
+    `board_x`, `board_y`, `board_yaw`, `robot_yaw` (0; reset pose offsets in
+    m and rad), `joint_offset` (0, rad, uniform ± at reset), `push_y` (0, m/s
+    added to the robot's sideways velocity at step 200), `board_kick` (0, m/s
+    added to the board's forward velocity at step 200), `zero_action` (0; 1
+    replaces the policy with zero actions).
+  - Every condition pins the other randomized events to fixed values the way
+    the prototype does (wheel friction 0.85, board inertia unchanged), so one
+    condition changes one thing.
+  - `CONDITIONS` (name: overrides), in this order:
+    `baseline {}`, `zero_action {zero_action: 1}`, `deck+3cm {deck: 0.03}`,
+    `deck-3cm {deck: -0.03}`, `truck_x0.25 {truck: 0.25}`,
+    `deck_mu_0.3 {mu: 0.3}`, `kp_x0.6 {kp: 0.6}`, `effort_1.0 {effort: 1.0}`,
+    `board_y+4cm {board_y: 0.04}`, `board_y-4cm {board_y: -0.04}`,
+    `board_yaw_0.2 {board_yaw: 0.2}`, `joint_offset_0.3 {joint_offset: 0.3}`,
+    `push_left_0.6 {push_y: 0.6}`, `push_right_0.6 {push_y: -0.6}`,
+    `board_kick_0.8 {board_kick: 0.8}`,
+    `worst_combo {deck: 0.02, truck: 0.25, mu: 0.4, kp: 0.7, effort: 2.0}`.
+  - Per condition: one env, 500 steps, measure after the first 100. Row
+    fields: `resets` (count over the measured steps), `min_deck_contact`
+    (lowest per-foot contact share of the two deck feet), `max_torque_use`
+    (largest per-joint mean `|actuator_force|` divided by the condition's
+    effort limit), `roll_deg` (mean), `board_travel` (m), `margin`
+    (`support_margin` of the mean foot positions and mean centre of mass, in
+    m), `lift_front_right` and `lift_rear_right` (from
+    `lifted_foot_margins`; reported, not part of the verdict).
+  - Command line: `stance_audit.py [policy] [--conditions a,b,c]`. `policy`
+    defaults to `skateboard/policies/balance_2ace1uqa_policy.json`; the task
+    is always `Mjlab-Skate-Balance-Pupper-v3`. An unknown condition name is
+    an `ap.error`. Print one line per condition with `PASS`/`FAIL` and the
+    row, then `STANCE: PASS` only if every condition run passed.
+  - Module docstring: what it is for, the usage line, that a full run takes
+    about a minute per condition on a Mac, and that a pass here says nothing
+    about the real board's size, grip or the legs' backlash.
+- [ ] **Step 4: Run.** Tests pass. Then
+  `FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py --conditions baseline,zero_action,effort_1.0,board_kick_0.8`
+  and record the output in the report. Expected for `baseline`: no resets,
+  margin about 0.066, `lift_front_right` and `lift_rear_right` negative
+  (about -0.02 and -0.01). If the numbers disagree with that by a lot, report
+  it; do not tune limits.
+- [ ] **Step 5:** ruff format, ruff check, ty on the touched files; commit
+  `feat: add a stance audit tool for sim2real margin checks`.
 
 ## Self-review
 
