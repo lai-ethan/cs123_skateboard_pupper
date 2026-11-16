@@ -80,7 +80,7 @@ FORCE_CPU=1 uv run play Mjlab-Skate-Balance-Pupper-v3 --agent zero
    only and `policy.json` stays on the runtime (no W&B upload for `deploy.sh`).
    Never commit a key.
 4. Set the task in section 3 (Balance first), then Runtime → Run all. Nothing
-   prompts. 1,500 iterations take about 9 minutes. You can also run the cells
+   prompts. 1,500 iterations take about 9 minutes on a G4, about 55 on a T4. You can also run the cells
    one at a time.
 5. Read the last line of section 7, *Did it pass?*: `RESULT: PASS` or
    `RESULT: FAIL`, with the numbers above it. The same check works on any run

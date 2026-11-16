@@ -205,8 +205,8 @@ out = [
   md(
     "## 6. Train 🚀\n\n"
     "*Watch it live* starts a viewer when `WATCH_LIVE = True`; the training cell\n"
-    "after it takes about 9 min for 1,500 iterations on the G4. The stop button is\n"
-    "safe.\n\n"
+    "after it takes about 9 min for 1,500 iterations on the G4 (about 55 on a T4).\n"
+    "The stop button is safe.\n\n"
     "What to watch on W&B (or TensorBoard without a key):\n\n"
     "- `Train/mean_episode_length`: 500 is a full 10 s episode.\n"
     "- `Episode_Reward/feet_on_deck`: 2.0 means both left feet on the deck all"
