@@ -43,8 +43,9 @@ def load_policy(
   """One env in play mode, its rsl_rl wrapper, and `policy(obs) -> actions`.
 
   `speed` fixes the board speed command in m/s (ride) and turns off standing
-  commands (see `fix_speed`); None keeps the task's range and standing share. `render_mode` and `viewer` (attributes set on the env's viewer config)
-  are only needed for rendering. `configure(env_cfg)`, if given, edits the env
+  commands (see `fix_speed`); None keeps the task's range and standing share.
+  `render_mode` and `viewer` (attributes set on the env's viewer config) are
+  only needed for rendering. `configure(env_cfg)`, if given, edits the env
   config after the edits above and before the env is built.
   """
   device = "cuda" if torch.cuda.is_available() else "cpu"

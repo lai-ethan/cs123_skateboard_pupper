@@ -241,6 +241,8 @@ FORCE_CPU=1 uv run python skateboard/tools/check_stance.py 0.14 0.17 <the 12 ang
 
 ### Task 12: First real run
 
+Do the steps in [`SIM2REAL.md`](SIM2REAL.md) first (measure the board, fit test).
+
 - [ ] **Step 1:** show a TA the sim video and get a sign-off. Balance policy first, ride later.
 - [ ] **Step 2:** tape or wedge the board's wheels for the first balance run so it cannot roll.
 - [ ] **Step 3:** on the robot (over SSH):
@@ -554,6 +556,7 @@ JOINT_SPEED_LIMIT: float = 8.0
 - [ ] **Step 4: run it on the two saved policies** and paste the output into your report:
   - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4` — expected `GAIT: FAIL` (this is the windmill policy; peak joint speed far above 8 rad/s).
   - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json` — expected `GAIT: PASS`.
+  - Added after the final review: a fifth row, `board_speed_ratio` (mean forward board speed divided by `--speed`, `("min", 0.5)`), and `--speed` turns off standing commands. Deck-height randomization is still plus or minus 1.5 cm; `SIM2REAL.md` says to widen it.
   - If either verdict is not the expected one, report DONE_WITH_CONCERNS with the numbers; do not change `GAIT_LIMITS` to force it.
   - Also confirm the refactored renderer still works: `FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json /tmp/sdd_render_check/balance.mp4 --steps 50` writes the mp4 (delete that folder afterwards).
 - [ ] **Step 5: training-curve check.** In `run_summary.py`, add to the ride entry of `PASS_CRITERIA`: `"Episode_Reward/joint_speed_limit": -0.1` and `"Episode_Reward/torque_saturation": -0.2` (both are penalties logged as weight × mean cost, so "at least" a small negative number means the penalty is rarely paid). Add a test in `tests/test_skate_run_summary.py` that a ride run with good length and tracking but `Episode_Reward/joint_speed_limit` of -0.5 gets `RESULT: FAIL`, and passes at -0.01 with `torque_saturation` -0.05. Update any existing ride test there that now lacks the two tags.

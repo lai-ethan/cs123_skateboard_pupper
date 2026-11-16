@@ -19,6 +19,7 @@ has all four feet on the board. The right legs balance, and later push.
 | Tasks: scene, rewards, terminations | [`src/mjlab/tasks/pupper_skate/`](../src/mjlab/tasks/pupper_skate/) |
 | Tests | `tests/test_pupper_skate.py`, `tests/test_pupper_skateboard.py` |
 | Stance helper scripts, video renderer, pass check, gait report | [`tools/`](tools/) |
+| Sim2real: stance margins, what sim cannot show, steps before the first real run | [`SIM2REAL.md`](SIM2REAL.md) |
 | Trained policies, sim videos | [`policies/`](policies/), [`media/`](media/) |
 
 ## Status
