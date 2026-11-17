@@ -874,7 +874,8 @@ the Colab notebook and the docs in line. Nothing here changes training.
   limits stay. Report the three-foot margins for all four feet (lift FR, FL,
   BR, BL). Deck-height conditions become offsets that fit the new range:
   -0.035, -0.02, +0.01, +0.02, +0.03. Board sideways offsets become ±0.01
-  and ±0.02 m (the feet are 1 cm inside the deck edge). Update the tests.
+  and ±0.02 m (the feet are 1.5 to 2 cm inside the deck edge). Update the
+  tests.
 - [ ] **Step 4: notebook.** In `make_notebook.py` make the reward table, the
   `REWARD_WEIGHTS` cell and the "what to watch" text match Task 20 exactly
   (names and weights from the Interfaces block; for anything not listed, read
@@ -887,17 +888,25 @@ the Colab notebook and the docs in line. Nothing here changes training.
     wheelbase 365 mm marked less accurate, mass 1.8 kg marked guess); stance
     described as centred; tool usage lines that changed.
   - `README.md`: the two skate rows say centred stance / push with one foot.
+    If `CLAUDE.md` at the repo root is a separate file and not a link to
+    `README.md`, make the same change there.
   - `skateboard/SIM2REAL.md`: add a dated section at the top, "Update
     2026-11-16: centred stance", saying: the stance is now centred on the
     measured board; the results table below is for the old split stance and
-    has not been rerun; the feet sit about 1 cm inside the deck edge, so
-    sideways placement is the new thing to check; from this stance a foot
+    has not been rerun; the feet sit 1.5 to 2 cm inside the deck edge
+    (front feet 6.6 cm and back feet 6.0 cm from the centre line, deck half
+    width 8.05 cm), so sideways placement is the new thing to check; with
+    no policy and the usual spawn noise about 9% of spawns tip over, so the
+    trained policy has to correct a small sideways error; a deck plate about
+    20 cm wide would remove the problem; from this stance a foot
     cannot reach the floor on the stock trucks (floor 18.6 cm below the base,
     leg reach about 17 cm) unless the body drops or rolls, and it can on a
     7 cm deck. Plain language, short sentences, no em dashes.
 - [ ] **Step 6:** run
   `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`,
-  `make check`; commit
+  then ruff format, ruff check and ty on the touched files (`make check`
+  also runs pyright, which fails on `notebooks/watch_live.py`, a file
+  outside this work); commit
   `feat: update skate tools, notebook and docs for the centred stance`.
 
 ## Self-review
