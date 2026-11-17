@@ -161,13 +161,17 @@ def push_stroke(
   stroke_s: float,
   command_name: str,
   command_threshold: float,
+  speed_fraction: float,
+  board_cfg: SceneEntityCfg = _BOARD,
 ) -> torch.Tensor:
   """Reward planted pushes against the floor, paid once as the foot lifts off.
 
   A stroke is the floor contact that just ended. It scores
   min(stroke / stroke_s, 1), so quick taps earn little. The score is divided by
   the step so the weight is the reward for one full stroke. Paid only above
-  ``command_threshold`` m/s of commanded speed.
+  ``command_threshold`` m/s of commanded speed, and only while the board's
+  forward speed is under ``speed_fraction`` of the command, so tapping on a
+  board that already rolls fast enough earns nothing.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   air_time, stroke_time = sensor.data.current_air_time, sensor.data.last_contact_time
@@ -175,6 +179,50 @@ def push_stroke(
   lifted = (air_time > 0.0) & (air_time < env.step_dt + 1.0e-6)
   score = torch.clamp(stroke_time / stroke_s, max=1.0)
   reward = torch.sum(score * lifted.float(), dim=1) / env.step_dt
+  return reward * _needs_push(
+    env, command_name, command_threshold, speed_fraction, board_cfg
+  )
+
+
+def foot_reach(
+  env: ManagerBasedRlEnv,
+  std: float,
+  foot_radius: float,
+  command_name: str,
+  command_threshold: float,
+  speed_fraction: float,
+  foot_cfg: SceneEntityCfg,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the lowest foot getting close to the floor, exp(-clearance / std).
+
+  ``clearance`` is the gap between the lowest foot's underside and the floor
+  (z = 0): the smallest foot site height minus ``foot_radius``, at least 0. A
+  foot on the deck is a deck height up, so this pays little until a foot goes
+  over the edge and down. Paid only when a push is needed: the command is
+  above ``command_threshold`` m/s and the board's forward speed is under
+  ``speed_fraction`` of it.
+  """
+  robot: Entity = env.scene[foot_cfg.name]
+  foot_z = robot.data.site_pos_w[:, foot_cfg.site_ids, 2]
+  clearance = torch.clamp(torch.min(foot_z, dim=1).values - foot_radius, min=0.0)
+  reward = torch.exp(-clearance / std)
+  return reward * _needs_push(
+    env, command_name, command_threshold, speed_fraction, board_cfg
+  )
+
+
+def _needs_push(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  command_threshold: float,
+  speed_fraction: float,
+  board_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """1.0 where a speed is commanded and the board rolls slower than its share."""
+  board: Entity = env.scene[board_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None
-  return reward * (command[:, 0] > command_threshold).float()
+  speed = command[:, 0]
+  board_vx = board.data.root_link_lin_vel_b[:, 0]
+  return ((speed > command_threshold) & (board_vx < speed_fraction * speed)).float()

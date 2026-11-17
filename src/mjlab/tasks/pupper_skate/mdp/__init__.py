@@ -13,6 +13,7 @@ from .rewards import (  # noqa: F401
   board_yaw_rate_l2,
   contact_count,
   deck_roll_l2,
+  foot_reach,
   gravity_tracking,
   joint_speed_over_limit,
   push_stroke,

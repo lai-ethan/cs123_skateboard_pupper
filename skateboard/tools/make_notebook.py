@@ -43,6 +43,23 @@ setup = setup.replace(
   'REPO_URL = "https://github.com/lai-ethan/cs123_skateboard_pupper.git"  # team repo',
 )
 assert "cs123_skateboard_pupper" in setup and 'BRANCH = "main"' in setup
+# Rerunning the cell on a runtime that already has the repo pulls the latest
+# commit instead of keeping the old one.
+CLONE = """\
+if not os.path.exists("/content/pupper-mjlab"):
+  !git clone --branch {BRANCH} --depth 1 {REPO_URL} /content/pupper-mjlab
+"""
+assert CLONE in setup
+setup = setup.replace(
+  CLONE,
+  CLONE
+  + """\
+else:
+  !git -C /content/pupper-mjlab fetch --depth 1 origin {BRANCH}
+  !git -C /content/pupper-mjlab reset --hard FETCH_HEAD
+""",
+)
+assert "reset --hard FETCH_HEAD" in setup
 
 watch_live = text(15)
 assert watch_live.startswith("import subprocess")
@@ -184,6 +201,8 @@ out = [
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
+    "| `foot_reach` | n/a | 0.5 | the lowest foot gets close to the floor while"
+    " the board is too slow |\n"
     "| `push_stroke` | n/a | 0.3 | a foot pushes against the floor; paid once as"
     " it lifts, in full for a 0.25 s stroke |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
@@ -211,6 +230,7 @@ out = [
     "  REWARD_WEIGHTS.update({\n"
     '    "track_board_velocity": 3.0,\n'
     '    "board_yaw_rate": -0.5,\n'
+    '    "foot_reach": 0.5,\n'
     '    "push_stroke": 0.3,\n'
     '    "joint_vel_l2": -0.001,\n'
     '    "joint_speed_limit": -0.02,\n'
@@ -235,8 +255,11 @@ out = [
     " episode (ride pays half, so 2.0). Balance passes at 3.6.\n"
     "- Balance: `Episode_Reward/feet_on_ground` should stay near 0.\n"
     "- `Episode_Termination/*`: which termination ends episodes.\n"
-    "- Ride only: `Episode_Reward/track_board_velocity` (3.0 is perfect) and\n"
-    "  `Episode_Reward/push_stroke` (above 0 means a foot is pushing).\n"
+    "- Ride only: `Episode_Reward/track_board_velocity` (3.0 is perfect),\n"
+    "  `Episode_Reward/foot_reach` (above 0 means a foot reaches for the floor)\n"
+    "  and `Episode_Reward/push_stroke` (above 0 means a foot is pushing). Both\n"
+    "  should rise above zero within about 300 iterations. If both stay at zero,\n"
+    "  stop the ride run: it is not learning to push.\n"
   ),
   md(watch_live_md),
   code(only_if("WATCH_LIVE", watch_live)),
@@ -252,11 +275,12 @@ out = [
   md(
     "### Gait check (ride)\n\n"
     "Curves can pass while the gait is one the robot cannot do. This rolls out the\n"
-    "newest checkpoint at 0.4 m/s and checks joint speed, torque, how the feet\n"
-    "step off and back onto the deck and that the board rolls at half the command\n"
-    "or faster. It also prints each foot's time on the floor, so you can see which\n"
-    "foot pushes. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video\n"
-    "too before trusting a pass.\n"
+    "newest checkpoint at 0.4 m/s and checks joint speed, torque, that each foot\n"
+    "touches the deck or floor most of the time, how often a foot lands on the\n"
+    "floor and that the board rolls at half the command or faster. It also\n"
+    "prints each foot's time on the floor, so you can see which foot pushes. The\n"
+    "last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too before\n"
+    "trusting a pass.\n"
   ),
   code(GAIT_CELL),
   md(viewer_md),

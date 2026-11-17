@@ -35,18 +35,23 @@ def test_gait_limits():
 def _calm_gait():
   joint_vel = np.full((T, 12), 2.0)
   torque = np.full((T, 12), 1.0)
-  # One foot steps off and back every second; the other three stay on the deck.
-  on = (np.arange(T) % 50 < 40).astype(float)
-  contact = np.stack([on, np.ones(T), np.ones(T), np.ones(T)], axis=1)
-  return joint_vel, torque, contact
+  # One foot pushes once a second: 0.6 s on the deck, 0.2 s in the air, 0.2 s on
+  # the floor. The other three stay on the deck.
+  phase = np.arange(T) % 50
+  deck = np.ones((T, 4))
+  deck[:, 0] = (phase < 30).astype(float)
+  ground = np.zeros((T, 4))
+  ground[:, 0] = (phase >= 40).astype(float)
+  return joint_vel, torque, deck, ground
 
 
 def test_calm_gait_passes():
-  joint_vel, torque, contact = _calm_gait()
+  joint_vel, torque, deck, ground = _calm_gait()
   metrics = gr.gait_metrics(
     joint_vel,
     torque,
-    contact,
+    deck,
+    ground,
     DT,
     EFFORT,
     board_speed=np.full(T, 0.38),
@@ -70,12 +75,16 @@ def test_windmill_gait_fails():
   joint_vel[steps % 20 == 0, 0] = 39.0
   torque = np.zeros((T, 12))
   torque[steps % 2 == 1, 1] = 3.0
-  contact = np.ones((T, 4))
-  contact[:, 2] = (steps % 16 == 0).astype(float)
+  deck = np.ones((T, 4))
+  deck[:, 2] = 0.0
+  # Foot 2 hardly touches anything, and lands on the floor about 3 times a second.
+  ground = np.zeros((T, 4))
+  ground[:, 2] = (steps % 16 == 0).astype(float)
   metrics = gr.gait_metrics(
     joint_vel,
     torque,
-    contact,
+    deck,
+    ground,
     DT,
     EFFORT,
     board_speed=np.full(T, 0.1),
@@ -89,11 +98,12 @@ def test_windmill_gait_fails():
 
 
 def test_still_board_fails_only_on_board_speed():
-  joint_vel, torque, contact = _calm_gait()
+  joint_vel, torque, deck, ground = _calm_gait()
   metrics = gr.gait_metrics(
     joint_vel,
     torque,
-    contact,
+    deck,
+    ground,
     DT,
     EFFORT,
     board_speed=np.zeros(T),
@@ -106,11 +116,12 @@ def test_still_board_fails_only_on_board_speed():
 
 @pytest.mark.parametrize("command_speed", [None, 0.0])
 def test_no_speed_command_passes_board_speed(command_speed):
-  joint_vel, torque, contact = _calm_gait()
+  joint_vel, torque, deck, ground = _calm_gait()
   metrics = gr.gait_metrics(
     joint_vel,
     torque,
-    contact,
+    deck,
+    ground,
     DT,
     EFFORT,
     board_speed=np.zeros(T),
@@ -130,3 +141,48 @@ def test_floor_share_names_the_pushing_foot():
   assert list(share) == ["FR", "FL", "BR", "BL"]
   assert share["FR"] == pytest.approx(0.2)
   assert share["FL"] == share["BR"] == share["BL"] == 0.0
+
+
+def _contact_metrics(deck: np.ndarray, ground: np.ndarray) -> dict[str, float]:
+  return gr.gait_metrics(
+    np.zeros((T, 12)),
+    np.zeros((T, 12)),
+    deck,
+    ground,
+    DT,
+    EFFORT,
+    board_speed=np.full(T, 0.4),
+    command_speed=0.4,
+  )
+
+
+def test_tapping_the_floor_fails_stride_rate():
+  # Foot 0 taps the floor 4 times a second and is back on the deck in between.
+  phase = np.arange(T) % 12
+  deck = np.ones((T, 4))
+  deck[:, 0] = (phase < 9).astype(float)
+  ground = np.zeros((T, 4))
+  ground[:, 0] = (phase >= 10).astype(float)
+  metrics = _contact_metrics(deck, ground)
+  assert metrics["max_stride_rate"] == pytest.approx(4.0, abs=0.2)
+  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  assert not rows["max_stride_rate"][4]
+  assert rows["min_foot_duty"][4]
+
+
+def test_a_foot_on_deck_then_floor_counts_as_in_contact():
+  # Feet 0 and 1 move straight between deck and floor each second, never in the
+  # air. Foot 1 is on the deck only 0.3 of the time, which would fail on its
+  # own; counting the floor, both feet are in contact all the time.
+  phase = np.arange(T) % 50
+  deck = np.ones((T, 4))
+  deck[:, 0] = (phase < 25).astype(float)
+  deck[:, 1] = (phase < 15).astype(float)
+  ground = np.zeros((T, 4))
+  ground[:, 0] = (phase >= 25).astype(float)
+  ground[:, 1] = (phase >= 15).astype(float)
+  metrics = _contact_metrics(deck, ground)
+  assert metrics["min_foot_duty"] == pytest.approx(1.0)
+  assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
+  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  assert rows["min_foot_duty"][4] and rows["max_stride_rate"][4]

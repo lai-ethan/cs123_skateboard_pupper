@@ -9,8 +9,8 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
 
 Drops the first `--skip` steps (settling), then measures peak joint speed
 (the largest per-joint 99th percentile), time at the torque limit, the
-smallest share of time any foot spends on the deck, the most often any foot
-lands back on the deck, and the board's mean forward speed as a share of
+smallest share of time any foot touches the deck or the floor, the most often
+any foot lands on the floor, and the board's mean forward speed as a share of
 `--speed` (a robot that does not move fails). It also prints each foot's share
 of time on the floor, so you can see which foot pushes; that line is not part
 of the verdict.
@@ -45,6 +45,7 @@ def gait_metrics(
   joint_vel: np.ndarray,
   torque: np.ndarray,
   deck_contact: np.ndarray,
+  ground_contact: np.ndarray,
   dt: float,
   effort_limit: float,
   *,
@@ -53,17 +54,20 @@ def gait_metrics(
 ) -> dict[str, float]:
   """Gait metrics from [T, 12] joint speeds and torques and [T, 4] contacts.
 
-  `deck_contact` is 1.0 while a foot is on the deck, one column per foot in
-  FR, FL, BR, BL order. `min_foot_duty` is the smallest share of time any foot
-  spends on the deck; `max_stride_rate` is the most landings on the deck per
-  second by any one foot.
+  `deck_contact` and `ground_contact` are 1.0 while a foot is on the deck or
+  on the floor, one column per foot in FR, FL, BR, BL order.
+  `min_foot_duty` is the smallest share of time any foot touches the deck or
+  the floor (a pushing foot is on the floor for part of each stroke);
+  `max_stride_rate` is the most landings on the floor per second by any one
+  foot.
   `board_speed` is the board's [T] forward speed along its own long axis in
   m/s; `command_speed` is the commanded speed, and None or 0 (no speed
   command) makes `board_speed_ratio` 1.0.
   """
-  contact = np.asarray(deck_contact) > 0.5
+  on_floor = np.asarray(ground_contact) > 0.5
+  contact = (np.asarray(deck_contact) > 0.5) | on_floor
   saturated = np.abs(torque) >= 0.95 * effort_limit
-  touchdowns = np.sum(contact[1:] & ~contact[:-1], axis=0)
+  touchdowns = np.sum(on_floor[1:] & ~on_floor[:-1], axis=0)
   return {
     "peak_joint_speed": float(np.max(np.percentile(np.abs(joint_vel), 99, axis=0))),
     "saturated_fraction": float(np.mean(np.any(saturated, axis=1))),
@@ -143,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     np.stack(joint_vel),
     np.stack(torque),
     np.stack(deck),
+    np.stack(ground),
     raw.step_dt,
     PUPPER_EFFORT_LIMIT,
     board_speed=np.array(board_speed),

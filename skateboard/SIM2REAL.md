@@ -17,9 +17,11 @@ written 2026-11-16, from simulation only. Nothing here has been tried on the rob
 - With no policy and the usual spawn noise, about 9% of spawns tip over. The
   trained policy has to correct a small sideways error.
 - A deck plate about 20 cm wide would remove the problem.
-- From this stance a foot cannot reach the floor on the stock trucks. The floor
-  is 18.6 cm below the base and the leg reaches about 17 cm, so the body would
-  have to drop or roll first. On a 7 cm deck a foot can reach the floor.
+- From this stance a foot cannot reach the floor on the stock trucks. The leg
+  reaches 19.3 cm below the base. The base sits 18.8 cm above the floor on a
+  6.8 cm deck and 22.4 cm on the stock deck. So riding from the centred stance
+  needs the lowered trucks, and the ride task now trains on a 6.8 to 8.3 cm
+  deck only. Balance still trains on 6.8 to 11.3 cm.
 - The audit now needs all four feet on the deck 90% of the time to pass a row.
   It lifts each of the four feet in turn (lift FR, FL, BR, BL). It checks deck
   heights of -3.5, -2, +1, +2 and +3 cm and the board 1 or 2 cm to
@@ -154,8 +156,10 @@ right foot is in the air.
   the plus or minus 1.5 cm range and the split stance); a three-foot reward term;
   rerunning the audit table for the centred stance.
 - **Assumed:** the board dimensions marked "guess" in `README.md`; the 3 N·m torque
-  limit; the pass limits of the audit (60% torque, 3 cm margin).
+  limit; the pass limits of the audit (60% torque, 3 cm margin); that the
+  lowered trucks put the deck top at 6.8 to 8.3 cm, the range ride trains on.
 - **Issues:** deck height must be measured before the first run; pushing needs a
   weight shift the current ride policy does not do; in the centred stance about
   9% of spawns tip over with no policy, and a foot cannot reach the floor on the
-  stock trucks without the body dropping or rolling.
+  stock trucks (the leg reaches 19.3 cm, the floor is 22.4 cm below the base), so
+  ride needs the lowered trucks.

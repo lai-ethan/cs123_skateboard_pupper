@@ -29,6 +29,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   get_spec,
 )
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.export import (
   export_pupper_gait_policy_from_env,
   gait_frame_kind,
@@ -39,6 +40,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
+  RIDE_DECK_HEIGHT_RANGE,
   RIDE_SPEED_RANGE,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -225,27 +227,89 @@ def test_torque_saturation_ramps_from_the_soft_limit():
   assert cost.tolist() == pytest.approx([0.0, 1.5, 1.0], abs=1e-5)
 
 
+def _with_command(env: Any, speed: float, board_speed: list[float]) -> Any:
+  """Command ``speed`` forward in every row; the board rolls at ``board_speed``."""
+  rows = len(board_speed)
+  command = torch.tensor([[speed, 0.0, 0.0]] * rows)
+  env.command_manager = SimpleNamespace(get_command=lambda name: command)
+  env.scene["board"] = SimpleNamespace(
+    data=SimpleNamespace(
+      root_link_lin_vel_b=torch.tensor([[v, 0.0, 0.0] for v in board_speed])
+    )
+  )
+  return env
+
+
 def test_push_stroke_pays_once_as_a_foot_leaves_the_floor():
   # Foot 0 varies per row; foot 1 is on the floor (no air time).
   # Rows: lift-off after a full stroke, after a short one, already in the air,
-  # still on the floor.
+  # still on the floor, and a full stroke with the board already at speed.
   env = _sensor_env(
-    current_air_time=torch.tensor([[0.02, 0.0], [0.02, 0.0], [0.06, 0.0], [0.0, 0.0]]),
-    last_contact_time=torch.tensor([[0.4, 0.5], [0.1, 0.5], [0.4, 0.5], [0.4, 0.5]]),
+    current_air_time=torch.tensor(
+      [[0.02, 0.0], [0.02, 0.0], [0.06, 0.0], [0.0, 0.0], [0.02, 0.0]]
+    ),
+    last_contact_time=torch.tensor(
+      [[0.4, 0.5], [0.1, 0.5], [0.4, 0.5], [0.4, 0.5], [0.4, 0.5]]
+    ),
   )
   env.step_dt = 0.02
-  command = torch.tensor([[0.4, 0.0, 0.0]] * 4)
-  env.command_manager = SimpleNamespace(get_command=lambda name: command)
+  _with_command(env, 0.4, [0.0, 0.1, 0.0, 0.0, 0.4])
   params: dict[str, Any] = {
     "sensor_name": "feet",
     "stroke_s": 0.25,
     "command_name": "twist",
     "command_threshold": 0.1,
+    "speed_fraction": 1.0,
   }
   reward = mdp.push_stroke(env, **params)
-  assert reward.tolist() == pytest.approx([50.0, 20.0, 0.0, 0.0])
-  command = torch.tensor([[0.1, 0.0, 0.0]] * 4)
-  assert mdp.push_stroke(env, **params).tolist() == [0.0] * 4
+  assert reward.tolist() == pytest.approx([50.0, 20.0, 0.0, 0.0, 0.0])
+  _with_command(env, 0.1, [0.0] * 5)
+  assert mdp.push_stroke(env, **params).tolist() == [0.0] * 5
+
+
+def _foot_reach_env(foot_z: list[list[float]]) -> Any:
+  pos = torch.zeros(len(foot_z), 4, 3)
+  pos[:, :, 2] = torch.tensor(foot_z)
+  return _fake_env(robot={"site_pos_w": pos})
+
+
+_FOOT_REACH: dict[str, Any] = {
+  "std": 0.03,
+  "foot_radius": 0.02,
+  "command_name": "twist",
+  "command_threshold": 0.1,
+  "speed_fraction": 0.8,
+  "foot_cfg": SceneEntityCfg("robot", site_names=FOOT_SITE_NAMES),
+}
+
+
+def test_foot_reach_pays_for_the_lowest_foot_near_the_floor():
+  # Rows: one foot touching the floor, the lowest foot 3 cm up (the others
+  # higher), one foot below its radius (sunk into the floor), all on a deck.
+  env = _foot_reach_env(
+    [
+      [0.10, 0.02, 0.10, 0.10],
+      [0.10, 0.05, 0.08, 0.10],
+      [0.0, 0.10, 0.10, 0.10],
+      [0.09, 0.09, 0.09, 0.09],
+    ]
+  )
+  _with_command(env, 0.5, [0.0, 0.0, 0.0, 0.0])
+  reward = mdp.foot_reach(env, **_FOOT_REACH)
+  assert reward[0] == pytest.approx(1.0)
+  assert reward[1] == pytest.approx(math.exp(-1.0))
+  assert reward[2] == pytest.approx(1.0)
+  assert reward[3] == pytest.approx(math.exp(-0.07 / 0.03))
+
+
+def test_foot_reach_needs_a_command_and_a_slow_board():
+  env = _foot_reach_env([[0.02, 0.10, 0.10, 0.10]] * 3)
+  # Board at 0.78, at 0.8 and at 0.9 of the commanded 0.5 m/s.
+  _with_command(env, 0.5, [0.39, 0.4, 0.45])
+  assert mdp.foot_reach(env, **_FOOT_REACH).tolist() == pytest.approx([1.0, 0.0, 0.0])
+  # A command at the threshold pays nothing.
+  _with_command(env, 0.1, [0.0, 0.0, 0.0])
+  assert mdp.foot_reach(env, **_FOOT_REACH).tolist() == [0.0] * 3
 
 
 ##
@@ -422,6 +486,58 @@ def test_ride_task_commands_forward_speed_only():
   assert "board_still" in balance.rewards and "feet_on_ground" in balance.rewards
   assert not set(new_terms) & set(balance.rewards)
   assert balance.terminations["feet_off_deck"].params["grace_s"] == 0.5
+
+
+def test_ride_task_rewards_reaching_for_the_floor():
+  cfg = pupper_skate_ride_env_cfg()
+  reach = cfg.rewards["foot_reach"]
+  assert reach.func is mdp.foot_reach
+  assert reach.weight == 0.5
+  params = dict(reach.params)
+  foot_cfg = params.pop("foot_cfg")
+  assert params == {
+    "std": 0.03,
+    "foot_radius": 0.02,
+    "command_name": "twist",
+    "command_threshold": 0.1,
+    "speed_fraction": 0.8,
+  }
+  assert foot_cfg.name == "robot"
+  assert tuple(foot_cfg.site_names) == FOOT_SITE_NAMES
+  stroke = cfg.rewards["push_stroke"]
+  assert stroke.weight == 0.3
+  assert stroke.params["speed_fraction"] == 1.0
+  # Ride trains on the lowered trucks only; balance keeps both.
+  assert cfg.events["deck_height"].params["ranges"] == RIDE_DECK_HEIGHT_RANGE
+  balance = pupper_skate_balance_env_cfg()
+  assert balance.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
+  assert "foot_reach" not in balance.rewards
+
+
+@pytest.mark.slow
+def test_ride_foot_reach_is_small_with_all_feet_on_the_deck():
+  # The lowest deck the ride task trains on, a clean spawn, a speed command and
+  # zero actions: the feet stay on the deck, so reaching pays little.
+  cfg = pupper_skate_ride_env_cfg()
+  cfg.scene.num_envs = 1
+  cfg.events["deck_height"].params["ranges"] = (-0.035, -0.035)
+  del cfg.events["push_robot"]
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (0.4, 0.4)
+  twist.rel_standing_envs = 0.0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  reach = env.reward_manager.get_term_cfg("foot_reach")
+  actions = torch.zeros(1, 12, device=env.device)
+  for _ in range(50):  # 1 s.
+    _, _, terminated, truncated, _ = env.step(actions)
+    assert not (terminated | truncated).any()
+    assert reach.func(env, **reach.params).max() < 0.2
+  assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
+  env.close()
 
 
 @pytest.mark.slow

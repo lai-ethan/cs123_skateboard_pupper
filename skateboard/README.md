@@ -33,7 +33,7 @@ one foot off either side, pushes against the floor and steps back on.
 Two tasks are registered:
 
 - `Mjlab-Skate-Balance-Pupper-v3`: hold the centred stance on a board that is free to roll.
-- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s).
+- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s). Two rewards teach the push while the board is too slow: `foot_reach` pays more the closer the lowest foot gets to the floor, and `push_stroke` pays once for each planted stroke as the foot lifts off the floor. The full ride reward table is in section 4 of the notebook.
 
 ## How to start
 
@@ -54,9 +54,11 @@ Replace the guesses in `SkateboardParams` when you measure them.
 | Roll stiffness | 30 N·m/rad | guess | put about 1.5 kg on the deck edge, measure how far the edge drops |
 | Wheel drag | 2e-3 N·m per wheel | guess | roll off a ramp of known height, measure the coast distance |
 
-Deck height matters most. The stance is solved for 103 mm. Training randomizes
-the deck from 6.8 to 11.3 cm, which covers the stock trucks and the lower trucks
-we plan to fit. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
+Deck height matters most. The stance is solved for 103 mm. Balance training
+randomizes the deck from 6.8 to 11.3 cm, which covers the stock trucks and the
+lower trucks we plan to fit. Ride trains on 6.8 to 8.3 cm only (the lowered
+trucks): on the stock deck a foot cannot reach the floor from the centred
+stance. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
 placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
 
 ### 2. Run the tests (laptop, optional)
@@ -69,7 +71,7 @@ cd cs123_skateboard_pupper
 FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q
 ```
 
-Expected: `42 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
+Expected: `46 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
 NVIDIA GPU.
 
 To see the stance in a viewer:
@@ -127,9 +129,10 @@ FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pu
   skateboard/policies/balance_2ace1uqa_policy.json
 ```
 
-The gait check reads the deck contacts of all four feet. `min_foot_duty` is
-the smallest share of time any foot is on the deck, and `max_stride_rate` the
-most often any foot lands back on it. A line above the verdict shows each
+The gait check reads the deck and floor contacts of all four feet.
+`min_foot_duty` is the smallest share of time any foot touches the deck or the
+floor, and `max_stride_rate` the most often any foot lands on the floor, per
+second. A line above the verdict shows each
 foot's share of time on the floor, so you can see which foot pushes; it is not
 part of the verdict. The last line is `GAIT: PASS` or `GAIT: FAIL`. On
 2026-11-16 the saved balance policy gave `GAIT: PASS` and the saved ride policy

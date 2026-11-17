@@ -26,6 +26,7 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   get_skateboard_cfg,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
+  FOOT_SITE_NAMES,
   PUPPER_EFFORT_LIMIT,
   PUPPER_MUJOCO_OPTIONS,
   SKATE_BOARD_OFFSET,
@@ -61,6 +62,11 @@ JOINT_SPEED_LIMIT: float = 8.0
 # 3 cm lower.
 DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
+
+# Ride trains on the lowered trucks only (deck top 6.8 to 8.3 cm). The leg
+# reaches 19.3 cm below the base; on the stock 10.3 cm deck the floor is
+# 22 cm below it, so a push from the centred stance is out of reach there.
+RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, -0.02)
 
 
 def _contact(
@@ -321,6 +327,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   twist.rel_standing_envs = 0.1
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
+  cfg.events["deck_height"].params["ranges"] = RIDE_DECK_HEIGHT_RANGE
   # A push takes a foot off the deck for about a second.
   cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
 
@@ -334,9 +341,25 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"command_name": "twist", "std": 0.15},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
-  # Pushing: pay once per stroke as a foot leaves the floor, full pay for a
-  # stroke of 0.25 s or more (only when a speed is commanded). Either side may
-  # push.
+  # Pushing, in two steps. Either side may push, and both pay only while a
+  # speed is commanded and the board is too slow.
+  # foot_reach leads a foot to the floor: it pays more the closer the lowest
+  # foot gets to the floor. A foot on the deck stays a deck height up and earns
+  # little.
+  # push_stroke pays the push itself: once per stroke as a foot leaves the
+  # floor, in full for a stroke of 0.25 s or more.
+  r["foot_reach"] = RewardTermCfg(
+    func=mdp.foot_reach,
+    weight=0.5,
+    params={
+      "std": 0.03,
+      "foot_radius": 0.02,
+      "command_name": "twist",
+      "command_threshold": 0.1,
+      "speed_fraction": 0.8,
+      "foot_cfg": SceneEntityCfg("robot", site_names=FOOT_SITE_NAMES),
+    },
+  )
   r["push_stroke"] = RewardTermCfg(
     func=mdp.push_stroke,
     weight=0.3,
@@ -345,6 +368,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "stroke_s": 0.25,
       "command_name": "twist",
       "command_threshold": 0.1,
+      "speed_fraction": 1.0,
     },
   )
   # Hold the keyframe loosely on every leg, so one leg can stride off the deck

@@ -43,3 +43,15 @@ def test_reward_weights_match_the_env(task, make_cfg):
   # The notebook ships the env's defaults.
   for name, weight in weights.items():
     assert weight == pytest.approx(rewards[name].weight), name
+
+
+def test_setup_cell_updates_an_existing_clone():
+  nb = json.loads(NOTEBOOK.read_text())
+  setup = [
+    "".join(c["source"])
+    for c in nb["cells"]
+    if c["cell_type"] == "code" and "REPO_URL = " in "".join(c["source"])
+  ]
+  assert len(setup) == 1
+  assert "!git -C /content/pupper-mjlab fetch --depth 1 origin {BRANCH}" in setup[0]
+  assert "!git -C /content/pupper-mjlab reset --hard FETCH_HEAD" in setup[0]
