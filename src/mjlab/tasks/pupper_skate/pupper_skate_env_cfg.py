@@ -227,13 +227,16 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "shared_random": True,
     },
   )
+  # Truck stiffness 15 to 180 N*m/rad. The real bushings are unmeasured and are
+  # built for a rider about 20 times heavier than Pupper, so the real deck is
+  # likely much stiffer than the 30 N*m/rad guess.
   cfg.events["truck_stiffness"] = EventTermCfg(
     mode="startup",
     func=dr.joint_stiffness,
     params={
       "asset_cfg": SceneEntityCfg("board", joint_names=(DECK_ROLL_JOINT_NAME,)),
       "operation": "scale",
-      "ranges": (0.5, 2.0),
+      "ranges": (0.5, 6.0),
     },
   )
   cfg.events["deck_height"] = EventTermCfg(

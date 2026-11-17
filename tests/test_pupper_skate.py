@@ -332,6 +332,31 @@ def _calm_balance_cfg(num_envs: int, spawn_noise: bool):
   return cfg
 
 
+def _passive_hold_cfg(num_envs: int, spawn_noise: bool, truck_scale: float = 1.0):
+  """`_calm_balance_cfg` with the truck stiffness fixed at `truck_scale` x nominal.
+
+  A soft truck needs the policy to balance: with zero actions the stance is only
+  expected to hold on the nominal board or a stiffer one.
+  """
+  cfg = _calm_balance_cfg(num_envs, spawn_noise)
+  cfg.events["truck_stiffness"].params["ranges"] = (truck_scale, truck_scale)
+  cfg.seed = 0
+  return cfg
+
+
+def _zero_action_falls(cfg) -> float:
+  """Share of envs that reset during 5 s of zero actions."""
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  actions = torch.zeros(cfg.scene.num_envs, 12, device=env.device)
+  reset = torch.zeros(cfg.scene.num_envs, dtype=torch.bool, device=env.device)
+  for _ in range(250):  # 5 s.
+    _, _, terminated, truncated, _ = env.step(actions)
+    reset |= terminated | truncated
+  env.close()
+  return reset.float().mean().item()
+
+
 @pytest.fixture(scope="module")
 def balance_env():
   cfg = _calm_balance_cfg(NUM_ENVS, spawn_noise=False)
@@ -363,8 +388,10 @@ def test_foot_sensors_follow_foot_site_order(balance_env):
 
 
 @pytest.mark.slow
-def test_stance_holds_with_zero_actions(balance_env):
-  env = balance_env
+def test_stance_holds_with_zero_actions():
+  env = ManagerBasedRlEnv(
+    cfg=_passive_hold_cfg(NUM_ENVS, spawn_noise=False), device=get_test_device()
+  )
   env.reset()
   robot, board = env.scene["robot"], env.scene["board"]
   actions = torch.zeros(NUM_ENVS, 12, device=env.device)
@@ -385,6 +412,7 @@ def test_stance_holds_with_zero_actions(balance_env):
   assert (
     mdp.board_alignment(env, SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3).min() > 0.3
   )
+  env.close()
 
 
 @pytest.mark.slow
@@ -411,21 +439,17 @@ def test_stance_holds_without_torque_saturation():
 
 @pytest.mark.slow
 def test_stance_survives_spawn_noise_with_zero_actions():
-  # About 9% of noisy spawns tip over with zero actions (30 of 320 envs measured;
-  # seed 0 gives 5 of 64). A policy has to correct those; this checks the rest
-  # hold.
-  num_envs = 64
-  cfg = _calm_balance_cfg(num_envs, spawn_noise=True)
-  cfg.seed = 0
-  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
-  env.reset()
-  actions = torch.zeros(num_envs, 12, device=env.device)
-  reset = torch.zeros(num_envs, dtype=torch.bool, device=env.device)
-  for _ in range(250):  # 5 s.
-    _, _, terminated, truncated, _ = env.step(actions)
-    reset |= terminated | truncated
-  env.close()
-  assert reset.float().mean() <= 0.2
+  # Some noisy spawns tip over with zero actions; a policy has to correct those.
+  # This checks the rest hold, at nominal truck stiffness.
+  cfg = _passive_hold_cfg(64, spawn_noise=True)
+  assert _zero_action_falls(cfg) <= 0.2
+
+
+@pytest.mark.slow
+def test_stance_survives_spawn_noise_on_a_stiff_truck():
+  # The top of the truck stiffness randomization, 6x nominal.
+  cfg = _passive_hold_cfg(64, spawn_noise=True, truck_scale=6.0)
+  assert _zero_action_falls(cfg) < 0.2
 
 
 @pytest.mark.slow
