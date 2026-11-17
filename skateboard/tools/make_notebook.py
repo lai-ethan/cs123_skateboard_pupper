@@ -72,6 +72,22 @@ assert "WATCH_LIVE" in watch_live_md
 train = text(17)
 assert 'agent_cfg.logger = "wandb"' in train
 train = train.replace('agent_cfg.logger = "wandb"', "agent_cfg.logger = LOGGER")
+# Warm start: RESUME_FROM set loads that W&B run's last checkpoint, like
+# `train --agent.resume True --wandb-run-path ...`. Empty keeps the old call.
+LAUNCH = "launch_training(TASK, TrainConfig(env=env_cfg, agent=agent_cfg))"
+assert train.rstrip("\n").endswith(LAUNCH)
+train = train.rstrip("\n")[: -len(LAUNCH)] + (
+  "if RESUME_FROM:\n"
+  "  # Checkpoint numbers carry on from the loaded one: resuming model_1499.pt\n"
+  "  # for 1500 iterations ends at model_2998.pt, in a new run folder.\n"
+  '  assert LOGGER == "wandb", "RESUME_FROM needs a W&B key (section 2)."\n'
+  "  agent_cfg.resume = True\n"
+  "  launch_training(\n"
+  "    TASK, TrainConfig(env=env_cfg, agent=agent_cfg, wandb_run_path=RESUME_FROM)\n"
+  "  )\n"
+  "else:\n"
+  f"  {LAUNCH}\n"
+)
 dr_md = text(11)
 assert dr_md.startswith("## 6. Domain randomization")
 dr_md = dr_md.replace("## 6.", "## 5.", 1)
@@ -147,7 +163,7 @@ if SPLIT:
     "stance_pose": 1.0,
     "board_alignment": 1.0,
     "deck_flat": -5.0,
-    "action_rate_l2": -0.01,
+    "action_rate_l2": -0.05 if RIDE else -0.01,
     "joint_torques_l2": -0.0002,
     "termination": -100.0,
     "torque_saturation": -1.5 if RIDE else -1.0,
@@ -163,6 +179,9 @@ if SPLIT:
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.3,
       "push_foot_idle": -0.5,
+      "action_acc": -0.02,
+      "joint_acc": -1e-6,
+      "swing_height": -5.0,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -260,6 +279,9 @@ out = [
     "ITERATIONS = 1500\n"
     "WATCH_LIVE = False  # True: start the live viewer before training\n"
     "OPEN_VIEWER = True  # False: skip the interactive viewer at the end\n"
+    "# A W&B run path, <entity>/mjlab/<run-id>, starts from that run's last\n"
+    "# checkpoint; empty starts fresh.\n"
+    'RESUME_FROM = ""\n'
   ),
   md(
     "## 4. Reward weights ✏️\n\n"
@@ -311,19 +333,24 @@ out = [
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `push_stride` | n/a | 0.5 | right feet take planted strides: 0.4 s on the"
-    " floor, then a 0.2 to 0.5 s swing |\n"
-    "| `short_stride` | n/a | -0.3 | a right foot lands after less than 0.4 s"
-    " on the floor; a tap with no stance costs the full weight |\n"
+    "| `push_stride` | n/a | 0.5 | right feet take planted strides: the time a"
+    " 10 cm stroke takes at the command (0.25 to 0.5 s) on the floor, then a"
+    " 0.2 to 0.5 s swing |\n"
+    "| `short_stride` | n/a | -0.3 | a right foot lands after a shorter stance"
+    " than `push_stride` asks for; a tap with no stance costs the full weight |\n"
     "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
     "| `push_foot_idle` | n/a | -0.5 | a right foot held in the air for more than"
     " 0.5 s |\n"
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
-    "| `joint_speed_limit` | n/a | -0.3 | joint speed above 6 rad/s |\n"
+    "| `joint_speed_limit` | n/a | -0.3 | joint speed above 5 rad/s |\n"
     "| `torque_saturation` | -1.0 | -1.5 | motors above half (balance) or 80% (ride)"
     " of their 3 Nm limit |\n"
-    "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
+    "| `action_rate_l2` | -0.01 | -0.05 | jerky actions |\n"
+    "| `action_acc` | n/a | -0.02 | snaps in the actions (lift-off, touchdown) |\n"
+    "| `joint_acc` | n/a | -1e-6 | joint acceleration |\n"
+    "| `swing_height` | n/a | -5.0 | a right foot in the air lifted more than 3 cm"
+    " (per metre over) |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
   ),

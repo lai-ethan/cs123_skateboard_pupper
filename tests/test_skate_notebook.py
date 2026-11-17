@@ -100,3 +100,24 @@ def test_gait_cell_runs_for_all_four_tasks(task):
     assert command.endswith(" --speed 0.4")
   else:
     assert "--speed" not in command
+
+
+def test_settings_cell_starts_fresh_by_default():
+  settings = [c for c in _code_cells() if "NUM_ENVS = " in c]
+  assert len(settings) == 1
+  scope: dict = {}
+  exec(settings[0], scope)
+  assert scope["RESUME_FROM"] == ""
+  assert "<entity>/mjlab/<run-id>" in settings[0]
+
+
+def test_train_cell_resumes_only_when_asked():
+  train = [c for c in _code_cells() if "launch_training(" in c]
+  assert len(train) == 1
+  lines = train[0].splitlines()
+  # Empty RESUME_FROM: the same call as before warm starts existed.
+  fresh = "  launch_training(TASK, TrainConfig(env=env_cfg, agent=agent_cfg))"
+  assert lines[-2:] == ["else:", fresh]
+  resume = train[0][train[0].index("if RESUME_FROM:") : train[0].index("\nelse:")]
+  assert "agent_cfg.resume = True" in resume
+  assert "wandb_run_path=RESUME_FROM" in resume

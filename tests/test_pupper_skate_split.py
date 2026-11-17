@@ -28,10 +28,10 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
+from mjlab.tasks.pupper_skate.mdp.rewards import stance_target
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
-  JOINT_SPEED_LIMIT,
   RIDE_SPEED_RANGE,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -180,6 +180,76 @@ def test_short_stride_charges_a_landing_after_a_short_stance():
     assert reward.tolist() == pytest.approx(expected)
 
 
+def test_stance_target_scales_a_10_cm_stroke_to_the_command():
+  speed = torch.tensor([0.0, 0.2, 0.3, 0.4, 0.5])
+  target = stance_target(speed, stroke_m=0.10, stance_range=(0.25, 0.5))
+  assert target.tolist() == pytest.approx([0.5, 0.5, 1 / 3, 0.25, 0.25])
+
+
+def test_push_stride_with_a_stroke_scales_the_stance_to_the_command():
+  # One foot that just landed after a 0.25 s stance and a 0.3 s swing.
+  data = SimpleNamespace(
+    current_contact_time=torch.tensor([[0.02], [0.02]]),
+    last_air_time=torch.tensor([[0.3], [0.3]]),
+    last_contact_time=torch.tensor([[0.25], [0.25]]),
+  )
+  # Row 0 at 0.4 m/s wants a 0.25 s stance, row 1 at 0.2 m/s wants 0.5 s.
+  command = torch.tensor([[0.4, 0.0, 0.0], [0.2, 0.0, 0.0]])
+  env = _fake_env(data, lambda name: command)
+  reward = mdp.push_stride(
+    env,
+    sensor_name="feet",
+    stroke_m=0.10,
+    stance_range=(0.25, 0.5),
+    air_range=(0.2, 0.5),
+    command_name="twist",
+    command_threshold=0.1,
+  )
+  assert reward.tolist() == pytest.approx([1.0 / 0.02, 0.5 / 0.02])
+  cost = mdp.short_stride(
+    env,
+    sensor_name="feet",
+    stroke_m=0.10,
+    stance_range=(0.25, 0.5),
+    command_name="twist",
+  )
+  assert cost.tolist() == pytest.approx([0.0, 0.5 / 0.02])
+
+
+def _fake_height_env(found: list[float], foot_z: list[float]) -> Any:
+  """Enough of an env for foot_height_over: one env, a sensor and foot sites."""
+  site_pos = torch.zeros(1, len(foot_z), 3)
+  site_pos[0, :, 2] = torch.tensor(foot_z)
+  return SimpleNamespace(
+    scene={
+      "feet": SimpleNamespace(data=SimpleNamespace(found=torch.tensor([found]))),
+      "robot": SimpleNamespace(data=SimpleNamespace(site_pos_w=site_pos)),
+    },
+    device="cpu",
+  )
+
+
+def test_foot_height_over_charges_swing_feet_above_3_cm():
+  def over(found: float, underside_z: float) -> float:
+    # The site is the foot's centre, a foot radius above its underside.
+    env = _fake_height_env([found], [underside_z + 0.02])
+    return mdp.foot_height_over(
+      env,
+      max_height=0.03,
+      foot_radius=0.02,
+      sensor_name="feet",
+      foot_cfg=SceneEntityCfg("robot"),
+    ).item()
+
+  assert over(1.0, 0.05) == 0.0  # In contact: never charged.
+  assert over(0.0, 0.02) == 0.0
+  assert over(0.0, 0.05) == pytest.approx(0.02)
+  # Feet add up.
+  env = _fake_height_env([0.0, 0.0], [0.07, 0.09])
+  cost = mdp.foot_height_over(env, 0.03, 0.02, "feet", SceneEntityCfg("robot"))
+  assert cost.tolist() == pytest.approx([0.06])
+
+
 def test_foot_idle_air_counts_feet_up_too_long():
   # Rows: both feet planted, foot 0 up briefly, foot 0 up too long, both up too
   # long, foot 1 exactly at the limit.
@@ -221,8 +291,9 @@ def test_feet_slide_charges_a_planted_foot_moving_over_the_floor():
 
 ##
 # Rewards: the a110b84 split configs, name for name and weight for weight, plus
-# the balance torque penalty (Task 25), the ride shuffle fix (Task 29) and the
-# ride motor limits and idle-foot charge (Task 30).
+# the balance torque penalty (Task 25), the ride shuffle fix (Task 29), the
+# ride motor limits and idle-foot charge (Task 30) and the smoother push
+# (Task 31).
 ##
 
 SPLIT_BALANCE_WEIGHTS = {
@@ -256,6 +327,10 @@ SPLIT_RIDE_WEIGHTS = {
   "joint_speed_limit": -0.3,
   "torque_saturation": -1.5,
   "push_foot_idle": -0.5,
+  "action_rate_l2": -0.05,
+  "action_acc": -0.02,
+  "joint_acc": -1e-6,
+  "swing_height": -5.0,
 }
 
 # The centred configs as they were before the split tasks came back, plus the
@@ -320,15 +395,38 @@ def test_split_ride_rewards_match_a110b84():
   assert stride.func is mdp.push_stride
   assert stride.params == {
     "sensor_name": "ground_feet_contact",
-    "stance_s": 0.4,
+    "stroke_m": 0.10,
+    "stance_range": (0.25, 0.5),
     "air_range": (0.2, 0.5),
     "command_name": "twist",
     "command_threshold": 0.1,
   }
-  assert cfg.rewards["joint_speed_limit"].params == {"limit": 0.75 * JOINT_SPEED_LIMIT}
+  assert cfg.rewards["joint_speed_limit"].params == {"limit": 5.0}
   short = cfg.rewards["short_stride"]
   assert short.func is mdp.short_stride
-  assert short.params == {"sensor_name": "ground_feet_contact", "stance_s": 0.4}
+  assert short.params == {
+    "sensor_name": "ground_feet_contact",
+    "stroke_m": 0.10,
+    "stance_range": (0.25, 0.5),
+    "command_name": "twist",
+  }
+  assert cfg.rewards["action_rate_l2"].func is mdp.action_rate_l2
+  assert cfg.rewards["action_acc"].func is mdp.action_acc_l2
+  joint_acc = cfg.rewards["joint_acc"]
+  assert joint_acc.func is mdp.joint_acc_l2
+  assert joint_acc.params["asset_cfg"].name == "robot"
+  assert joint_acc.params["asset_cfg"].joint_names == (".*",)
+  swing = cfg.rewards["swing_height"]
+  assert swing.func is mdp.foot_height_over
+  assert {k: v for k, v in swing.params.items() if k != "foot_cfg"} == {
+    "max_height": 0.03,
+    "foot_radius": 0.02,
+    "sensor_name": "ground_feet_contact",
+  }
+  assert swing.params["foot_cfg"].site_names == (
+    "leg_front_r_3_foot_site",
+    "leg_back_r_3_foot_site",
+  )
   slide = cfg.rewards["feet_slide"]
   assert slide.func is mdp.feet_slide
   assert slide.params["sensor_name"] == "ground_feet_contact"
@@ -426,6 +524,21 @@ def test_only_split_ride_charges_taps_sliding_and_idle_feet(make_cfg):
   assert "push_foot_idle" not in rewards
 
 
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_balance_env_cfg,
+    pupper_skate_ride_env_cfg,
+  ],
+)
+def test_only_split_ride_has_the_smoothing_terms(make_cfg):
+  rewards = make_cfg().rewards
+  for name in ("action_acc", "joint_acc", "swing_height"):
+    assert name not in rewards, name
+  assert rewards["action_rate_l2"].weight == -0.01
+
+
 def test_split_ride_charges_an_idle_push_foot():
   cfg = pupper_skate_split_ride_env_cfg()
   term = cfg.rewards["push_foot_idle"]
@@ -461,20 +574,22 @@ def test_registered_skate_tasks_build(task):
   env.close()
 
 
-def test_feet_slide_sites_follow_the_ground_sensor_feet():
+def test_foot_sites_follow_the_ground_sensor_feet():
   cfg = pupper_skate_split_ride_env_cfg()
   cfg.scene.num_envs = 1
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
   sensor = env.scene["ground_feet_contact"]
   feet = [n.split("/")[-1] for n in sensor.primary_names]
-  term = env.reward_manager.get_term_cfg("feet_slide")
-  site_ids = term.params["asset_cfg"].site_ids
-  sites = [env.scene["robot"].site_names[i] for i in site_ids]
+  sites = {}
+  for term_name, param in (("feet_slide", "asset_cfg"), ("swing_height", "foot_cfg")):
+    site_ids = env.reward_manager.get_term_cfg(term_name).params[param].site_ids
+    sites[term_name] = [env.scene["robot"].site_names[i] for i in site_ids]
   env.close()
   assert feet == ["leg_front_r_3_collision", "leg_back_r_3_collision"]
-  assert [s.replace("_foot_site", "") for s in sites] == [
-    f.replace("_collision", "") for f in feet
-  ]
+  for term_name, names in sites.items():
+    assert [s.replace("_foot_site", "") for s in names] == [
+      f.replace("_collision", "") for f in feet
+    ], term_name
 
 
 ##

@@ -550,7 +550,14 @@ def test_balance_policy_exports_with_the_stance_as_default_pose(balance_env):
     "vy": [0.0, 0.0],
     "wz": [0.0, 0.0],
   }
-  assert "heading_hold" not in policy
+  # The robot turns heading hold on for any policy with a gait_reference block
+  # unless the JSON turns it off; skate policies trained without it.
+  assert policy["heading_hold"] == {
+    "kp": 0.0,
+    "clip": 0.3,
+    "yaw_threshold": 0.1,
+    "walk_threshold": 0.05,
+  }
   assert "gait_reference" in policy
 
 
@@ -577,6 +584,7 @@ def test_ride_task_commands_forward_speed_only():
   for name in ("track_board_velocity", "board_yaw_rate", *new_terms):
     assert cfg.rewards[name].weight != 0.0
   assert cfg.rewards["push_stroke"].params["sensor_name"] == "ground_feet_contact"
+  assert cfg.rewards["joint_speed_limit"].params == {"limit": 6.0}
   assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
   # A push takes a foot off the deck for about a second.
   assert cfg.terminations["feet_off_deck"].params["grace_s"] == 1.5

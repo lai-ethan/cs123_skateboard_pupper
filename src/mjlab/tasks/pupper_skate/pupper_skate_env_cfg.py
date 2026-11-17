@@ -51,10 +51,12 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 # Forward speed range for the ride task [m/s].
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 
-# Joint speed limit [rad/s] the gait check enforces; the ride task's penalty
-# starts at 75% of it. A design guess, not a datasheet number: replace it with
-# the real motor's limit.
-JOINT_SPEED_LIMIT: float = 8.0
+# Joint speed limit [rad/s] the gait check enforces. The GIM4305 spec gives
+# about 30 rad/s, and the deployed walking references ask for 15 rad/s and
+# more. 12 is an estimate that leaves torque headroom, not a measurement:
+# replace it with a measured value. The ride penalties start well under it
+# (centred 6, split 5 rad/s).
+JOINT_SPEED_LIMIT: float = 12.0
 
 # Deck height offset from the nominal [m], and the seconds between shoves to the
 # robot and the board. Nominal is the measured 0.103 m; the range is 6.8 to
@@ -412,14 +414,14 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["stance_pose"].weight = 0.5
   r["stance_pose"].params["std"] = 0.6
   # Keep the motion inside what the motors can do. The sim actuator limits
-  # torque but not speed, so speed is limited here. The penalty starts at 75% of
-  # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait
-  # stays inside the check.
+  # torque but not speed, so speed is limited here. The penalty starts at
+  # 6 rad/s, half the gait check's 12, so the best-paid gait stays well inside
+  # the check.
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
     func=mdp.joint_speed_over_limit,
     weight=-0.02,
-    params={"limit": 0.75 * JOINT_SPEED_LIMIT},
+    params={"limit": 6.0},
   )
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}

@@ -183,13 +183,49 @@ def torque_saturation(
   return torch.sum(torch.clamp(over, 0.0, 1.0), dim=1)
 
 
+def stance_target(
+  speed: torch.Tensor, stroke_m: float, stance_range: tuple[float, float]
+) -> torch.Tensor:
+  """Stance time [s] for a planted foot to cover ``stroke_m`` at ``speed`` m/s.
+
+  clamp(stroke_m / max(speed, 0.05), stance_range): a fixed stroke takes less
+  time on the floor at a higher command, and a command near zero asks for the
+  longest stance in range.
+  """
+  target = stroke_m / torch.clamp(speed, min=0.05)
+  return torch.clamp(target, stance_range[0], stance_range[1])
+
+
+def _stance_seconds(
+  env: ManagerBasedRlEnv,
+  stance_s: float | None,
+  stroke_m: float | None,
+  stance_range: tuple[float, float] | None,
+  command_name: str | None,
+) -> torch.Tensor | float:
+  """The fixed ``stance_s``, or with ``stroke_m`` a per-env [B, 1] target."""
+  if stroke_m is None:
+    if stance_s is None:
+      raise ValueError("Give stance_s or stroke_m.")
+    return stance_s
+  if stance_s is not None:
+    raise ValueError("Give stance_s or stroke_m, not both.")
+  if stance_range is None or command_name is None:
+    raise ValueError("stroke_m needs stance_range and command_name.")
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  return stance_target(command[:, 0], stroke_m, stance_range).unsqueeze(1)
+
+
 def push_stride(
   env: ManagerBasedRlEnv,
   sensor_name: str,
-  stance_s: float,
   air_range: tuple[float, float],
   command_name: str,
   command_threshold: float,
+  stance_s: float | None = None,
+  stroke_m: float | None = None,
+  stance_range: tuple[float, float] | None = None,
 ) -> torch.Tensor:
   """Reward slow, planted push strides, paid once per touchdown (split stance).
 
@@ -198,15 +234,20 @@ def push_stride(
   ``air_range`` seconds, and 0 otherwise, so quick taps and feet held in the air
   earn little. The score is divided by the step so the weight is the reward for
   one full stride. Paid only above ``command_threshold`` m/s of commanded speed.
+
+  With ``stroke_m`` the stance target is set per env by the command instead
+  (see ``stance_target``), so the stroke the foot covers is the same at every
+  speed; ``stance_s`` is then left unset.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   data = sensor.data
   contact_time, air_time = data.current_contact_time, data.last_air_time
   stance_time = data.last_contact_time
   assert contact_time is not None and air_time is not None and stance_time is not None
+  target = _stance_seconds(env, stance_s, stroke_m, stance_range, command_name)
   landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
   swing_ok = (air_time >= air_range[0]) & (air_time <= air_range[1])
-  score = torch.clamp(stance_time / stance_s, max=1.0)
+  score = torch.clamp(stance_time / target, max=1.0)
   reward = torch.sum(score * (landed & swing_ok).float(), dim=1) / env.step_dt
   command = env.command_manager.get_command(command_name)
   assert command is not None
@@ -214,7 +255,12 @@ def push_stride(
 
 
 def short_stride(
-  env: ManagerBasedRlEnv, sensor_name: str, stance_s: float
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  stance_s: float | None = None,
+  stroke_m: float | None = None,
+  stance_range: tuple[float, float] | None = None,
+  command_name: str | None = None,
 ) -> torch.Tensor:
   """Penalize quick taps, charged once per touchdown (split stance).
 
@@ -225,15 +271,42 @@ def short_stride(
   Not gated on the command: tapping while told to stand still costs the same.
   A foot with no stance on record has not lifted off since the reset (it
   spawned on the floor), so it is not charged.
+
+  With ``stroke_m`` the target is the per-env ``stance_target`` of the
+  ``command_name`` command, as in ``push_stride``.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   data = sensor.data
   contact_time, stance_time = data.current_contact_time, data.last_contact_time
   assert contact_time is not None and stance_time is not None
+  target = _stance_seconds(env, stance_s, stroke_m, stance_range, command_name)
   landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
   landed &= stance_time > 0.0
-  cost = 1.0 - torch.clamp(stance_time / stance_s, max=1.0)
+  cost = 1.0 - torch.clamp(stance_time / target, max=1.0)
   return torch.sum(cost * landed.float(), dim=1) / env.step_dt
+
+
+def foot_height_over(
+  env: ManagerBasedRlEnv,
+  max_height: float,
+  foot_radius: float,
+  sensor_name: str,
+  foot_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Penalize swing feet lifted higher than ``max_height`` [m] (split stance).
+
+  Per foot in the air: clamp(z - foot_radius - max_height, min=0) in metres,
+  where ``z`` is the foot site height above the floor (z = 0, as in
+  ``foot_reach``). Feet in contact on ``sensor_name`` add 0. ``foot_cfg`` names
+  the foot sites in the sensor's order.
+  """
+  robot: Entity = env.scene[foot_cfg.name]
+  sensor: ContactSensor = env.scene[sensor_name]
+  found = sensor.data.found
+  assert found is not None
+  foot_z = robot.data.site_pos_w[:, foot_cfg.site_ids, 2]
+  over = torch.clamp(foot_z - foot_radius - max_height, min=0.0)
+  return torch.sum(over * (found == 0).float(), dim=1)
 
 
 def foot_idle_air(

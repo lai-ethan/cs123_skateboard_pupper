@@ -2,8 +2,8 @@
 
 One side of the robot stands on the deck, the other on the floor. This is the
 second pair of skate tasks, next to the centred stance in
-``pupper_skate_env_cfg.py``; the deck height range, joint speed limit, ride speeds
-and shove interval are shared with it. Two tasks share one scene:
+``pupper_skate_env_cfg.py``; the deck height range, ride speeds and shove
+interval are shared with it. Two tasks share one scene:
 
 * balance -- hold the split stance on a board that is free to roll.
 * ride    -- push with the floor-side legs so the board rolls at a commanded
@@ -50,7 +50,6 @@ from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
-  JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
   RIDE_SPEED_RANGE,
 )
@@ -365,17 +364,20 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"command_name": "twist", "std": 0.15},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
-  # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
-  # swing of 0.2 to 0.5 s (only when a speed is commanded). Short stances pay
-  # proportionally less, and short_stride below charges for them outright, so a
-  # fast tap costs more than it earns. Paying for air time taught a 3 Hz leg
-  # windmill.
+  # Pushing: pay once per stride for a planted stance followed by a swing of
+  # 0.2 to 0.5 s (only when a speed is commanded). The stance target is the
+  # time a 10 cm stroke takes at the commanded speed, 0.25 to 0.5 s; the back
+  # right leg has about 10 cm of reach, so a fixed 0.4 s asked for a 16 cm
+  # stroke at 0.4 m/s. Short stances pay proportionally less, and short_stride
+  # below charges for them outright, so a fast tap costs more than it earns.
+  # Paying for air time taught a 3 Hz leg windmill.
   r["push_stride"] = RewardTermCfg(
     func=mdp.push_stride,
     weight=0.5,
     params={
       "sensor_name": "ground_feet_contact",
-      "stance_s": 0.4,
+      "stroke_m": 0.10,
+      "stance_range": (0.25, 0.5),
       "air_range": (0.2, 0.5),
       "command_name": "twist",
       "command_threshold": 0.1,
@@ -386,7 +388,12 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["short_stride"] = RewardTermCfg(
     func=mdp.short_stride,
     weight=-0.3,
-    params={"sensor_name": "ground_feet_contact", "stance_s": 0.4},
+    params={
+      "sensor_name": "ground_feet_contact",
+      "stroke_m": 0.10,
+      "stance_range": (0.25, 0.5),
+      "command_name": "twist",
+    },
   )
   r["feet_slide"] = RewardTermCfg(
     func=mdp.feet_slide,
@@ -422,15 +429,40 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"sensor_name": "ground_feet_contact", "max_air_s": 0.5},
   )
   # Keep the motion inside what the motors can do. The sim actuator limits
-  # torque but not speed, so speed is limited here. The penalty starts at 75% of
-  # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait
-  # stays inside the check. Both weights were raised after ffcxbwup peaked at
-  # 10.6 rad/s with 21% of samples torque-saturated.
+  # torque but not speed, so speed is limited here. The penalty starts at
+  # 5 rad/s, well under the gait check's 12. A smooth push at 0.4 m/s needs
+  # about 7, which costs little; the cost is squared, so snaps cost much more.
+  # Both weights were raised after ffcxbwup peaked at 10.6 rad/s with 21% of
+  # samples torque-saturated; the onset came down from 6 after 3qmtsv4o peaked
+  # at 9.2 rad/s.
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
     func=mdp.joint_speed_over_limit,
     weight=-0.3,
-    params={"limit": 0.75 * JOINT_SPEED_LIMIT},
+    params={"limit": 5.0},
+  )
+  # Smoother lift-offs and touchdowns: 3qmtsv4o's speed peaks came from snaps
+  # at contact changes, not from its cadence. Action rate is five times the
+  # balance weight, action and joint acceleration are new, and a swing foot
+  # pays for lifting its underside more than 3 cm off the floor.
+  r["action_rate_l2"].weight = -0.05
+  r["action_acc"] = RewardTermCfg(func=mdp.action_acc_l2, weight=-0.02)
+  r["joint_acc"] = RewardTermCfg(
+    func=mdp.joint_acc_l2,
+    weight=-1e-6,
+    params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+  )
+  r["swing_height"] = RewardTermCfg(
+    func=mdp.foot_height_over,
+    weight=-5.0,
+    params={
+      "max_height": 0.03,
+      "foot_radius": 0.02,
+      "sensor_name": "ground_feet_contact",
+      "foot_cfg": SceneEntityCfg(
+        "robot", site_names=_GROUND_FOOT_SITES, preserve_order=True
+      ),
+    },
   )
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-1.5, params={"limit": PUPPER_EFFORT_LIMIT}

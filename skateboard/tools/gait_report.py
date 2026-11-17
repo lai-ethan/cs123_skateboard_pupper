@@ -44,9 +44,10 @@ import numpy as np
 
 # (name, "max" | "min", limit), judged on the worst env. A metric may have
 # both. The peak joint speed limit must equal JOINT_SPEED_LIMIT in
-# pupper_skate_env_cfg.py; main checks it.
+# pupper_skate_env_cfg.py (an estimate, not a measured motor limit); main
+# checks it.
 GAIT_LIMITS: tuple[tuple[str, str, float], ...] = (
-  ("peak_joint_speed", "max", 8.0),
+  ("peak_joint_speed", "max", 12.0),
   ("saturated_fraction", "max", 0.05),
   ("min_foot_duty", "min", 0.4),
   ("max_stride_rate", "max", 2.0),

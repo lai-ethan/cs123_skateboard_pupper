@@ -24,7 +24,7 @@ gr = _load_gait_report()
 
 def test_gait_limits():
   assert gr.GAIT_LIMITS == (
-    ("peak_joint_speed", "max", 8.0),
+    ("peak_joint_speed", "max", 12.0),
     ("saturated_fraction", "max", 0.05),
     ("min_foot_duty", "min", 0.4),
     ("max_stride_rate", "max", 2.0),
@@ -102,7 +102,7 @@ def test_windmill_gait_fails():
     # A board at a quarter of the command fails the minimum, not the maximum.
     expect_pass = (name, kind) == ("board_speed_ratio", "max")
     assert rows[name, kind][4] is expect_pass, name
-  assert rows["peak_joint_speed", "max"][1:4] == (39.0, "max", 8.0)
+  assert rows["peak_joint_speed", "max"][1:4] == (39.0, "max", 12.0)
   assert metrics["max_joint_speed"] == 39.0
   assert rows["min_foot_duty", "min"][2] == "min"
 
@@ -172,12 +172,12 @@ def test_verdict_judges_the_worst_env():
     good,
     {**good, "board_speed_ratio": 0.3},
     {**good, "board_speed_ratio": 1.7},
-    {**good, "peak_joint_speed": 9.0},
+    {**good, "peak_joint_speed": 13.0},
   ]
   rows = {(row[0], row[2]): row for row in gr.gait_verdict(per_env)}
   assert rows["board_speed_ratio", "min"][1:] == (0.3, "min", 0.5, False, 1)
   assert rows["board_speed_ratio", "max"][1:] == (1.7, "max", 1.5, False, 2)
-  assert rows["peak_joint_speed", "max"][1:] == (9.0, "max", 8.0, False, 3)
+  assert rows["peak_joint_speed", "max"][1:] == (13.0, "max", 12.0, False, 3)
   assert rows["min_foot_duty", "min"][1:] == (0.8, "min", 0.4, True, 0)
   # One env alone passes.
   assert all(row[4] for row in gr.gait_verdict([good]))

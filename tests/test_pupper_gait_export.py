@@ -9,6 +9,7 @@ Two things have to hold for the gait policy to survive the trip to the robot:
    where the phase goes negative and only a floor-modulo wraps it correctly.
 """
 
+from types import SimpleNamespace
 from typing import cast
 
 import numpy as np
@@ -26,9 +27,12 @@ from mjlab.tasks.pupper_gait.export import (
   GAIT_REFERENCE_IDX,
   GAIT_SINGLE_OBS_DIM,
   gait_reference_offset_torch,
+  heading_hold_metadata,
   reference_offset_numpy,
 )
 from mjlab.tasks.pupper_gait.mdp.gait_reference import build_joint_reference_table
+from mjlab.tasks.registry import list_tasks, load_env_cfg
+from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommandCfg
 
 HISTORY = 20
 IN_DIM = HISTORY * GAIT_SINGLE_OBS_DIM  # 960
@@ -258,3 +262,46 @@ def test_fast_back_equal_to_forward_is_inert():
   with_split = reference_offset_numpy(gait, default, t, vx, vy, yaw)
   without = reference_offset_numpy(_mixed_gait_block(), default, t, vx, vy, yaw)
   np.testing.assert_allclose(with_split, without, rtol=1e-6, atol=1e-6)
+
+
+##
+# heading_hold block: skate exports turn the robot's default hold off.
+##
+
+SKATE_TASKS = (
+  "Mjlab-Skate-Balance-Pupper-v3",
+  "Mjlab-Skate-Ride-Pupper-v3",
+  "Mjlab-SkateSplit-Balance-Pupper-v3",
+  "Mjlab-SkateSplit-Ride-Pupper-v3",
+)
+
+
+@pytest.mark.parametrize("task", SKATE_TASKS)
+def test_skate_exports_turn_heading_hold_off(task):
+  # The robot runs heading hold for any policy with a gait_reference block
+  # unless the JSON has kp <= 0. Its parser reads all four keys.
+  env = SimpleNamespace(cfg=load_env_cfg(task))
+  assert heading_hold_metadata(env) == {
+    "kp": 0.0,
+    "clip": 0.3,
+    "yaw_threshold": 0.1,
+    "walk_threshold": 0.05,
+  }
+
+
+@pytest.mark.parametrize(
+  "task", [t for t in list_tasks() if "Pupper" in t and t not in SKATE_TASKS]
+)
+def test_other_pupper_exports_keep_their_heading_hold(task):
+  cfg = load_env_cfg(task)
+  twist = cfg.commands.get("twist")
+  block = heading_hold_metadata(SimpleNamespace(cfg=cfg))
+  if not isinstance(twist, UniformVelocityCommandCfg) or twist.heading_hold_kp is None:
+    assert block is None
+  else:
+    assert block == {
+      "kp": twist.heading_hold_kp,
+      "clip": twist.heading_hold_clip,
+      "yaw_threshold": twist.heading_hold_yaw_threshold,
+      "walk_threshold": twist.heading_hold_walk_threshold,
+    }

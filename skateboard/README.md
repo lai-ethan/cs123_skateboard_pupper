@@ -49,7 +49,7 @@ Four tasks are registered:
   - Both balance tasks penalize any motor above half its torque limit (`torque_saturation`). The first centred balance run, `k4kci0oj`, passed the curve check while it held its legs on the joint stops at full torque, which a real motor cannot keep up.
 - `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s). Two rewards teach the push while the board is too slow: `foot_reach` pays more the closer the lowest foot gets to the floor, and `push_stroke` pays once for each planted stroke as the foot lifts off the floor. `board_progress` pays the share of the commanded speed the board reaches, so a first slow push pays too. Standing on four feet must not out-earn a push on three: the deck pays for three feet at most, one foot may stay off it (two off past 1.5 s ends the episode), and `tilt` and `board_alignment` are looser than in balance (PLAN Task 28).
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
-- `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet.
+- `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet, each stance as long as a 10 cm stroke takes at the command (0.25 to 0.5 s). `action_rate_l2`, `action_acc`, `joint_acc` and `swing_height` charge for snaps at lift-off and touchdown and for swings higher than 3 cm, and the joint speed penalty starts at 5 rad/s (PLAN Task 31).
 
 The reward tables for all four are in section 4 of the notebook.
 
@@ -165,8 +165,9 @@ fall in any env fails. Before a policy goes on the robot, add
 `--deck-height <m>` to pin every env's deck top to the real board: 0.103 for the
 stock trucks, or the measured height of the lowered ones. A ride task needs
 `--speed`; the board must then roll at 0.5 to 1.5 times it. Joint speed is
-judged on the 99th percentile against 8 rad/s; the true largest joint speed is
-printed beside it but is not part of the verdict.
+judged on the 99th percentile against 12 rad/s (an estimate from the motor
+spec, not a measurement); the true largest joint speed is printed beside it but
+is not part of the verdict.
 
 For a centred task the gait check reads the deck and floor contacts of all four
 feet. `min_foot_duty` is the smallest share of time any foot touches the deck or

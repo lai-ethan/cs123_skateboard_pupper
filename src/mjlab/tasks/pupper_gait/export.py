@@ -310,11 +310,17 @@ def heading_hold_metadata(env) -> dict[str, float] | None:
   heading captured at the quiet edge. The robot must run the identical
   correction off its IMU yaw, so the numbers ship with the export rather than
   being kept in sync by hand.
+
+  The skate tasks (the only scenes with a ``board``) train without the hold,
+  but the robot turns it on for any policy with a ``gait_reference`` block
+  unless the JSON says otherwise. Their block carries kp 0, which turns it off.
   """
   twist = env.cfg.commands.get("twist")
   kp = getattr(twist, "heading_hold_kp", None)
   if kp is None:
-    return None
+    if "board" not in env.cfg.scene.entities:
+      return None
+    kp = 0.0
   return {
     "kp": float(kp),
     "clip": float(twist.heading_hold_clip),
