@@ -161,19 +161,20 @@ def test_push_stride_pays_a_planted_stride_once_at_touchdown():
 def test_short_stride_charges_a_landing_after_a_short_stance():
   # Foot 0 varies per row; foot 1 has been standing a while.
   # Rows: landed after 0.1 s of stance, after 0.4 s, after 0.6 s, landed
-  # earlier, in the air.
+  # earlier, in the air, spawned on the floor (first step after a reset, no
+  # stance on record).
   data = SimpleNamespace(
     current_contact_time=torch.tensor(
-      [[0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.06, 1.0], [0.0, 1.0]]
+      [[0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.06, 1.0], [0.0, 1.0], [0.02, 1.0]]
     ),
     last_contact_time=torch.tensor(
-      [[0.1, 0.0], [0.4, 0.0], [0.6, 0.0], [0.1, 0.0], [0.1, 0.0]]
+      [[0.1, 0.0], [0.4, 0.0], [0.6, 0.0], [0.1, 0.0], [0.1, 0.0], [0.0, 0.0]]
     ),
   )
-  expected = [0.75 / 0.02, 0.0, 0.0, 0.0, 0.0]
+  expected = [0.75 / 0.02, 0.0, 0.0, 0.0, 0.0, 0.0]
   # Not gated on the command: a tap costs the same when told to stand still.
   for speed in (0.4, 0.0):
-    command = torch.tensor([[speed, 0.0, 0.0]] * 5)
+    command = torch.tensor([[speed, 0.0, 0.0]] * 6)
     env = _fake_env(data, lambda name, command=command: command)
     reward = mdp.short_stride(env, sensor_name="feet", stance_s=0.4)
     assert reward.tolist() == pytest.approx(expected)

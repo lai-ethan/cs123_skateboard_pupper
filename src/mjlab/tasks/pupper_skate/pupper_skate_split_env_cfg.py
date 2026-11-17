@@ -365,8 +365,9 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
   # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
   # swing of 0.2 to 0.5 s (only when a speed is commanded). Short stances pay
-  # proportionally less, so the speed and torque penalties below are what make a
-  # fast tap unattractive. Paying for air time taught a 3 Hz leg windmill.
+  # proportionally less, and short_stride below charges for them outright, so a
+  # fast tap costs more than it earns. Paying for air time taught a 3 Hz leg
+  # windmill.
   r["push_stride"] = RewardTermCfg(
     func=mdp.push_stride,
     weight=0.5,

@@ -223,12 +223,15 @@ def short_stride(
   stance before it costs 1 and a stance of ``stance_s`` or more costs nothing.
   The cost is divided by the step so the weight is the cost of one such tap.
   Not gated on the command: tapping while told to stand still costs the same.
+  A foot with no stance on record has not lifted off since the reset (it
+  spawned on the floor), so it is not charged.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   data = sensor.data
   contact_time, stance_time = data.current_contact_time, data.last_contact_time
   assert contact_time is not None and stance_time is not None
   landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
+  landed &= stance_time > 0.0
   cost = 1.0 - torch.clamp(stance_time / stance_s, max=1.0)
   return torch.sum(cost * landed.float(), dim=1) / env.step_dt
 
