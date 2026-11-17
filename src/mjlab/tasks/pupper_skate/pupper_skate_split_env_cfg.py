@@ -62,6 +62,10 @@ GROUND_SIDE = "r"
 
 _DECK_FEET = rf"^leg_(front|back)_{DECK_SIDE}_3_collision$"
 _GROUND_FEET = rf"^leg_(front|back)_{GROUND_SIDE}_3_collision$"
+# The foot sites of the _GROUND_FEET geoms, in the sensor's order.
+_GROUND_FOOT_SITES = tuple(
+  f"leg_{end}_{GROUND_SIDE}_3_foot_site" for end in ("front", "back")
+)
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
 
@@ -365,13 +369,30 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # fast tap unattractive. Paying for air time taught a 3 Hz leg windmill.
   r["push_stride"] = RewardTermCfg(
     func=mdp.push_stride,
-    weight=0.3,
+    weight=0.5,
     params={
       "sensor_name": "ground_feet_contact",
       "stance_s": 0.4,
       "air_range": (0.2, 0.5),
       "command_name": "twist",
       "command_threshold": 0.1,
+    },
+  )
+  # Taps and dragged feet cost something, at any command: with push_stride
+  # alone, run vzs88cci shuffled the right feet at 5 strides a second.
+  r["short_stride"] = RewardTermCfg(
+    func=mdp.short_stride,
+    weight=-0.3,
+    params={"sensor_name": "ground_feet_contact", "stance_s": 0.4},
+  )
+  r["feet_slide"] = RewardTermCfg(
+    func=mdp.feet_slide,
+    weight=-2.0,
+    params={
+      "sensor_name": "ground_feet_contact",
+      "asset_cfg": SceneEntityCfg(
+        "robot", site_names=_GROUND_FOOT_SITES, preserve_order=True
+      ),
     },
   )
   r["feet_on_ground"].weight = 0.1
@@ -397,7 +418,7 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
     func=mdp.joint_speed_over_limit,
-    weight=-0.02,
+    weight=-0.05,
     params={"limit": 0.75 * JOINT_SPEED_LIMIT},
   )
   r["torque_saturation"] = RewardTermCfg(

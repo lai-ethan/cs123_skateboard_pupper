@@ -156,10 +156,12 @@ if SPLIT:
     REWARD_WEIGHTS.update({
       "track_board_velocity": 3.0,
       "board_yaw_rate": -0.5,
-      "push_stride": 0.3,
+      "push_stride": 0.5,
+      "short_stride": -0.3,
+      "feet_slide": -2.0,
       "push_leg_pose": 0.3,
       "joint_vel_l2": -0.001,
-      "joint_speed_limit": -0.02,
+      "joint_speed_limit": -0.05,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -308,11 +310,14 @@ out = [
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `push_stride` | n/a | 0.3 | right feet take planted strides: 0.4 s on the"
+    "| `push_stride` | n/a | 0.5 | right feet take planted strides: 0.4 s on the"
     " floor, then a 0.2 to 0.5 s swing |\n"
+    "| `short_stride` | n/a | -0.3 | a right foot lands after less than 0.4 s"
+    " on the floor; a tap with no stance costs the full weight |\n"
+    "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
-    "| `joint_speed_limit` | n/a | -0.02 | joint speed above 6 rad/s |\n"
+    "| `joint_speed_limit` | n/a | -0.05 | joint speed above 6 rad/s |\n"
     "| `torque_saturation` | -1.0 | -0.5 | motors above half (balance) or 80% (ride)"
     " of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"

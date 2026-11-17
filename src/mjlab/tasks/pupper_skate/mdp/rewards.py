@@ -213,6 +213,43 @@ def push_stride(
   return reward * (command[:, 0] > command_threshold).float()
 
 
+def short_stride(
+  env: ManagerBasedRlEnv, sensor_name: str, stance_s: float
+) -> torch.Tensor:
+  """Penalize quick taps, charged once per touchdown (split stance).
+
+  Each foot that just landed costs 1 - min(stance / stance_s, 1), where
+  ``stance`` is the contact that ended at its last lift-off, so a tap with no
+  stance before it costs 1 and a stance of ``stance_s`` or more costs nothing.
+  The cost is divided by the step so the weight is the cost of one such tap.
+  Not gated on the command: tapping while told to stand still costs the same.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  data = sensor.data
+  contact_time, stance_time = data.current_contact_time, data.last_contact_time
+  assert contact_time is not None and stance_time is not None
+  landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
+  cost = 1.0 - torch.clamp(stance_time / stance_s, max=1.0)
+  return torch.sum(cost * landed.float(), dim=1) / env.step_dt
+
+
+def feet_slide(
+  env: ManagerBasedRlEnv, sensor_name: str, asset_cfg: SceneEntityCfg
+) -> torch.Tensor:
+  """Penalize feet sliding while in contact: sum of foot xy speed squared.
+
+  ``asset_cfg`` names the foot sites, in the same order as the sensor's feet.
+  Not gated on the command, unlike the velocity tasks' ``feet_slip``.
+  """
+  asset: Entity = env.scene[asset_cfg.name]
+  sensor: ContactSensor = env.scene[sensor_name]
+  found = sensor.data.found
+  assert found is not None
+  in_contact = (found > 0).float()
+  foot_vel_xy = asset.data.site_lin_vel_w[:, asset_cfg.site_ids, :2]
+  return torch.sum(torch.sum(torch.square(foot_vel_xy), dim=-1) * in_contact, dim=1)
+
+
 def push_stroke(
   env: ManagerBasedRlEnv,
   sensor_name: str,

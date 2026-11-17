@@ -25,6 +25,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   get_spec,
 )
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
@@ -157,9 +158,56 @@ def test_push_stride_pays_a_planted_stride_once_at_touchdown():
   assert mdp.push_stride(env, **params).tolist() == [0.0] * 5
 
 
+def test_short_stride_charges_a_landing_after_a_short_stance():
+  # Foot 0 varies per row; foot 1 has been standing a while.
+  # Rows: landed after 0.1 s of stance, after 0.4 s, after 0.6 s, landed
+  # earlier, in the air.
+  data = SimpleNamespace(
+    current_contact_time=torch.tensor(
+      [[0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.06, 1.0], [0.0, 1.0]]
+    ),
+    last_contact_time=torch.tensor(
+      [[0.1, 0.0], [0.4, 0.0], [0.6, 0.0], [0.1, 0.0], [0.1, 0.0]]
+    ),
+  )
+  expected = [0.75 / 0.02, 0.0, 0.0, 0.0, 0.0]
+  # Not gated on the command: a tap costs the same when told to stand still.
+  for speed in (0.4, 0.0):
+    command = torch.tensor([[speed, 0.0, 0.0]] * 5)
+    env = _fake_env(data, lambda name, command=command: command)
+    reward = mdp.short_stride(env, sensor_name="feet", stance_s=0.4)
+    assert reward.tolist() == pytest.approx(expected)
+
+
+def _fake_slide_env(found: list[float], foot_vel: list[list[float]]) -> Any:
+  """Enough of an env for feet_slide: one env, a contact sensor and foot sites."""
+  return SimpleNamespace(
+    scene={
+      "feet": SimpleNamespace(data=SimpleNamespace(found=torch.tensor([found]))),
+      "robot": SimpleNamespace(
+        data=SimpleNamespace(site_lin_vel_w=torch.tensor([foot_vel]))
+      ),
+    },
+    device="cpu",
+  )
+
+
+def test_feet_slide_charges_a_planted_foot_moving_over_the_floor():
+  # Two feet: foot 0 moves at 0.5 m/s (0.3, 0.4) in xy, foot 1 is still. The z
+  # speed does not count.
+  foot_vel = [[0.3, 0.4, 1.0], [0.0, 0.0, 1.0]]
+
+  def slide(found: list[float]) -> float:
+    env = _fake_slide_env(found, foot_vel)
+    return mdp.feet_slide(env, "feet", SceneEntityCfg("robot")).item()
+
+  assert slide([1.0, 1.0]) == pytest.approx(0.25)
+  assert slide([0.0, 1.0]) == 0.0
+
+
 ##
 # Rewards: the a110b84 split configs, name for name and weight for weight, plus
-# the balance torque penalty (Task 25).
+# the balance torque penalty (Task 25) and the ride shuffle fix (Task 29).
 ##
 
 SPLIT_BALANCE_WEIGHTS = {
@@ -185,10 +233,12 @@ SPLIT_RIDE_WEIGHTS = {
   "feet_on_ground": 0.1,
   "track_board_velocity": 3.0,
   "board_yaw_rate": -0.5,
-  "push_stride": 0.3,
+  "push_stride": 0.5,
+  "short_stride": -0.3,
+  "feet_slide": -2.0,
   "push_leg_pose": 0.3,
   "joint_vel_l2": -1e-3,
-  "joint_speed_limit": -0.02,
+  "joint_speed_limit": -0.05,
   "torque_saturation": -0.5,
 }
 
@@ -259,7 +309,17 @@ def test_split_ride_rewards_match_a110b84():
     "command_name": "twist",
     "command_threshold": 0.1,
   }
-  assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
+  assert cfg.rewards["joint_speed_limit"].params == {"limit": 0.75 * JOINT_SPEED_LIMIT}
+  short = cfg.rewards["short_stride"]
+  assert short.func is mdp.short_stride
+  assert short.params == {"sensor_name": "ground_feet_contact", "stance_s": 0.4}
+  slide = cfg.rewards["feet_slide"]
+  assert slide.func is mdp.feet_slide
+  assert slide.params["sensor_name"] == "ground_feet_contact"
+  assert slide.params["asset_cfg"].site_names == (
+    "leg_front_r_3_foot_site",
+    "leg_back_r_3_foot_site",
+  )
 
   def matched(term: str) -> set[str]:
     patterns = cfg.rewards[term].params["asset_cfg"].joint_names
@@ -334,6 +394,20 @@ def test_centred_cfgs_are_unchanged():
   assert _weights(pupper_skate_ride_env_cfg()) == pytest.approx(CENTRED_RIDE_WEIGHTS)
 
 
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_balance_env_cfg,
+    pupper_skate_ride_env_cfg,
+  ],
+)
+def test_only_split_ride_charges_taps_and_sliding_feet(make_cfg):
+  rewards = make_cfg().rewards
+  assert "short_stride" not in rewards
+  assert "feet_slide" not in rewards
+
+
 ##
 # Registration: both pairs of tasks build.
 ##
@@ -357,6 +431,22 @@ def test_registered_skate_tasks_build(task):
   assert isinstance(actor, torch.Tensor) and actor.shape == (1, 48 * 20)
   assert torch.isfinite(reward).all()
   env.close()
+
+
+def test_feet_slide_sites_follow_the_ground_sensor_feet():
+  cfg = pupper_skate_split_ride_env_cfg()
+  cfg.scene.num_envs = 1
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  sensor = env.scene["ground_feet_contact"]
+  feet = [n.split("/")[-1] for n in sensor.primary_names]
+  term = env.reward_manager.get_term_cfg("feet_slide")
+  site_ids = term.params["asset_cfg"].site_ids
+  sites = [env.scene["robot"].site_names[i] for i in site_ids]
+  env.close()
+  assert feet == ["leg_front_r_3_collision", "leg_back_r_3_collision"]
+  assert [s.replace("_foot_site", "") for s in sites] == [
+    f.replace("_collision", "") for f in feet
+  ]
 
 
 ##
