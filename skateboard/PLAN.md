@@ -1526,6 +1526,33 @@ the untouched `notebooks/watch_live.py`).
 
 **Commit:** `feat: split ride rewards that charge for taps and sliding feet`
 
+### Task 30: Survive a diverged env, and make the split ride gait one the motors can do
+
+Two runs on 2026-11-17 set this task:
+
+- Centred ride (`Mjlab-Skate-Ride-Pupper-v3`, code cf7d990) crashed at about iteration 95 of 1500 with `ValueError: The observation group 'actor' returned by the environment contains NaN values`. One of 4096 envs diverged and took the whole run down.
+- Split ride v2 `ffcxbwup` (Task 29 rewards) passes the stride-rate limit (2.0, was 5.1) but still fails the gait check at 0.4 m/s on the real deck height: peak joint speed 10.6 rad/s (limit 8), saturated fraction 0.215 (limit 0.05), the back right foot never touches the floor (duty 0.00, limit 0.4), 5 resets in 16 envs. It rides on three points and pushes with the front right foot only, crouched and torque-saturated.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`
+- Test: `tests/test_pupper_skate.py`, `tests/test_pupper_skate_split.py`
+
+**Part A: NaN guard (all four skate tasks)**
+
+- [ ] **Step 1:** add the framework's `nan_detection` termination (`mjlab.envs.mdp.terminations.nan_detection`, built on `mjlab.utils.nan_guard.NanGuard`) to the base config of both stances as `cfg.terminations["nan"]`, so all four tasks have it. Check how `src/mjlab/scripts/train.py` and `src/mjlab/sim/sim.py` use the NaN guard and follow the same pattern.
+- [ ] **Step 2:** write a test, for one centred and one split task: build the env with 4 envs, step once, write NaN into one env's `qvel` in the sim data, step again, and assert that (a) that env was reset, (b) the next actor observation holds no NaN in any env. If a reset does not clear the NaN on its own (the observation is computed before the reset, or the history buffer keeps the NaN), fix that inside the skate task code, for example with a `torch.nan_to_num` in the observation path of the reset envs; do not edit framework files outside `tasks/pupper_skate` unless there is no other way, and say so in the report.
+- [ ] **Step 3:** try for at most 10 minutes to find what diverges: run the centred ride env on CPU with 64 envs and random actions of std 1.0 for 2000 steps and report whether a NaN appears and in which body or joint first. Report the finding; do not fix the cause unless it is a one-line model error.
+
+**Part B: Split ride v3 rewards (split ride only)**
+
+- [ ] **Step 4:** in the split ride config change `joint_speed_limit` weight from `-0.05` to `-0.3` and `torque_saturation` weight from `-0.5` to `-1.5`.
+- [ ] **Step 5:** add a reward function `foot_idle_air(env, sensor_name, max_air_s)` to `mdp/rewards.py`: per env, the number of feet on the sensor whose current air time is longer than `max_air_s`. Use the contact sensor's air-time field the way `short_stride` and `push_stride` already do. Add it to the split ride config as `r["push_foot_idle"]` on the ground-side feet sensor with weight `-0.5` and `max_air_s=0.5`. It charges a pushing foot that hovers instead of stepping.
+- [ ] **Step 6:** tests: `foot_idle_air` returns 0 for a foot in contact, 0 for a foot in the air for less than `max_air_s`, 1 per foot beyond it; the split ride config has the three weights above; the centred ride and both balance configs do not have `push_foot_idle`.
+- [ ] **Step 7:** update the reward table in `notebooks/` only through its generator if the notebook lists these weights (run the generator and `tests/test_skate_notebook.py`); update the split ride row values in `skateboard/PLAN.md`'s design table if listed.
+- [ ] **Step 8:** `uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files; `uv run pytest tests/test_pupper_skate.py tests/test_pupper_skate_split.py tests/test_skate_notebook.py`. Do not run `make check`. Commit as `fix: reset diverged skate envs and tighten split ride motor limits`.
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
