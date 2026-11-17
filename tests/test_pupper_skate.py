@@ -392,27 +392,30 @@ def test_stance_holds_with_zero_actions():
   env = ManagerBasedRlEnv(
     cfg=_passive_hold_cfg(NUM_ENVS, spawn_noise=False), device=get_test_device()
   )
-  env.reset()
-  robot, board = env.scene["robot"], env.scene["board"]
-  actions = torch.zeros(NUM_ENVS, 12, device=env.device)
-  for _ in range(250):  # 5 s.
-    _, reward, terminated, truncated, _ = env.step(actions)
-    assert torch.isfinite(reward).all()
-    assert not (terminated | truncated).any()
-    roll, pitch, _ = euler_xyz_from_quat(robot.data.root_link_quat_w)
-    assert wrap_to_pi(roll).abs().max() < 0.1
-    assert wrap_to_pi(pitch).abs().max() < 0.1
-  assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
-  assert (mdp.contact_count(env, "ground_feet_contact") == 0).all()
-  assert (mdp.contact_count(env, "knees_on_deck") == 0).all()
-  # The loaded legs settle up to 3 cm below the feet-touching height.
-  height = robot.data.root_link_pos_w[:, 2]
-  assert ((height > SKATE_HEIGHT - 0.03) & (height < SKATE_HEIGHT)).all()
-  assert board.data.root_link_lin_vel_w[:, :2].norm(dim=1).max() < 0.02
-  assert (
-    mdp.board_alignment(env, SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3).min() > 0.3
-  )
-  env.close()
+  try:
+    env.reset()
+    robot, board = env.scene["robot"], env.scene["board"]
+    actions = torch.zeros(NUM_ENVS, 12, device=env.device)
+    for _ in range(250):  # 5 s.
+      _, reward, terminated, truncated, _ = env.step(actions)
+      assert torch.isfinite(reward).all()
+      assert not (terminated | truncated).any()
+      roll, pitch, _ = euler_xyz_from_quat(robot.data.root_link_quat_w)
+      assert wrap_to_pi(roll).abs().max() < 0.1
+      assert wrap_to_pi(pitch).abs().max() < 0.1
+    assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
+    assert (mdp.contact_count(env, "ground_feet_contact") == 0).all()
+    assert (mdp.contact_count(env, "knees_on_deck") == 0).all()
+    # The loaded legs settle up to 3 cm below the feet-touching height.
+    height = robot.data.root_link_pos_w[:, 2]
+    assert ((height > SKATE_HEIGHT - 0.03) & (height < SKATE_HEIGHT)).all()
+    assert board.data.root_link_lin_vel_w[:, :2].norm(dim=1).max() < 0.02
+    assert (
+      mdp.board_alignment(env, SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3).min()
+      > 0.3
+    )
+  finally:
+    env.close()
 
 
 @pytest.mark.slow
@@ -439,7 +442,7 @@ def test_stance_holds_without_torque_saturation():
 
 @pytest.mark.slow
 @pytest.mark.xfail(
-  strict=False,
+  strict=True,
   reason=(
     "At the guessed 30 N*m/rad truck stiffness the pose with no policy tips in "
     "about half of noisy spawns (28 to 40 of 64 over seeds 0 to 5). A trained "
