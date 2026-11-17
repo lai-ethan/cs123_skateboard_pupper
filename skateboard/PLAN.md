@@ -1,4 +1,4 @@
-b# Pupper Skateboard RL Training Implementation Plan (v8)
+b# Pupper Skateboard RL Training Implementation Plan (v9)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,6 +19,16 @@ b# Pupper Skateboard RL Training Implementation Plan (v8)
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
 - The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v8
+
+- New Task 29. The split ride run `vzs88cci` tracks the commanded board speed
+  (`RESULT: PASS`) but fails the gait check: the floor-side feet shuffle at
+  5 steps per second (limit 2), joint speed peaks at 8.6 rad/s (limit 8) and 1
+  to 3 of 16 robots fall in 8 s. `push_stride` earned 0.001, so the slow
+  planted stride it pays for was never found. Task 29 charges for quick taps
+  and for feet sliding on the floor, and raises the joint speed penalty.
+- Board mass is the measured 1.523 kg (stock trucks).
 
 ## What changed from v7
 
@@ -1445,6 +1455,74 @@ tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py`;
 `uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files.
 
 **Commit:** `feat: centred ride rewards that pay for a push`
+
+### Task 29: Split ride rewards that stop the shuffle
+
+**Why:** the split ride run `vzs88cci` (code `7f1bbad`) rolls the board at the
+commanded speed but with a gait the motors should not be asked for. Local gait
+check, 16 envs, seed 0, 0.4 m/s: `max_stride_rate` 5.125 (need <= 2.0),
+`peak_joint_speed` 8.642 at the task deck range (need <= 8.0), 1 to 3 resets,
+floor feet down 81 to 86% of the time. Training logged `push_stride` 0.001 of
+0.3: the policy never makes a 0.4 s stance followed by a 0.2 to 0.5 s swing.
+Quick taps and dragging feet cost nothing today, so they win. The centred
+tasks and split balance are not touched.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`,
+  `src/mjlab/tasks/pupper_skate/mdp/__init__.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`
+  (`pupper_skate_split_ride_env_cfg` only)
+- Modify: `skateboard/README.md` (split ride column of the reward table) and
+  `skateboard/tools/make_notebook.py` plus the regenerated notebook, if the
+  tables list these weights
+- Test: `tests/test_pupper_skate_split.py`
+
+**Interfaces:**
+- New `mdp.short_stride(env, sensor_name, stance_s)`: paid once per touchdown,
+  same landing detection as `push_stride`. Per landed foot it scores
+  `1 - clamp(last_contact_time / stance_s, max=1)`, summed over feet and
+  divided by `env.step_dt`, so the weight is the cost of one tap with no
+  stance before it. Not gated on the command: tapping while told to stand
+  still costs the same.
+- New `mdp.feet_slide(env, sensor_name, asset_cfg)`: sum over the sensor's
+  feet of the squared world xy speed of the foot site while that foot is in
+  contact (`sensor.data.found > 0`). `asset_cfg` names the robot and the foot
+  sites, in the same order as the sensor's feet. Not gated on the command.
+  Write it in our `mdp/rewards.py`; `mjlab.tasks.velocity.mdp.feet_slip` is
+  the pattern, without its command gate and its `extras` logging.
+
+**Exact values, split ride only** (`pupper_skate_split_ride_env_cfg`):
+
+| Term | Now | New |
+| --- | --- | --- |
+| `short_stride` (new) | none | weight -0.3, sensor `ground_feet_contact`, `stance_s` 0.4 |
+| `feet_slide` (new) | none | weight -2.0, sensor `ground_feet_contact`, the two floor-side foot sites |
+| `joint_speed_limit` | weight -0.02 | weight -0.05, limit unchanged |
+| `push_stride` | weight 0.3 | weight 0.5, other params unchanged |
+| everything else | | unchanged |
+
+Split balance and both centred tasks must build with exactly the rewards they
+have now.
+
+**Steps:**
+- [ ] Tests first, in `tests/test_pupper_skate_split.py`, plain functions:
+  - `short_stride`: a landing after a 0.1 s stance scores 0.75 / step_dt for
+    that foot, a landing after 0.4 s or more scores 0, no landing scores 0.
+  - `feet_slide`: a foot in contact moving at 0.5 m/s scores 0.25; the same
+    foot in the air scores 0.
+  - The built split ride env has the table's values; the built split balance
+    env has neither new term; the centred ride env has neither new term.
+  - Foot site order matches the sensor's foot order (assert on names).
+- [ ] Implement, run the tests.
+- [ ] Update the README table (and the notebook generator if it lists them).
+
+**Verify:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py
+tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py
+tests/test_skate_notebook.py`; `uv run ruff format`, `uv run ruff check`,
+`uv run ty check` on touched files. Do not run `make check` (pyright fails on
+the untouched `notebooks/watch_live.py`).
+
+**Commit:** `feat: split ride rewards that charge for taps and sliding feet`
 
 ## Self-review
 
