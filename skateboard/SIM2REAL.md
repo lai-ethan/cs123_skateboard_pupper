@@ -10,8 +10,8 @@ written 2026-11-17, from simulation only. Nothing here has been tried on the rob
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | **Yes, first candidate** |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Yes, with care (see below) |
-| Split ride | `ffcxbwup` | pass | **fail** | not run | No |
-| Centred ride | none | crashed | | | No |
+| Split ride | `3qmtsv4o` | pass | **fail, one line** | not run | Not yet (close) |
+| Centred ride | `cy8f55bg` | fail | fail | not run | No |
 
 - **Split stance** (left feet on the deck, right feet on the floor): the balance
   policy holds every condition we tried, including soft trucks and several errors
@@ -21,9 +21,12 @@ written 2026-11-17, from simulation only. Nothing here has been tried on the rob
   edge. It falls when the board is 2 cm off-centre, when shoved, or when the
   trucks are four times softer than modelled. On the robot it needs placement
   within about 1 cm, wedged wheels and no shoves.
-- **Riding: not yet, in either stance.** The split ride policy moves the board at
-  the commanded speed but with joint speeds and torques the motors cannot follow.
-  The centred ride run crashed. Both are being retrained (PLAN Task 30).
+- **Riding: not yet, in either stance.** The newest split ride policy
+  (`3qmtsv4o`) rides at the commanded speed without falling and fails one gait
+  line: peak joint speed 9.2 rad/s against a limit of 8, and that limit is a
+  guess.
+  The centred ride policy falls onto the deck and the board barely moves; it is
+  parked until the lowered trucks exist.
 
 ## The board, as measured
 
@@ -170,8 +173,9 @@ signs off before the first powered run (PLAN Task 12).
 5. **Centred balance, wheels wedged.** Centre the board under the robot to
    within 1 cm. Do not shove it.
 6. **Centred balance, wheels free**, only if step 5 holds for 10 s.
-7. **Ride only after a retrain** prints both `RESULT: PASS` and `GAIT: PASS` and
-   the video shows slow planted pushes.
+7. **Ride only after** a policy prints both `RESULT: PASS` and `GAIT: PASS` and
+   the video shows slow planted pushes. `3qmtsv4o` is one line short (joint
+   speed); whether to try it at 0.2 m/s, hand held, is the TA's call.
 
 On the robot (over SSH):
 
@@ -179,6 +183,7 @@ On the robot (over SSH):
 cd ~/pupper_gait_deploy
 ./deploy.sh mjlab/gt60lfo0   # split balance
 ./deploy.sh mjlab/zdctdcyf   # centred balance
+./deploy.sh mjlab/3qmtsv4o   # split ride, only after step 7
 ```
 
 ## Riding: where it stands
@@ -193,9 +198,28 @@ cd ~/pupper_gait_deploy
   and falls. Video: `media/split_ride_ffcxbwup_0.4ms.mp4`.
 - **Centred ride:** the first run never pushed (`14m5rs1f`). The second, with
   the Task 28 rewards, crashed at iteration 95 when one simulated env diverged.
-- **Next (Task 30):** reset a diverged env so it cannot stop a run; for split
-  ride, charge more for fast joints and saturated motors, and charge a pushing
-  foot that hovers.
+  The third (`cy8f55bg`, with the Task 30 guard) ran to the end and failed:
+  episodes last 363 of 500 steps, motors are saturated the whole time, and in
+  the gait check the board moves at 0.15 of the command at best with 51 resets.
+  Video: `media/ride_cy8f55bg_0.4ms.mp4` (the robot ends up lying on the deck).
+  Parked: it needs trucks that do not exist yet and a deck with no sideways
+  room.
+- **Split ride v3 `3qmtsv4o`** (Task 30 rewards: more charge for fast joints
+  and saturated motors, and for a pushing foot that hovers). Curves pass. On the
+  real deck height, 16 boards, no resets at any speed:
+
+  | Command | Joint speed (limit 8) | Saturated | Steps per second | Board speed / command |
+  | --- | --- | --- | --- | --- |
+  | 0.2 m/s | **9.3** | 0.3% | 2.0 | 0.92 to 1.06 |
+  | 0.3 m/s | **9.1** | 2.8% | 2.0 | 0.92 to 1.02 |
+  | 0.4 m/s | **9.2** | **5.8%** | 2.0 | 0.93 to 1.01 |
+
+  Both right feet are on the floor a little over half the time. Video:
+  `media/split_ride_3qmtsv4o_0.3ms.mp4` (2.7 m in 10 s, no resets). The policy
+  file is `policies/split_ride_3qmtsv4o_policy.json`.
+- **Next:** find the real motor speed limit (the 8 rad/s is a guess). If it is
+  above about 9.5 rad/s this policy passes at 0.2 and 0.3 m/s as it is. If not,
+  retrain with a larger `joint_speed_limit` weight.
 
 ## What changed from v1
 
@@ -206,7 +230,7 @@ cd ~/pupper_gait_deploy
   gone: both policies pass deck heights from 3.5 cm lower to 3 cm higher.
 - Board mass is measured (1.523 kg), no longer assumed.
 - New finding: the centred stance has too little sideways room on this deck.
-- The ride section now reports two failed ride runs and a crashed one.
+- The ride section now reports the failed ride runs in both stances.
 
 ## Accounting
 
@@ -215,6 +239,6 @@ cd ~/pupper_gait_deploy
 - **Assumed:** truck stiffness 30 N·m/rad; the 3 N·m torque limit and 8 rad/s
   speed limit; the audit's pass limits (60% torque, 3 cm margin); that lowered
   trucks put the deck at 68 to 83 mm.
-- **Issues:** no ride policy is ready; the centred stance fails 7 audit rows
+- **Issues:** no ride policy passes the gait check (split ride is one line short); the centred stance fails 7 audit rows
   from lack of sideways room; hand-placing the robot in the split stance and the
   robot-side loader are unverified.

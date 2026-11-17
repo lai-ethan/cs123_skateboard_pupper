@@ -35,12 +35,12 @@ As of 2026-11-17. Nothing has run on the robot.
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | First candidate |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
-| Split ride | `ffcxbwup` | pass | fail | not run | No |
-| Centred ride | none | crashed | | | No |
+| Split ride | `3qmtsv4o` | pass | fail, one line | not run | Not yet (close) |
+| Centred ride | `cy8f55bg` | fail | fail | not run | No |
 
 - Done: board model on the measured board, both stances, four tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
-- Ride is not ready in either stance. Split ride pushes the board at the commanded speed but too fast and too hard for the motors. The centred ride run crashed. The fixes are PLAN Task 30.
+- Ride is not ready in either stance. Split ride `3qmtsv4o` (PLAN Task 30 rewards) rides at the commanded speed with no falls and fails one gait line: peak joint speed 9.2 rad/s against a guessed limit of 8. The centred ride policy falls onto the deck and the board barely moves; it is parked until the lowered trucks exist.
 - Not done: a ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md).
 
 Four tasks are registered:
@@ -98,7 +98,7 @@ cd cs123_skateboard_pupper
 FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q
 ```
 
-Expected: `46 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
+Expected: `63 passed, 1 xfailed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
 NVIDIA GPU.
 
 To see the stance in a viewer:
