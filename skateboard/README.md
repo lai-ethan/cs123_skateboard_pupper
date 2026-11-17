@@ -149,17 +149,28 @@ FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-SkateSplit-Balan
   skateboard/policies/balance_2ace1uqa_policy.json
 ```
 
+The gait check rolls out 16 envs at once (`--envs`), each with its own board
+drawn from the task's ranges, built from a fixed seed (`--seed`, default 0), so
+two runs give the same answer. Every limit is judged on the worst env, and any
+fall in any env fails. Before a policy goes on the robot, add
+`--deck-height <m>` to pin every env's deck top to the real board: 0.103 for the
+stock trucks, or the measured height of the lowered ones. A ride task needs
+`--speed`; the board must then roll at 0.5 to 1.5 times it. Joint speed is
+judged on the 99th percentile against 8 rad/s; the true largest joint speed is
+printed beside it but is not part of the verdict.
+
 For a centred task the gait check reads the deck and floor contacts of all four
 feet. `min_foot_duty` is the smallest share of time any foot touches the deck or
 the floor, and `max_stride_rate` the most often any foot lands on the floor, per
 second. For a split task it counts only the two right feet, the ones that push:
 their time on the floor and how often they land. A line above the verdict shows each
-foot's share of time on the floor, so you can see which foot pushes; it is not
-part of the verdict. The last line is `GAIT: PASS` or `GAIT: FAIL`. On
+foot's share of time on the floor in the env with the worst foot duty, so you can
+see which foot pushes; it is not part of the verdict. The last line is `GAIT: PASS` or `GAIT: FAIL`. On
 2026-11-16, on the split tasks, the saved balance policy gave `GAIT: PASS` and
 the saved ride policy `GAIT: FAIL` (legs too fast, motors at the torque limit,
 the front right foot on the floor only 27% of the time). The board still rolled
-fast enough. The numbers change between runs (the play env is unseeded).
+fast enough. Those numbers came from one unseeded env, before the check moved
+to 16 seeded envs, so they may not repeat.
 
 To check how much balance margin a policy has when the sim is wrong (deck
 height, board placement, grip, motors, shoves):

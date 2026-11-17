@@ -1,7 +1,7 @@
-"""Build one play-mode skate env and load a saved policy into it.
+"""Build play-mode skate envs and load a saved policy into them.
 
-Shared by `render_policy.py` and `gait_report.py`. Takes a training checkpoint
-(`model_*.pt`) or an exported `policy.json`.
+Shared by `render_policy.py`, `stance_audit.py` and `gait_report.py`. Takes a
+training checkpoint (`model_*.pt`) or an exported `policy.json`.
 """
 
 import json
@@ -39,9 +39,13 @@ def load_policy(
   render_mode: str | None = None,
   viewer: dict[str, float] | None = None,
   configure: Callable[[Any], None] | None = None,
+  num_envs: int = 1,
+  seed: int | None = None,
 ) -> tuple[ManagerBasedRlEnv, RslRlVecEnvWrapper, Callable]:
-  """One env in play mode, its rsl_rl wrapper, and `policy(obs) -> actions`.
+  """Play-mode envs, their rsl_rl wrapper, and `policy(obs) -> actions`.
 
+  Builds `num_envs` envs (1 by default). `seed` fixes the envs' random draws
+  (board, gains, commands) so two runs match; None draws a fresh seed.
   `speed` fixes the board speed command in m/s (ride) and turns off standing
   commands (see `fix_speed`); None keeps the task's range and standing share.
   `render_mode` and `viewer` (attributes set on the env's viewer config) are
@@ -50,7 +54,9 @@ def load_policy(
   """
   device = "cuda" if torch.cuda.is_available() else "cpu"
   env_cfg = load_env_cfg(task, play=True)
-  env_cfg.scene.num_envs = 1
+  env_cfg.scene.num_envs = num_envs
+  if seed is not None:
+    env_cfg.seed = seed
   for key, value in (viewer or {}).items():
     setattr(env_cfg.viewer, key, value)
   if speed is not None:

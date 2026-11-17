@@ -23,13 +23,17 @@ gr = _load_gait_report()
 
 
 def test_gait_limits():
-  assert gr.GAIT_LIMITS == {
-    "peak_joint_speed": ("max", 8.0),
-    "saturated_fraction": ("max", 0.05),
-    "min_foot_duty": ("min", 0.4),
-    "max_stride_rate": ("max", 2.0),
-    "board_speed_ratio": ("min", 0.5),
-  }
+  assert gr.GAIT_LIMITS == (
+    ("peak_joint_speed", "max", 8.0),
+    ("saturated_fraction", "max", 0.05),
+    ("min_foot_duty", "min", 0.4),
+    ("max_stride_rate", "max", 2.0),
+    ("board_speed_ratio", "min", 0.5),
+    ("board_speed_ratio", "max", 1.5),
+  )
+
+
+_LIMITED = {row[0] for row in gr.GAIT_LIMITS}
 
 
 def _calm_gait():
@@ -57,14 +61,17 @@ def test_calm_gait_passes():
     board_speed=np.full(T, 0.38),
     command_speed=0.4,
   )
-  assert set(metrics) == set(gr.GAIT_LIMITS)
+  assert set(metrics) == _LIMITED | {"max_joint_speed"}
   assert metrics["peak_joint_speed"] == 2.0
+  assert metrics["max_joint_speed"] == 2.0
   assert metrics["saturated_fraction"] == 0.0
   assert metrics["min_foot_duty"] == pytest.approx(0.8)
   assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
   assert metrics["board_speed_ratio"] == pytest.approx(0.95)
-  rows = gr.gait_verdict(metrics)
-  assert [row[0] for row in rows] == list(gr.GAIT_LIMITS)
+  rows = gr.gait_verdict([metrics])
+  assert [row[:4] for row in rows] == [
+    (name, metrics[name], kind, limit) for name, kind, limit in gr.GAIT_LIMITS
+  ]
   assert all(row[4] for row in rows)
 
 
@@ -90,11 +97,14 @@ def test_windmill_gait_fails():
     board_speed=np.full(T, 0.1),
     command_speed=0.4,
   )
-  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
-  for name in gr.GAIT_LIMITS:
-    assert not rows[name][4], name
-  assert rows["peak_joint_speed"][1:4] == (39.0, "max", 8.0)
-  assert rows["min_foot_duty"][2] == "min"
+  rows = {(row[0], row[2]): row for row in gr.gait_verdict([metrics])}
+  for name, kind, _ in gr.GAIT_LIMITS:
+    # A board at a quarter of the command fails the minimum, not the maximum.
+    expect_pass = (name, kind) == ("board_speed_ratio", "max")
+    assert rows[name, kind][4] is expect_pass, name
+  assert rows["peak_joint_speed", "max"][1:4] == (39.0, "max", 8.0)
+  assert metrics["max_joint_speed"] == 39.0
+  assert rows["min_foot_duty", "min"][2] == "min"
 
 
 def test_still_board_fails_only_on_board_speed():
@@ -109,9 +119,89 @@ def test_still_board_fails_only_on_board_speed():
     board_speed=np.zeros(T),
     command_speed=0.4,
   )
-  failed = [row[0] for row in gr.gait_verdict(metrics) if not row[4]]
-  assert failed == ["board_speed_ratio"]
-  assert metrics["board_speed_ratio"] == 0.0
+  failed = [row[:3] for row in gr.gait_verdict([metrics]) if not row[4]]
+  assert failed == [("board_speed_ratio", 0.0, "min")]
+
+
+def test_board_faster_than_the_command_fails():
+  joint_vel, torque, deck, ground = _calm_gait()
+  metrics = gr.gait_metrics(
+    joint_vel,
+    torque,
+    deck,
+    ground,
+    DT,
+    EFFORT,
+    board_speed=np.full(T, 0.8),
+    command_speed=0.4,
+  )
+  failed = [row[:3] for row in gr.gait_verdict([metrics]) if not row[4]]
+  assert failed == [("board_speed_ratio", pytest.approx(2.0), "max")]
+
+
+def test_max_joint_speed_reports_a_rare_spike():
+  joint_vel, torque, deck, ground = _calm_gait()
+  # 20 rad/s on 2 of 500 steps: under the 99th percentile, so the verdict
+  # passes, but the true maximum shows it.
+  joint_vel[[100, 300], 3] = 20.0
+  metrics = gr.gait_metrics(
+    joint_vel,
+    torque,
+    deck,
+    ground,
+    DT,
+    EFFORT,
+    board_speed=np.full(T, 0.38),
+    command_speed=0.4,
+  )
+  assert metrics["peak_joint_speed"] == pytest.approx(2.0)
+  assert metrics["max_joint_speed"] == 20.0
+  assert all(row[4] for row in gr.gait_verdict([metrics]))
+
+
+def test_verdict_judges_the_worst_env():
+  good = {
+    "peak_joint_speed": 2.0,
+    "saturated_fraction": 0.0,
+    "min_foot_duty": 0.8,
+    "max_stride_rate": 1.0,
+    "board_speed_ratio": 1.0,
+  }
+  # Env 1 is too slow, env 2 too fast, env 3 has fast legs.
+  per_env = [
+    good,
+    {**good, "board_speed_ratio": 0.3},
+    {**good, "board_speed_ratio": 1.7},
+    {**good, "peak_joint_speed": 9.0},
+  ]
+  rows = {(row[0], row[2]): row for row in gr.gait_verdict(per_env)}
+  assert rows["board_speed_ratio", "min"][1:] == (0.3, "min", 0.5, False, 1)
+  assert rows["board_speed_ratio", "max"][1:] == (1.7, "max", 1.5, False, 2)
+  assert rows["peak_joint_speed", "max"][1:] == (9.0, "max", 8.0, False, 3)
+  assert rows["min_foot_duty", "min"][1:] == (0.8, "min", 0.4, True, 0)
+  # One env alone passes.
+  assert all(row[4] for row in gr.gait_verdict([good]))
+
+
+@pytest.mark.parametrize("speed", [[], ["--speed", "0"], ["--speed", "-0.2"]])
+def test_ride_task_needs_a_positive_speed(speed, capsys):
+  argv = ["Mjlab-SkateSplit-Ride-Pupper-v3", "model_1.pt", *speed]
+  with pytest.raises(SystemExit) as exit_info:
+    gr.main(argv)
+  assert exit_info.value.code == 2
+  assert "--speed" in capsys.readouterr().err
+
+
+def test_deck_height_and_envs_are_checked(capsys):
+  for extra in (["--deck-height", "0"], ["--envs", "0"]):
+    with pytest.raises(SystemExit):
+      gr.main(["Mjlab-Skate-Balance-Pupper-v3", "model_1.pt", *extra])
+    capsys.readouterr()
+
+
+def test_deck_offset_is_from_the_measured_deck():
+  assert gr.deck_offset(0.103, nominal=0.103) == 0.0
+  assert gr.deck_offset(0.073, nominal=0.103) == pytest.approx(-0.03)
 
 
 @pytest.mark.parametrize("command_speed", [None, 0.0])
@@ -165,7 +255,7 @@ def test_tapping_the_floor_fails_stride_rate():
   ground[:, 0] = (phase >= 10).astype(float)
   metrics = _contact_metrics(deck, ground)
   assert metrics["max_stride_rate"] == pytest.approx(4.0, abs=0.2)
-  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  rows = {row[0]: row for row in gr.gait_verdict([metrics])}
   assert not rows["max_stride_rate"][4]
   assert rows["min_foot_duty"][4]
 
@@ -184,7 +274,7 @@ def test_a_foot_on_deck_then_floor_counts_as_in_contact():
   metrics = _contact_metrics(deck, ground)
   assert metrics["min_foot_duty"] == pytest.approx(1.0)
   assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
-  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  rows = {row[0]: row for row in gr.gait_verdict([metrics])}
   assert rows["min_foot_duty"][4] and rows["max_stride_rate"][4]
 
 
@@ -215,7 +305,7 @@ def test_split_calm_push_passes():
   metrics = _split_metrics(np.stack([on, on], axis=1))
   assert metrics["min_foot_duty"] == pytest.approx(0.8)
   assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
-  assert all(row[4] for row in gr.gait_verdict(metrics))
+  assert all(row[4] for row in gr.gait_verdict([metrics]))
 
 
 def test_split_pushing_foot_in_the_air_fails_duty_and_rate():
@@ -224,7 +314,7 @@ def test_split_pushing_foot_in_the_air_fails_duty_and_rate():
   ground = np.ones((T, 2))
   ground[:, 0] = (np.arange(T) % 16 == 0).astype(float)
   metrics = _split_metrics(ground)
-  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  rows = {row[0]: row for row in gr.gait_verdict([metrics])}
   assert not rows["min_foot_duty"][4]
   assert not rows["max_stride_rate"][4]
 

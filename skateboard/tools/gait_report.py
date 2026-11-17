@@ -5,21 +5,32 @@ Takes a training checkpoint (`model_*.pt`) or an exported `policy.json`.
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/gait_report.py \\
     Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt \\
-    --speed 0.4 [--steps 500] [--skip 100]
+    --speed 0.4 [--envs 16] [--seed 0] [--deck-height 0.103] [--steps 500] \\
+    [--skip 100]
 
-Drops the first `--skip` steps (settling), then measures peak joint speed
-(the largest per-joint 99th percentile), time at the torque limit, the
+Rolls out `--envs` environments at once, built from `--seed`, so two runs
+give the same answer. Each env draws its own board (deck height, truck
+stiffness, friction, gains) from the task's ranges. `--deck-height` pins the
+deck top to that many metres above the floor in every env instead, for
+example 0.103 for the stock trucks or the measured height of the lowered
+ones; use it for the check before the robot.
+
+Drops the first `--skip` steps (settling), then measures, per env, peak joint
+speed (the largest per-joint 99th percentile), time at the torque limit, the
 smallest share of time any foot touches the deck or the floor, the most often
 any foot lands on the floor, and the board's mean forward speed as a share of
-`--speed` (a robot that does not move fails). It also prints each foot's share
-of time on the floor, so you can see which foot pushes; that line is not part
-of the verdict.
+`--speed`, which must be from 0.5 to 1.5 (a robot that does not move fails,
+and so does a board running away). Each limit is judged on the worst env, and
+the line names that env.
+It also prints the true largest joint speed of any env and each foot's share
+of time on the floor (in the worst env for floor duty), so you can see which
+foot pushes; those lines are not part of the verdict.
 A split task (`Mjlab-SkateSplit-*`) counts only the two right feet, the ones
 that push off the floor: their time on the floor and how often they land. The
 left feet stay on the deck; the task ends the episode if they leave it.
-Without `--speed`, or with 0 (balance), that share is reported as 1.0 and
-passes. Any episode reset in the measured steps fails the gait: a policy that
-falls is not a passing gait.
+A ride task needs a positive `--speed`. Without one (balance), the speed
+share is reported as 1.0 and passes. Any episode reset in any env in the
+measured steps fails the gait: a policy that falls is not a passing gait.
 The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
 """
 
@@ -31,15 +42,17 @@ from pathlib import Path
 
 import numpy as np
 
-# name -> ("max" | "min", limit). The peak joint speed limit must equal
-# JOINT_SPEED_LIMIT in pupper_skate_env_cfg.py; main checks it.
-GAIT_LIMITS: dict[str, tuple[str, float]] = {
-  "peak_joint_speed": ("max", 8.0),
-  "saturated_fraction": ("max", 0.05),
-  "min_foot_duty": ("min", 0.4),
-  "max_stride_rate": ("max", 2.0),
-  "board_speed_ratio": ("min", 0.5),
-}
+# (name, "max" | "min", limit), judged on the worst env. A metric may have
+# both. The peak joint speed limit must equal JOINT_SPEED_LIMIT in
+# pupper_skate_env_cfg.py; main checks it.
+GAIT_LIMITS: tuple[tuple[str, str, float], ...] = (
+  ("peak_joint_speed", "max", 8.0),
+  ("saturated_fraction", "max", 0.05),
+  ("min_foot_duty", "min", 0.4),
+  ("max_stride_rate", "max", 2.0),
+  ("board_speed_ratio", "min", 0.5),
+  ("board_speed_ratio", "max", 1.5),
+)
 # Column order of both foot contact sensors in the centred tasks.
 FOOT_ORDER = ("FR", "FL", "BR", "BL")
 # Column order of the split tasks' ground sensor: the two right feet, which push.
@@ -80,6 +93,8 @@ def gait_metrics(
   `board_speed` is the board's [T] forward speed along its own long axis in
   m/s; `command_speed` is the commanded speed, and None or 0 (no speed
   command) makes `board_speed_ratio` 1.0.
+  `max_joint_speed` is the largest joint speed on any step. It has no limit;
+  it shows what the 99th percentile in `peak_joint_speed` leaves out.
   """
   on_floor = np.asarray(ground_contact) > 0.5
   contact = on_floor
@@ -89,6 +104,7 @@ def gait_metrics(
   touchdowns = np.sum(on_floor[1:] & ~on_floor[:-1], axis=0)
   return {
     "peak_joint_speed": float(np.max(np.percentile(np.abs(joint_vel), 99, axis=0))),
+    "max_joint_speed": float(np.max(np.abs(joint_vel))),
     "saturated_fraction": float(np.mean(np.any(saturated, axis=1))),
     "min_foot_duty": float(np.min(np.mean(contact, axis=0))),
     "max_stride_rate": float(np.max(touchdowns) / (len(contact) * dt)),
@@ -111,15 +127,27 @@ def floor_share(
 
 
 def gait_verdict(
-  metrics: dict[str, float],
-) -> list[tuple[str, float, str, float, bool]]:
-  """(name, value, "max" | "min", limit, passed) per entry of GAIT_LIMITS."""
+  per_env: list[dict[str, float]],
+) -> list[tuple[str, float, str, float, bool, int]]:
+  """(name, value, kind, limit, passed, env) per row of GAIT_LIMITS.
+
+  `per_env` holds one `gait_metrics` result per env. Each row takes the worst
+  env for its limit: the largest value against a "max", the smallest against
+  a "min". `env` is that env's index.
+  """
   rows = []
-  for name, (kind, limit) in GAIT_LIMITS.items():
-    value = metrics[name]
+  for name, kind, limit in GAIT_LIMITS:
+    values = [metrics[name] for metrics in per_env]
+    env = int(np.argmax(values) if kind == "max" else np.argmin(values))
+    value = values[env]
     passed = value <= limit if kind == "max" else value >= limit
-    rows.append((name, value, kind, limit, passed))
+    rows.append((name, value, kind, limit, passed, env))
   return rows
+
+
+def deck_offset(deck_height: float, nominal: float) -> float:
+  """The deck height event's offset in m for a deck top `deck_height` m up."""
+  return deck_height - nominal
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -127,72 +155,124 @@ def main(argv: list[str] | None = None) -> int:
   parser.add_argument("task")
   parser.add_argument("policy", type=Path, help="model_*.pt or policy.json")
   parser.add_argument("--speed", type=float, help="board speed command, m/s")
+  parser.add_argument("--envs", type=int, default=16, help="envs to roll out")
+  parser.add_argument("--seed", type=int, default=0, help="env random seed")
+  parser.add_argument(
+    "--deck-height", type=float, help="pin the deck top to this many m up"
+  )
   parser.add_argument("--steps", type=int, default=500, help="50 per second")
   parser.add_argument("--skip", type=int, default=100, help="settling steps")
   args = parser.parse_args(argv)
   if args.steps <= args.skip:
     parser.error(f"--steps ({args.steps}) must be greater than --skip ({args.skip})")
+  if "Ride" in args.task and not (args.speed is not None and args.speed > 0):
+    parser.error("a ride task needs a positive --speed, for example --speed 0.4")
+  if args.envs < 1:
+    parser.error(f"--envs ({args.envs}) must be at least 1")
+  if args.deck_height is not None and args.deck_height <= 0:
+    parser.error(f"--deck-height ({args.deck_height}) must be above the floor")
 
   # Imported here so the tests can load this module without the simulator.
   import torch
   from policy_loader import load_policy
 
+  from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
+    SkateboardParams,
+  )
   from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import PUPPER_EFFORT_LIMIT
   from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import JOINT_SPEED_LIMIT
 
-  assert GAIT_LIMITS["peak_joint_speed"][1] == JOINT_SPEED_LIMIT
+  assert ("peak_joint_speed", "max", JOINT_SPEED_LIMIT) in GAIT_LIMITS
 
-  raw, env, policy = load_policy(args.task, args.policy, args.speed)
+  configure = None
+  if args.deck_height is not None:
+    offset = deck_offset(args.deck_height, SkateboardParams().deck_top_height)
+
+    def configure(env_cfg) -> None:
+      env_cfg.events["deck_height"].params["ranges"] = (offset, offset)
+
+  raw, env, policy = load_policy(
+    args.task,
+    args.policy,
+    args.speed,
+    num_envs=args.envs,
+    seed=args.seed,
+    configure=configure,
+  )
   robot = raw.scene["robot"]
   deck_feet = raw.scene["deck_feet_contact"]
   ground_feet = raw.scene["ground_feet_contact"]
   board = raw.scene["board"]
   obs = env.get_observations()
   obs = obs[0] if isinstance(obs, tuple) else obs
+  # Each list gets one [envs, ...] array per measured step.
   joint_vel, torque, deck, ground, board_speed = [], [], [], [], []
-  resets = 0
+  resets = np.zeros(args.envs, dtype=int)
   with torch.no_grad():
     for step in range(args.steps):
       obs, _, done, _ = env.step(policy(obs))
       if step < args.skip:
         continue
-      resets += int(done.any())
-      joint_vel.append(robot.data.joint_vel[0].cpu().numpy())
-      torque.append(robot.data.actuator_force[0].cpu().numpy())
-      deck.append((deck_feet.data.found[0] > 0).float().cpu().numpy())
-      ground.append((ground_feet.data.found[0] > 0).float().cpu().numpy())
+      resets += done.cpu().numpy().astype(int)
+      joint_vel.append(robot.data.joint_vel.cpu().numpy())
+      torque.append(robot.data.actuator_force.cpu().numpy())
+      deck.append((deck_feet.data.found > 0).float().cpu().numpy())
+      ground.append((ground_feet.data.found > 0).float().cpu().numpy())
       # Same frame as the ride reward track_board_velocity: the board's own axis.
-      board_speed.append(float(board.data.root_link_lin_vel_b[0, 0]))
+      board_speed.append(board.data.root_link_lin_vel_b[:, 0].cpu().numpy())
 
   split = is_split(args.task)
-  metrics = gait_metrics(
-    np.stack(joint_vel),
-    np.stack(torque),
-    None if split else np.stack(deck),
-    np.stack(ground),
-    raw.step_dt,
-    PUPPER_EFFORT_LIMIT,
-    board_speed=np.array(board_speed),
-    command_speed=args.speed,
-  )
+  joint_vel_a, torque_a = np.stack(joint_vel), np.stack(torque)
+  deck_a, ground_a = np.stack(deck), np.stack(ground)
+  board_speed_a = np.stack(board_speed)
+  per_env = [
+    gait_metrics(
+      joint_vel_a[:, i],
+      torque_a[:, i],
+      None if split else deck_a[:, i],
+      ground_a[:, i],
+      raw.step_dt,
+      PUPPER_EFFORT_LIMIT,
+      board_speed=board_speed_a[:, i],
+      command_speed=args.speed,
+    )
+    for i in range(args.envs)
+  ]
+  deck_text = "task range" if args.deck_height is None else f"{args.deck_height} m"
   print(f"task: {args.task}  policy: {args.policy}  speed: {args.speed}")
-  print(f"measured {len(joint_vel)} steps after {args.skip}")
+  print(f"envs: {args.envs}  seed: {args.seed}  deck height: {deck_text}")
+  print(
+    f"measured {len(joint_vel)} steps after {args.skip}; each line is the worst env"
+  )
   if not args.speed:
     print("no speed command: board_speed_ratio is reported as 1.0")
-  floor = floor_share(np.stack(ground), floor_feet(args.task))
+  fastest = int(np.argmax([m["max_joint_speed"] for m in per_env]))
   print(
-    "time on the floor (not part of the verdict): "
+    "largest joint speed (not part of the verdict): "
+    f"{per_env[fastest]['max_joint_speed']:.2f} rad/s in env {fastest}"
+  )
+  rows = gait_verdict(per_env)
+  duty_env = next(row[5] for row in rows if row[0] == "min_foot_duty")
+  floor = floor_share(ground_a[:, duty_env], floor_feet(args.task))
+  print(
+    f"time on the floor in env {duty_env} (not part of the verdict): "
     + "  ".join(f"{name} {value:.2f}" for name, value in floor.items())
   )
-  rows = gait_verdict(metrics)
-  for name, value, kind, limit, passed in rows:
+  for name, value, kind, limit, passed, worst in rows:
     op = "<=" if kind == "max" else ">="
-    print(f"{'PASS' if passed else 'FAIL'}  {name} = {value:.3f} (need {op} {limit})")
-  if resets:
-    print(f"FAIL  {resets} resets while measuring: a policy that falls does not pass")
+    print(
+      f"{'PASS' if passed else 'FAIL'}  {name} = {value:.3f} (need {op} {limit})"
+      f"  env {worst}"
+    )
+  if resets.any():
+    fell = ", ".join(str(i) for i in np.flatnonzero(resets))
+    print(
+      f"FAIL  {int(resets.sum())} resets while measuring (envs {fell}): a policy"
+      " that falls does not pass"
+    )
   else:
     print("PASS  no resets while measuring")
-  passed = resets == 0 and all(row[4] for row in rows)
+  passed = not resets.any() and all(row[4] for row in rows)
   print("GAIT:", "PASS" if passed else "FAIL")
   return 0
 
