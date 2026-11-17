@@ -251,6 +251,7 @@ def foot_reach(
   speed_fraction: float,
   foot_cfg: SceneEntityCfg,
   board_cfg: SceneEntityCfg = _BOARD,
+  continuous_gate: bool = False,
 ) -> torch.Tensor:
   """Reward the lowest foot getting close to the floor, exp(-clearance / std).
 
@@ -260,11 +261,20 @@ def foot_reach(
   over the edge and down. Paid only when a push is needed: the command is
   above ``command_threshold`` m/s and the board's forward speed is under
   ``speed_fraction`` of it.
+
+  With ``continuous_gate`` the pay fades instead of switching off: it is scaled
+  by clamp(1 - board_vx / (speed_fraction * cmd_vx), 0, 1), so it is full at
+  rest and gone by ``speed_fraction`` of the command. A foot parked on the
+  floor then cannot out-earn rolling at the commanded speed.
   """
   robot: Entity = env.scene[foot_cfg.name]
   foot_z = robot.data.site_pos_w[:, foot_cfg.site_ids, 2]
   clearance = torch.clamp(torch.min(foot_z, dim=1).values - foot_radius, min=0.0)
   reward = torch.exp(-clearance / std)
+  if continuous_gate:
+    return reward * _push_share_missing(
+      env, command_name, command_threshold, speed_fraction, board_cfg
+    )
   return reward * _needs_push(
     env, command_name, command_threshold, speed_fraction, board_cfg
   )
@@ -284,3 +294,27 @@ def _needs_push(
   speed = command[:, 0]
   board_vx = board.data.root_link_lin_vel_b[:, 0]
   return ((speed > command_threshold) & (board_vx < speed_fraction * speed)).float()
+
+
+def _push_share_missing(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  command_threshold: float,
+  speed_fraction: float,
+  board_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """clamp(1 - board_vx / (speed_fraction * cmd), 0, 1) where a speed is commanded.
+
+  1.0 with the board at rest, 0.0 from ``speed_fraction`` of the command up,
+  and 0.0 everywhere when the command is at or under ``command_threshold``.
+  """
+  board: Entity = env.scene[board_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  speed = command[:, 0]
+  board_vx = board.data.root_link_lin_vel_b[:, 0]
+  # The floor on the target only avoids dividing by zero; those rows are
+  # inactive and zeroed below.
+  target = torch.clamp(speed_fraction * speed, min=1.0e-6)
+  share = torch.clamp(1.0 - board_vx / target, min=0.0, max=1.0)
+  return share * (speed > command_threshold).float()

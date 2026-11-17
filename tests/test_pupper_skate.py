@@ -349,6 +349,20 @@ def test_foot_reach_needs_a_command_and_a_slow_board():
   assert mdp.foot_reach(env, **_FOOT_REACH).tolist() == [0.0] * 3
 
 
+def test_foot_reach_continuous_gate_fades_as_the_board_speeds_up():
+  # One foot on the floor, so the ungated reward is 1. The fade ends at
+  # 0.8 * 0.5 = 0.4 m/s. Rows: at rest, half of 0.4, 0.4, above it, backwards.
+  env = _foot_reach_env([[0.02, 0.10, 0.10, 0.10]] * 5)
+  params: dict[str, Any] = {**_FOOT_REACH, "continuous_gate": True}
+  _with_command(env, 0.5, [0.0, 0.2, 0.4, 0.45, -0.1])
+  reward = mdp.foot_reach(env, **params)
+  assert reward.tolist() == pytest.approx([1.0, 0.5, 0.0, 0.0, 1.0])
+  # No command, or one at the threshold, pays nothing.
+  for speed in (0.0, 0.1):
+    _with_command(env, speed, [0.0] * 5)
+    assert mdp.foot_reach(env, **params).tolist() == [0.0] * 5
+
+
 ##
 # The balance env, stepped on the real simulator.
 ##
@@ -596,6 +610,7 @@ def test_ride_task_rewards_reaching_for_the_floor():
     "command_name": "twist",
     "command_threshold": 0.1,
     "speed_fraction": 0.8,
+    "continuous_gate": True,
   }
   assert foot_cfg.name == "robot"
   assert tuple(foot_cfg.site_names) == FOOT_SITE_NAMES
@@ -607,6 +622,10 @@ def test_ride_task_rewards_reaching_for_the_floor():
   balance = pupper_skate_balance_env_cfg()
   assert balance.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
   assert "foot_reach" not in balance.rewards
+  # The fading gate is for centred ride only: no other task opts in.
+  for other in (balance, pupper_skate_split_ride_env_cfg()):
+    for term in other.rewards.values():
+      assert "continuous_gate" not in term.params
 
 
 def test_ride_task_pays_for_a_push():

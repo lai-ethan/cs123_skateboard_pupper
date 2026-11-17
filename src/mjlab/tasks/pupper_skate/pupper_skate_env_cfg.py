@@ -59,7 +59,8 @@ JOINT_SPEED_LIMIT: float = 8.0
 # Deck height offset from the nominal [m], and the seconds between shoves to the
 # robot and the board. Nominal is the measured 0.103 m; the range is 6.8 to
 # 11.3 cm, which covers the stock trucks and the planned trucks that sit 2 to
-# 3 cm lower.
+# 3 cm lower. This range is for balance (both stances) and split ride; centred
+# ride uses RIDE_DECK_HEIGHT_RANGE below.
 DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 
@@ -374,7 +375,9 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # speed is commanded and the board is too slow.
   # foot_reach leads a foot to the floor: it pays more the closer the lowest
   # foot gets to the floor. A foot on the deck stays a deck height up and earns
-  # little.
+  # little. Its pay fades as the board speeds up and is gone at 0.8 of the
+  # command, so parking a foot on the floor just under that speed earns less
+  # than rolling at the command.
   # push_stroke pays the push itself: once per stroke as a foot leaves the
   # floor, in full for a stroke of 0.25 s or more.
   r["foot_reach"] = RewardTermCfg(
@@ -387,6 +390,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "command_threshold": 0.1,
       "speed_fraction": 0.8,
       "foot_cfg": SceneEntityCfg("robot", site_names=FOOT_SITE_NAMES),
+      "continuous_gate": True,
     },
   )
   r["push_stroke"] = RewardTermCfg(
