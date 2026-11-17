@@ -236,6 +236,20 @@ def short_stride(
   return torch.sum(cost * landed.float(), dim=1) / env.step_dt
 
 
+def foot_idle_air(
+  env: ManagerBasedRlEnv, sensor_name: str, max_air_s: float
+) -> torch.Tensor:
+  """Count the sensor's feet that have been in the air longer than ``max_air_s``.
+
+  Charged every step while it lasts, so a pushing foot that hovers instead of
+  stepping keeps paying. Not gated on the command.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  air_time = sensor.data.current_air_time
+  assert air_time is not None
+  return (air_time > max_air_s).float().sum(dim=1)
+
+
 def feet_slide(
   env: ManagerBasedRlEnv, sensor_name: str, asset_cfg: SceneEntityCfg
 ) -> torch.Tensor:

@@ -328,6 +328,9 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     func=mdp.bad_orientation,
     params={"limit_angle": 0.3, "asset_cfg": SceneEntityCfg("board")},
   )
+  # A diverged env (NaN or Inf in its physics state) is reset instead of taking
+  # the whole run down at the next NaN check on the actor observation.
+  cfg.terminations["nan"] = TerminationTermCfg(func=mdp.nan_detection)
 
   return cfg
 

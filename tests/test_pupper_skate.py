@@ -705,6 +705,54 @@ def test_ride_env_steps_with_random_actions():
   env.close()
 
 
+##
+# Diverged envs: a NaN in one env resets that env instead of ending the run.
+##
+
+ALL_SKATE_TASKS = (
+  "Mjlab-Skate-Balance-Pupper-v3",
+  "Mjlab-Skate-Ride-Pupper-v3",
+  "Mjlab-SkateSplit-Balance-Pupper-v3",
+  "Mjlab-SkateSplit-Ride-Pupper-v3",
+)
+
+
+@pytest.mark.parametrize("task", ALL_SKATE_TASKS)
+def test_skate_tasks_terminate_on_nan(task):
+  term = load_env_cfg(task).terminations["nan"]
+  assert term.func is mdp.nan_detection
+  assert not term.time_out
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+  "task", ["Mjlab-Skate-Ride-Pupper-v3", "Mjlab-SkateSplit-Ride-Pupper-v3"]
+)
+def test_nan_in_one_env_resets_only_that_env(task):
+  cfg = load_env_cfg(task)
+  cfg.scene.num_envs = NUM_ENVS
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  try:
+    env.reset()
+    actions = torch.zeros(NUM_ENVS, 12, device=env.device)
+    env.step(actions)
+    env.sim.data.qvel[1, :] = float("nan")
+    obs, reward, terminated, _, _ = env.step(actions)
+    assert terminated.tolist() == [False, True, False, False]
+    assert env.episode_length_buf.tolist() == [2, 0, 2, 2]
+    for group in ("actor", "critic"):
+      values = obs[group]
+      assert isinstance(values, torch.Tensor) and torch.isfinite(values).all()
+    assert torch.isfinite(reward).all()
+    # The reset env keeps running cleanly.
+    obs, reward, terminated, _, _ = env.step(actions)
+    actor = obs["actor"]
+    assert isinstance(actor, torch.Tensor) and torch.isfinite(actor).all()
+    assert torch.isfinite(reward).all() and not terminated.any()
+  finally:
+    env.close()
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
   "task", ["Mjlab-Skate-Balance-Pupper-v3", "Mjlab-SkateSplit-Balance-Pupper-v3"]

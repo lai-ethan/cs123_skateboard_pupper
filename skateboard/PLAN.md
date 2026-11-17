@@ -134,10 +134,11 @@ Positive terms are `exp(-error²/std²)` or contact counts, so the weight is the
 | `push_stride` | none | 0.5 | `push_stride` | one payment per right-foot stride: planted about 0.4 s, swing 0.2 to 0.5 s, only when command > 0.1 |
 | `short_stride` | none | -0.3 | `short_stride` | split ride, Task 29: one charge per touchdown after a stance shorter than 0.4 s |
 | `feet_slide` | none | -2.0 | `feet_slide` | split ride, Task 29: squared floor speed of a floor-side foot while it touches |
+| `push_foot_idle` | none | -0.5 | `foot_idle_air` | split ride, Task 30: per step, each right foot in the air longer than 0.5 s |
 | `push_leg_pose` | none | 0.3 | `stance_pose` | right-leg joints near the stance, std 0.6 |
 | `joint_vel_l2` | none | -1e-3 | stock | |
-| `joint_speed_limit` | none | -0.05 | `joint_speed_over_limit` | speed above 6 rad/s, 75% of the 8 rad/s gait-check limit (a guess at the motor limit) |
-| `torque_saturation` | none | -0.5 | `torque_saturation` | torque above 80% of the 3 N·m limit |
+| `joint_speed_limit` | none | -0.3 | `joint_speed_over_limit` | speed above 6 rad/s, 75% of the 8 rad/s gait-check limit (a guess at the motor limit); Task 30 raised it from -0.05 |
+| `torque_saturation` | none | -1.5 | `torque_saturation` | torque above 80% of the 3 N·m limit; Task 30 raised it from -0.5 |
 | `action_rate_l2` | -0.01 | -0.01 | stock | |
 | `joint_torques_l2` | -2e-4 | -2e-4 | stock | |
 | `termination` | -100 | -100 | `is_terminated` | |

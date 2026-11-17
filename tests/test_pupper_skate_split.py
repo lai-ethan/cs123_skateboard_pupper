@@ -180,6 +180,19 @@ def test_short_stride_charges_a_landing_after_a_short_stance():
     assert reward.tolist() == pytest.approx(expected)
 
 
+def test_foot_idle_air_counts_feet_up_too_long():
+  # Rows: both feet planted, foot 0 up briefly, foot 0 up too long, both up too
+  # long, foot 1 exactly at the limit.
+  data = SimpleNamespace(
+    current_air_time=torch.tensor(
+      [[0.0, 0.0], [0.3, 0.0], [0.6, 0.0], [0.8, 1.2], [0.0, 0.5]]
+    )
+  )
+  env = _fake_env(data, lambda name: None)
+  cost = mdp.foot_idle_air(env, sensor_name="feet", max_air_s=0.5)
+  assert cost.tolist() == [0.0, 0.0, 1.0, 2.0, 0.0]
+
+
 def _fake_slide_env(found: list[float], foot_vel: list[list[float]]) -> Any:
   """Enough of an env for feet_slide: one env, a contact sensor and foot sites."""
   return SimpleNamespace(
@@ -208,7 +221,8 @@ def test_feet_slide_charges_a_planted_foot_moving_over_the_floor():
 
 ##
 # Rewards: the a110b84 split configs, name for name and weight for weight, plus
-# the balance torque penalty (Task 25) and the ride shuffle fix (Task 29).
+# the balance torque penalty (Task 25), the ride shuffle fix (Task 29) and the
+# ride motor limits and idle-foot charge (Task 30).
 ##
 
 SPLIT_BALANCE_WEIGHTS = {
@@ -239,8 +253,9 @@ SPLIT_RIDE_WEIGHTS = {
   "feet_slide": -2.0,
   "push_leg_pose": 0.3,
   "joint_vel_l2": -1e-3,
-  "joint_speed_limit": -0.05,
-  "torque_saturation": -0.5,
+  "joint_speed_limit": -0.3,
+  "torque_saturation": -1.5,
+  "push_foot_idle": -0.5,
 }
 
 # The centred configs as they were before the split tasks came back, plus the
@@ -378,12 +393,13 @@ def test_balance_penalizes_torque_above_half_the_limit(make_cfg):
 
 
 @pytest.mark.parametrize(
-  "make_cfg", [pupper_skate_ride_env_cfg, pupper_skate_split_ride_env_cfg]
+  "make_cfg, weight",
+  [(pupper_skate_ride_env_cfg, -0.5), (pupper_skate_split_ride_env_cfg, -1.5)],
 )
-def test_ride_keeps_its_own_torque_penalty(make_cfg):
+def test_ride_keeps_its_own_torque_penalty(make_cfg, weight):
   term = make_cfg().rewards["torque_saturation"]
   assert term.func is mdp.torque_saturation
-  assert term.weight == -0.5
+  assert term.weight == weight
   assert term.params["limit"] == PUPPER_EFFORT_LIMIT
   assert term.params.get("soft_ratio", 0.8) == 0.8
 
@@ -403,10 +419,21 @@ def test_centred_cfgs_are_unchanged():
     pupper_skate_ride_env_cfg,
   ],
 )
-def test_only_split_ride_charges_taps_and_sliding_feet(make_cfg):
+def test_only_split_ride_charges_taps_sliding_and_idle_feet(make_cfg):
   rewards = make_cfg().rewards
   assert "short_stride" not in rewards
   assert "feet_slide" not in rewards
+  assert "push_foot_idle" not in rewards
+
+
+def test_split_ride_charges_an_idle_push_foot():
+  cfg = pupper_skate_split_ride_env_cfg()
+  term = cfg.rewards["push_foot_idle"]
+  assert term.func is mdp.foot_idle_air
+  assert term.weight == -0.5
+  assert term.params == {"sensor_name": "ground_feet_contact", "max_air_s": 0.5}
+  assert cfg.rewards["joint_speed_limit"].weight == -0.3
+  assert cfg.rewards["torque_saturation"].weight == -1.5
 
 
 ##

@@ -340,6 +340,8 @@ def pupper_skate_split_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvC
     func=mdp.bad_orientation,
     params={"limit_angle": 0.3, "asset_cfg": SceneEntityCfg("board")},
   )
+  # A diverged env is reset instead of ending the run (see the centred config).
+  cfg.terminations["nan"] = TerminationTermCfg(func=mdp.nan_detection)
 
   return cfg
 
@@ -412,17 +414,25 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       ),
     },
   )
+  # A pushing foot held up instead of stepping: run ffcxbwup rode on three
+  # points with the back right foot never touching down.
+  r["push_foot_idle"] = RewardTermCfg(
+    func=mdp.foot_idle_air,
+    weight=-0.5,
+    params={"sensor_name": "ground_feet_contact", "max_air_s": 0.5},
+  )
   # Keep the motion inside what the motors can do. The sim actuator limits
   # torque but not speed, so speed is limited here. The penalty starts at 75% of
   # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait
-  # stays inside the check.
+  # stays inside the check. Both weights were raised after ffcxbwup peaked at
+  # 10.6 rad/s with 21% of samples torque-saturated.
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
     func=mdp.joint_speed_over_limit,
-    weight=-0.05,
+    weight=-0.3,
     params={"limit": 0.75 * JOINT_SPEED_LIMIT},
   )
   r["torque_saturation"] = RewardTermCfg(
-    func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}
+    func=mdp.torque_saturation, weight=-1.5, params={"limit": PUPPER_EFFORT_LIMIT}
   )
   return cfg

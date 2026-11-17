@@ -15,6 +15,7 @@ from .rewards import (  # noqa: F401
   contact_count,
   deck_roll_l2,
   feet_slide,
+  foot_idle_air,
   foot_reach,
   gravity_tracking,
   joint_speed_over_limit,

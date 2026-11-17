@@ -150,7 +150,7 @@ if SPLIT:
     "action_rate_l2": -0.01,
     "joint_torques_l2": -0.0002,
     "termination": -100.0,
-    "torque_saturation": -0.5 if RIDE else -1.0,
+    "torque_saturation": -1.5 if RIDE else -1.0,
   }
   if RIDE:
     REWARD_WEIGHTS.update({
@@ -161,7 +161,8 @@ if SPLIT:
       "feet_slide": -2.0,
       "push_leg_pose": 0.3,
       "joint_vel_l2": -0.001,
-      "joint_speed_limit": -0.05,
+      "joint_speed_limit": -0.3,
+      "push_foot_idle": -0.5,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -315,10 +316,12 @@ out = [
     "| `short_stride` | n/a | -0.3 | a right foot lands after less than 0.4 s"
     " on the floor; a tap with no stance costs the full weight |\n"
     "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
+    "| `push_foot_idle` | n/a | -0.5 | a right foot held in the air for more than"
+    " 0.5 s |\n"
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
-    "| `joint_speed_limit` | n/a | -0.05 | joint speed above 6 rad/s |\n"
-    "| `torque_saturation` | -1.0 | -0.5 | motors above half (balance) or 80% (ride)"
+    "| `joint_speed_limit` | n/a | -0.3 | joint speed above 6 rad/s |\n"
+    "| `torque_saturation` | -1.0 | -1.5 | motors above half (balance) or 80% (ride)"
     " of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
