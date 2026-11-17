@@ -137,7 +137,7 @@ Positive terms are `exp(-error²/std²)` or contact counts, so the weight is the
 | `push_foot_idle` | none | -0.5 | `foot_idle_air` | split ride, Task 30: per step, each right foot in the air longer than 0.5 s |
 | `push_leg_pose` | none | 0.3 | `stance_pose` | right-leg joints near the stance, std 0.6 |
 | `joint_vel_l2` | none | -1e-3 | stock | |
-| `joint_speed_limit` | none | -0.3 | `joint_speed_over_limit` | speed above 6 rad/s, 75% of the 8 rad/s gait-check limit (a guess at the motor limit); Task 30 raised it from -0.05 |
+| `joint_speed_limit` | none | -0.3 | `joint_speed_over_limit` | speed above 5 rad/s (Task 31 lowered the onset from 6; the gait check allows 12 rad/s, an estimate from the motor's 30 rad/s spec); Task 30 raised the weight from -0.05 |
 | `torque_saturation` | none | -1.5 | `torque_saturation` | torque above 80% of the 3 N·m limit; Task 30 raised it from -0.5 |
 | `action_rate_l2` | -0.01 | -0.01 | stock | |
 | `joint_torques_l2` | -2e-4 | -2e-4 | stock | |
@@ -1554,6 +1554,269 @@ Two runs on 2026-11-17 set this task:
 - [ ] **Step 7:** update the reward table in `notebooks/` only through its generator if the notebook lists these weights (run the generator and `tests/test_skate_notebook.py`); update the split ride row values in `skateboard/PLAN.md`'s design table if listed.
 - [ ] **Step 8:** `uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files; `uv run pytest tests/test_pupper_skate.py tests/test_pupper_skate_split.py tests/test_skate_notebook.py`. Do not run `make check`. Commit as `fix: reset diverged skate envs and tighten split ride motor limits`.
 
+### Task 31: Split ride v4: a smoother push, heading hold off, warm start
+
+Split ride v3 `3qmtsv4o` rides at 0.2 to 0.4 m/s with no falls, but its joints
+peak at about 9.2 rad/s. A study on 2026-11-17
+(`/Users/ethan/.claude/jobs/bc321137/tmp/research_push_gait.md`, read sections
+2, 3 and 5) found:
+
+- The real actuator (SteadyWin GIM4305, 10:1) tops out near 30 rad/s. The
+  8 rad/s gait limit was a guess. A working limit of 12 rad/s for brief peaks is
+  an estimate from the spec, not a measurement.
+- A smooth push at 0.4 m/s needs only about 7 rad/s, so the 9.2 comes from
+  jerky lift-offs and touchdowns, not from the cadence.
+- `push_stride` asks for a 0.4 s planted stance at every speed. At 0.4 m/s that
+  is a 16 cm stroke, and the back right leg has about 10 cm.
+- Deploy bug: the robot turns heading hold on by default for any policy that
+  carries a `gait_reference` block (`pupper_gait_deploy/src/neural_controller.cpp`,
+  lines 258 to 276), unless the JSON has a `heading_hold` block with `kp <= 0`.
+  The skate exports carry `gait_reference` and no `heading_hold`, so a ride
+  policy would be fed yaw commands up to 0.3 rad/s that it never saw in
+  training.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`
+- Modify: `src/mjlab/scripts/export_pupper_policy.py` (or the skate task code it
+  calls; smallest change that works)
+- Modify: `skateboard/tools/gait_report.py`, `skateboard/tools/make_notebook.py`
+  (then regenerate `notebooks/CS123_Pupper_Skate.ipynb`), `skateboard/README.md`
+- Test: `tests/test_pupper_skate.py`, `tests/test_pupper_skate_split.py`,
+  `tests/test_skate_notebook.py`, the test file that covers the exporter
+
+**Part A: heading hold off for the skate tasks**
+
+- [ ] The exported policy JSON of all four skate tasks carries exactly
+  `"heading_hold": {"kp": 0.0, "clip": 0.3, "yaw_threshold": 0.1, "walk_threshold": 0.05}`.
+  The robot's parser reads all four keys, so all four must be there. The export
+  of every non-skate task is unchanged (no block when the task trained without
+  heading hold). Test both.
+
+**Part B: split ride rewards (split ride only)**
+
+| Term | Now | New |
+| --- | --- | --- |
+| `push_stride` | `stance_s` 0.4 | `stroke_m` 0.10, `stance_range` (0.25, 0.5); `air_range` (0.2, 0.5) and weight 0.5 unchanged |
+| `short_stride` | `stance_s` 0.4 | same `stroke_m` 0.10, `stance_range` (0.25, 0.5), `command_name` "twist"; weight -0.3 unchanged |
+| action rate (the existing action-rate term) | weight -0.01 | weight -0.05 |
+| `action_acc` (new term, `mjlab.envs.mdp.rewards.action_acc_l2`) | none | weight -0.02 |
+| `joint_acc` (new term, `joint_acc_l2`, all robot joints) | none | weight -1e-6 |
+| `swing_height` (new term, new function) | none | weight -5.0, `max_height` 0.03, `foot_radius` 0.02, ground-side feet |
+| `joint_speed_limit` | weight -0.3, limit 6.0 | weight -0.3, limit 5.0 |
+
+- [ ] `push_stride` and `short_stride` take an optional `stroke_m` and
+  `stance_range`. With `stroke_m` set, the stance target is per env:
+  `clamp(stroke_m / max(cmd_vx, 0.05), stance_range[0], stance_range[1])`
+  seconds, and replaces `stance_s` everywhere `stance_s` was used. Without it
+  the functions behave exactly as now (`stance_s` stays a supported parameter).
+  Check the name the existing action-rate term has in the built split ride
+  config before changing its weight; if a `joint_acc` style term already exists
+  at weight 0, set its weight instead of adding a second one.
+- [ ] New `mdp.foot_height_over(env, max_height, foot_radius, sensor_name, foot_cfg)`:
+  per env, the sum over the feet in `foot_cfg` that are not in contact on
+  `sensor_name` of `clamp(z_site - foot_radius - max_height, min=0)` in metres,
+  where `z_site` is the foot site height above the floor (world z; the floor is
+  at 0, as `foot_reach` assumes). Feet in contact add 0.
+- [ ] Tests, plain functions: the stance target is 0.5 s at command 0.2 and at
+  command 0, 0.333 s at 0.3, 0.25 s at 0.4 and at 0.5; `push_stride` with
+  `stroke_m` pays in full for a 0.25 s stance at command 0.4 and half for the
+  same stance at command 0.2; `foot_height_over` is 0 for a foot in contact,
+  0 for a swing foot 2 cm up, 0.02 for one 5 cm up (clear of the foot radius);
+  the built split ride env has the table's values; the built split balance,
+  centred balance and centred ride envs have none of `action_acc`,
+  `swing_height`, and keep their current action-rate weight.
+
+**Part C: the speed limit**
+
+- [ ] `JOINT_SPEED_LIMIT` becomes 12.0, with its comment rewritten: GIM4305
+  spec about 30 rad/s, deployed walking references ask for 15 rad/s and more,
+  12 is an estimate that leaves torque headroom, to be replaced by a measured
+  value. `gait_report.py`'s `peak_joint_speed` limit follows it (the existing
+  test ties the two). The two ride configs stop deriving the penalty onset from
+  it: split ride uses the literal 5.0 above, centred ride keeps its current
+  onset as the literal 6.0. Update the nearby comments so they are true.
+
+**Part D: warm start from a W&B run in the notebook**
+
+- [ ] The notebook settings cell gains `RESUME_FROM = ""` with a comment: a W&B
+  run path `<entity>/mjlab/<run-id>` to start from that run's last checkpoint,
+  empty to start fresh. When set, the training command adds the trainer's own
+  resume options (see `cfg.agent.resume`, `wandb_run_path` and
+  `wandb_checkpoint_name` in `src/mjlab/scripts/train.py`; confirm the flag
+  spelling with `uv run train <task> --help`). When empty, the command is
+  byte-for-byte what it is today. Do not put a real entity name in the
+  notebook. Check what the trainer does with the iteration count on resume and
+  make sure the notebook's later cells (RESULT, gait check, export) still find
+  the newest checkpoint; say in the report what the last checkpoint will be
+  called after a resumed 1500-iteration run.
+- [ ] Update the reward table in `skateboard/README.md` (split ride column) and
+  the notebook's table if it lists these weights, through the generator.
+
+**Verify:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py
+tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py
+tests/test_skate_notebook.py` plus the exporter's test file; `uv run ruff format`,
+`uv run ruff check`, `uv run ty check` on touched files. Do not run `make check`.
+Then export the existing split ride checkpoint
+`/Users/ethan/.claude/jobs/bc321137/tmp/3qmtsv4o/model_1499.pt` to a scratch
+path with `uv run export-pupper-policy Mjlab-SkateSplit-Ride-Pupper-v3
+--checkpoint-file ... --output ...` and confirm the `heading_hold` block is in
+the JSON. Also run 200 steps of the split ride env on CPU with that checkpoint
+(`skateboard/tools/gait_report.py` at `--speed 0.3 --deck-height 0.103`) and put
+the per-term reward means in the report if the tool prints them; the point is
+that no new term is NaN or orders of magnitude larger than
+`track_board_velocity`.
+
+**Commit:** `feat: smoother split ride rewards, heading hold off for skate, warm start`
+
+### Task 32: Centred ride v4: push from the stock deck with a clocked push-and-glide reference
+
+**Why:** the centred ride never learned to push (`14m5rs1f` stood still,
+`cy8f55bg` lay down on the deck), and it only ever trained on a lowered deck
+(68 to 83 mm) because we assumed a foot cannot reach the floor from the stock
+103 mm deck. A reach study on 2026-11-17 shows it can
+(`/Users/ethan/.claude/jobs/bc321137/tmp/reach103/`: scripts, logs,
+`push_poses_103.json`; the summary is in
+`/Users/ethan/.claude/jobs/bc321137/tmp/reach103_summary.md`, read it first):
+
+- At 103 mm every leg reaches the floor with 63 to 85 mm to spare, with a body
+  crouch of about 3 cm, a tilt of 15 to 25 degrees and a 3 to 4 cm shift toward
+  the push side. Three feet stay on the deck.
+- Best push leg: back right. With tilt at most 17 degrees it has a 13 cm stroke
+  with the centre of mass 2 cm inside the support triangle, and its static hold
+  passed (peak torque 28% of the limit).
+- Published skateboard policies (DHAL, HUSKY, PAPL; see
+  `/Users/ethan/.claude/jobs/bc321137/tmp/research_push_gait.md` section 1 and
+  4c) all use a slow clock: push for part of a 4 to 6 s cycle, then glide with
+  every foot on the board. Reference only: no code may be copied from HUSKY
+  (CC-BY-NC).
+
+**Design:** give the centred ride a phase-clocked joint reference, built from
+the solved poses, through the repo's existing gait-reference machinery
+(`src/mjlab/tasks/pupper_gait/mdp/gait_reference.py`, `mixed_gaits.py`,
+`export.py`; the spider walk `_spider_table` is the precedent for a
+single-table gait that the robot plays with no C++ change). One cycle is:
+stand on four feet, crouch and lean while the back right foot goes down to the
+floor ahead of its stance spot, sweep the foot backward along the floor, lift
+it back to the deck, glide on four feet. With no speed commanded the reference
+is the still stance, so the robot stands.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_gait/mdp/gait_reference.py` (a new gait
+  name in `build_joint_reference_table`) or a skate-side builder that the same
+  machinery accepts; whichever keeps the export and the robot contract intact
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+  (`pupper_skate_ride_env_cfg` only), `src/mjlab/tasks/pupper_skate/mdp/`
+- Modify: `skateboard/tools/gait_report.py` / `render_policy.py` only if they
+  need it to run the new task; `skateboard/README.md`; the notebook through
+  `skateboard/tools/make_notebook.py` if it lists these values
+- Create: `skateboard/tools/play_push_reference.py`
+- Test: `tests/test_pupper_skate.py` (and the gait reference tests if the
+  shared builder changes)
+
+**Global rules for this task:** the centred balance task and both split tasks
+build exactly as before (same rewards, terminations, observations, export).
+The actor observation stays 48 values per frame with the same layout. Nothing
+in `/Users/ethan/claude/cs123/pupper/pupper_gait_deploy` is modified; the
+exported JSON must pass its `download_policy.py --validate-only`.
+
+**Part A: the reference table**
+
+- [ ] Keyframes, as joint angles in repo joint order, generated offline with
+  the reach study's solver (copy what you need from the scratch directory into
+  your own scratch directory; do not import from it at runtime) for a 103 mm
+  deck, back right push leg, total tilt at most 17 degrees, centre of mass at
+  least 2 cm inside the triangle of the three deck feet:
+  `stance` (`SKATE_POSE`), `reach` (push foot on the floor at the front of its
+  stroke), `sweep` (push foot on the floor at the back of its stroke; the three
+  deck feet in the same spots as in `reach`), and a `lift` pose between
+  `sweep` and `stance` that clears the deck edge. Total stroke 10 to 13 cm.
+  Commit the keyframes as constants with a comment saying how they were made.
+- [ ] The table is 100 phase samples by 12 joints, in the same form the
+  existing tables use (check whether they are absolute angles or offsets from
+  the default pose and match it). Cycle timing, as phase fractions: 0.00 to
+  0.20 stance to `reach`; 0.20 to 0.45 `reach` to `sweep`; 0.45 to 0.65
+  `sweep` through `lift` to `stance`; 0.65 to 1.00 `stance` (glide).
+  Minimum-jerk (smoothstep-5) interpolation in joint space between keyframes.
+  Clock: 0.5 Hz (a 2 s cycle). Blend: full reference for any commanded speed
+  of 0.05 m/s or more (`blend_speed` 0.05), none at zero command. No gallop
+  and no direction reversal: the command is never negative.
+- [ ] Tests: the table is periodic (first and last samples join), stays inside
+  the joint limits, has peak reference joint speed below 6 rad/s at 0.5 Hz, is
+  the stance for phases 0.65 to 1.0, and by MuJoCo forward kinematics on the
+  compiled centred model at a 103 mm deck (three deck feet resting on the
+  deck) the push foot underside is within 1 cm of the floor at `reach` and
+  `sweep` and at least 3 mm clear of the deck side throughout the cycle.
+
+**Part B: open-loop check, before any reward work**
+
+- [ ] `skateboard/tools/play_push_reference.py`: build the centred ride env in
+  play mode on CPU (16 envs, deck 103 mm, command 0.3 m/s), feed the reference
+  joint angles as the policy action (converted through the action scale and
+  default pose so the PD target equals the reference), run 10 s, and print:
+  resets, mean and final board speed, push-foot floor contact fraction, peak
+  joint speed, saturated fraction, minimum tilt margin to `fell_over`. Optional
+  `--video out.mp4` using the same renderer `render_policy.py` uses.
+- [ ] Target: no resets and mean board speed of at least 0.08 m/s. If the
+  first table misses it, you may adjust the keyframes, the stroke, the phase
+  fractions and the clock within these bounds (clock 0.33 to 0.67 Hz, tilt at
+  most 20 degrees), and you may use the solver's PD-target variants (the
+  study found the soft PD sags 1 cm). Spend at most 90 minutes on this loop.
+  Report the numbers of the final table either way, and save a video to
+  `skateboard/media/centred_push_reference_openloop.mp4`. If it cannot be made
+  to roll the board forward without resets, stop after Part B, commit what
+  works with the tests, and report BLOCKED with the numbers.
+
+**Part C: the ride task uses it**
+
+| Item | Now | New |
+| --- | --- | --- |
+| actor reference term | `zero_reference_actor_obs` | the reference offset for the push table (same 12 values slot) |
+| critic | no reference | add the reference offset and the cycle phase as sin and cos |
+| deck height range | `RIDE_DECK_HEIGHT_RANGE` (-0.035, -0.02) | (-0.01, 0.01): 93 to 113 mm |
+| command range | `RIDE_SPEED_RANGE` (0.0, 0.5) | (0.0, 0.4) for the centred ride only; `rel_standing_envs` 0.1 unchanged |
+| `fell_over` limit | 0.5 rad | 0.6 rad |
+| `tilt` std | 0.35 | 0.5 |
+| `stance_pose` | weight 0.5, std 0.6 | removed |
+| `reference_tracking` (new) | none | weight 1.0: `exp(-mean((q - q_ref)^2) / std^2)` over the 12 joints, std 0.3, where `q_ref` is the default pose plus the blended reference offset the actor sees |
+| `feet_on_deck` | weight 0.5, `max_count` 3 | unchanged |
+| `foot_reach` | weight 1.5 | weight 0.5 |
+| `push_stroke` | weight 1.0, `stroke_s` 0.25 | unchanged |
+| `track_board_velocity`, `board_progress`, `board_yaw_rate` | 3.0, 1.0, -0.5 | unchanged |
+| action rate (existing term) | current weight | -0.05 |
+| `action_acc` (`action_acc_l2`) | none | -0.02 |
+| `joint_acc` (`joint_acc_l2`) | none | -1e-6 |
+| `joint_speed_limit` | weight -0.02, limit 6.0 | weight -0.1, limit 6.0 |
+| `torque_saturation` | -0.5 | unchanged |
+
+- [ ] The export of the centred ride carries the push table in its
+  `gait_reference` block in the form the robot already plays for a
+  single-table gait, with the clock and blend above, and `heading_hold` kp 0
+  (Task 31). Add a parity test like the spider's: the numpy reference
+  implementation in `export.py`, fed the exported block, reproduces the offset
+  the env's actor observation holds, at command 0, 0.03 and 0.3 and at several
+  times.
+- [ ] Tests: built centred ride env has the table's values; centred balance and
+  both split envs are unchanged (no `reference_tracking`, old deck range, old
+  `fell_over`, zero reference).
+- [ ] With the reference played open loop inside the final env (Part B tool),
+  print the per-term reward means and put them in the report next to the same
+  numbers for standing still at command 0.3 (zero action). The push must pay
+  more than standing. If it does not, report the per-term numbers and stop;
+  do not invent further weight changes.
+- [ ] README: centred ride column of the reward table, and two or three lines
+  on the reference (what the cycle is, that it is built for the stock deck,
+  that lowered trucks need a new table).
+
+**Verify:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py
+tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py
+tests/test_skate_notebook.py` plus the gait reference and exporter tests;
+`uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files.
+Do not run `make check`.
+
+**Commit:** `feat: clocked push-and-glide reference for the centred ride on the stock deck`
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
@@ -1563,5 +1826,5 @@ Two runs on 2026-11-17 set this task:
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a push/glide phase clock like HUSKY's; a stance audit for ride policies.
-- **Assumed:** truck roll stiffness 30 N·m/rad and wheel drag (not measured); lowered trucks put the deck 2 to 3 cm lower (balance and split ride randomize deck height 6.8 to 11.3 cm to cover both; centred ride trains on 6.8 to 8.3 cm only); 8 rad/s joint speed limit; W&B project name `mjlab` as in the course notebook.
+- **Assumed:** truck roll stiffness 30 N·m/rad and wheel drag (not measured); lowered trucks put the deck 2 to 3 cm lower (balance and split ride randomize deck height 6.8 to 11.3 cm to cover both; centred ride trains on 6.8 to 8.3 cm only); 12 rad/s joint speed limit for brief peaks (from the motor spec, not measured on the robot); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. No ride policy passes the gait check (split ride `ffcxbwup` fails it; the centred ride run crashed on a diverged env; Task 30 addresses both). Centred balance `zdctdcyf` fails 7 of 21 audit rows for lack of sideways room on the deck.
