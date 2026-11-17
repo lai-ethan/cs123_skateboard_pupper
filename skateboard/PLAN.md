@@ -27,8 +27,9 @@ b# Pupper Skateboard RL Training Implementation Plan (v8)
   compiled as degrees, so the deck could not lean in any run so far. Fix it
   before any more training.
 - New Task 27. With the deck free to lean, the centred stance with no policy
-  falls in 21 of 64 noisy spawns (5 of 64 before). Recentre it over the roll
-  axis. The split stance is not affected.
+  falls in 21 of 64 noisy spawns (5 of 64 before). The cause is the soft end
+  of the truck stiffness range, not the keyframe. The hold tests now run at
+  nominal stiffness, and training covers 15 to 180 N*m/rad.
 - The same study measured that a front-leg push is reachable and holdable from
   the centred stance, and that the ride rewards pay less for the push pose than
   for standing. The ride reward change comes as a later task.
@@ -1332,64 +1333,40 @@ zero. A real deck leans. Every policy trained so far is untested against that.
 
 **Commit:** `fix: board joint limits were compiled as degrees`
 
-### Task 27: Make the centred stance hold on a deck that leans
+### Task 27: Test the centred stance hold at nominal truck stiffness
 
-**Why:** Task 26 let the deck lean (it was locked by a units bug). Two centred
-zero-action tests in `tests/test_pupper_skate.py` now fail or flake:
-`test_stance_survives_spawn_noise_with_zero_actions` (21 of 64 envs fall, limit
-0.2; it was 5 of 64 on the locked deck) and
-`test_stance_holds_with_zero_actions` (base tilt peaks at 0.1004 rad, limit
-0.1, fails on some runs). In the clean hold the deck roll creeps from 0.005 rad
-at 0.5 s to 0.014 rad at 5 s, which points at the robot's weight not sitting
-over the deck's roll axis. The split stance tests all pass; do not touch the
-split stance.
+**Why:** Task 26 let the deck lean. Two centred zero-action tests then failed
+(21 of 64 noisy spawns fall, limit 0.2). The first version of this task blamed
+the keyframe. Measurement showed otherwise: with randomization off the centre
+of mass is 0.00 mm from the roll axis and the deck does not move. The falls
+track the truck stiffness randomization (15 to 60 N*m/rad): at the soft end the
+pose cannot hold with no policy. Widening or narrowing the stance did not fix
+it, so the keyframe stays.
 
 **Files:**
-- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py` (centred
-  keyframe and spawn only)
-- Modify: `skateboard/README.md` (stance numbers, if they change)
-- Test: `tests/test_pupper_skate.py`
-
-**Interfaces:**
-- Consumes: the centred keyframe, spawn pose and reset events in
-  `pupper_skate_env_cfg.py`; board params in
-  `asset_zoo/robots/mini_cruiser/skateboard_constants.py` (read only).
-- Produces: no new names. The centred keyframe joint angles or the robot's
-  sideways spawn offset may change.
+- Modify: `tests/test_pupper_skate.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`,
+  `pupper_skate_split_env_cfg.py` (truck stiffness range only)
+- Modify: `skateboard/README.md` (if it states the range)
 
 **Steps:**
-- [ ] Measure first, with one env, randomization off, zero actions, 5 s: the
-  sideways distance between the robot's centre of mass and the deck's roll
-  axis, the deck roll angle over time, and the base roll. Put the numbers in
-  the report.
-- [ ] Measure the same over 64 noisy spawns (the failing test's setup): which
-  spawn-noise component (sideways offset, yaw, joint noise, deck height) goes
-  with the falls.
-- [ ] Fix by changing only the centred keyframe joint angles and the robot's
-  sideways spawn offset on the board, so the centre of mass sits over the roll
-  axis (target: within 2 mm) and the stance is as wide as the deck allows with
-  every foot centre at least 1.5 cm inside the deck edge (half width 8.05 cm).
-  Keep the keyframe left-right mirrored.
-- [ ] Do not change any test threshold, any reward, termination, the spawn
-  noise ranges, the board's stiffness, damping or limits, or anything of the
-  split stance.
-- [ ] Both failing tests must pass 5 runs in a row of the whole
-  `tests/test_pupper_skate.py` file. If the clean hold flakes because the
-  test reuses a shared env with unseeded resets, seed the reset inside that
-  test (say so in the report); that is not loosening a threshold.
-- [ ] If the keyframe and spawn offset cannot get the spawn-noise test under
-  0.2, stop there: commit what improves it, leave the test failing, and report
-  the best number reached and what limits it (for example the roll spring at
-  30 N*m/rad being too soft for a 16 cm deck). Status DONE_WITH_CONCERNS.
-- [ ] If the keyframe changes, rerun the centred keyframe geometry tests
-  (feet inside the deck, knees clear, joints inside limits) and update the
-  stance numbers in `skateboard/README.md`.
+- [ ] The two zero-action hold tests run with the truck stiffness pinned at
+  nominal. Thresholds unchanged (0.1 rad tilt, 0.2 fall share). No seed
+  picking.
+- [ ] Widen the `truck_stiffness` scale from (0.5, 2.0) to (0.5, 6.0), 15 to
+  180 N*m/rad, in both stances. The real bushings are unmeasured and built for
+  a rider about 20 times heavier than Pupper, so the real deck is likely much
+  stiffer than the 30 N*m/rad guess.
+- [ ] New test: the centred stance holds with zero actions at 6 times nominal
+  stiffness (64 noisy spawns, fall share under 0.2).
+- [ ] If a hold test still fails at nominal stiffness, leave it failing and
+  report the numbers. Do not change the stance or a threshold.
 
 **Verify:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py
 tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py`;
 `uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files.
 
-**Commit:** `fix: centre the stance over the deck roll axis`
+**Commit:** `fix: test the centred stance hold at nominal truck stiffness`
 
 ## Self-review
 
