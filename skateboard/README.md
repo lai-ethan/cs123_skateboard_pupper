@@ -71,10 +71,10 @@ trucks): on the stock deck a foot cannot reach the floor from the centred
 stance. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
 placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
 
-- The deck can now lean up to 0.2 rad and the trucks steer with it. Until
-  2026-11-16 the board's joint limits were read as degrees, so the deck could
-  barely lean (0.0035 rad). Policies trained before this fix (runs `k4kci0oj`,
-  `14m5rs1f`, `2ace1uqa`, `29p4j81t`) saw a deck that could not lean.
+The deck can now lean up to 0.2 rad and the trucks steer with it. Until
+2026-11-16 the board's joint limits were read as degrees, so the deck could
+barely lean (0.0035 rad). Policies trained before this fix (runs `k4kci0oj`,
+`14m5rs1f`, `2ace1uqa`, `29p4j81t`) saw a deck that could not lean.
 
 ### 2. Run the tests (laptop, optional)
 

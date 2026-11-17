@@ -106,7 +106,7 @@ def test_board_joint_limits_are_in_radians() -> None:
   model = get_skateboard_spec().compile()
   roll = model.joint(DECK_ROLL_JOINT_NAME).range
   np.testing.assert_allclose(roll, (-p.roll_limit, p.roll_limit), atol=1e-6)
-  yaw = p.steer_gain * p.roll_limit
+  yaw = p.steer_gain * p.roll_limit + 0.05  # Margin above the steer coupling.
   for name in ("truck_f_yaw", "truck_r_yaw"):
     np.testing.assert_allclose(model.joint(name).range, (-yaw, yaw), atol=1e-6)
 

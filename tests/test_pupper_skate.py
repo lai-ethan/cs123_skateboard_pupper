@@ -599,7 +599,7 @@ def test_board_joint_limits_survive_the_scene_compile(task):
   model = env.sim.mj_model
   roll = model.joint(f"board/{DECK_ROLL_JOINT_NAME}").range
   np.testing.assert_allclose(roll, (-p.roll_limit, p.roll_limit), atol=1e-6)
-  yaw = p.steer_gain * p.roll_limit
+  yaw = p.steer_gain * p.roll_limit + 0.05  # Margin above the steer coupling.
   for name in ("truck_f_yaw", "truck_r_yaw"):
     np.testing.assert_allclose(
       model.joint(f"board/{name}").range, (-yaw, yaw), atol=1e-6
