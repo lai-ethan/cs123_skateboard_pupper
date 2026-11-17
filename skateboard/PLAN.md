@@ -1562,6 +1562,6 @@ Two runs on 2026-11-17 set this task:
 
 ## Accounting
 
-- **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** centred stance with feet 6.0 to 6.6 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (balance randomizes deck height 6.8 to 11.3 cm to cover both; ride trains on 6.8 to 8.3 cm only, v5); W&B project name `mjlab` as in the course notebook.
-- **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.
+- **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a push/glide phase clock like HUSKY's; a stance audit for ride policies.
+- **Assumed:** truck roll stiffness 30 N·m/rad and wheel drag (not measured); lowered trucks put the deck 2 to 3 cm lower (balance and split ride randomize deck height 6.8 to 11.3 cm to cover both; centred ride trains on 6.8 to 8.3 cm only); 8 rad/s joint speed limit; W&B project name `mjlab` as in the course notebook.
+- **Issues:** nothing has run on the real robot. No ride policy passes the gait check (split ride `ffcxbwup` fails it; the centred ride run crashed on a diverged env; Task 30 addresses both). Centred balance `zdctdcyf` fails 7 of 21 audit rows for lack of sideways room on the deck.

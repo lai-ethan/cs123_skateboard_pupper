@@ -29,11 +29,19 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 
 ## Status
 
-- Done: board model, stance, both training tasks, tests, notebook.
-- The stance moved from split (left feet on the deck, right feet on the floor) to centred on 2026-11-16. The split stance came back the same day as a second pair of tasks. The centred tasks must be trained. The saved policies in [`policies/`](policies/) were trained on the split stance.
-- Balance (split stance) was trained in sim and passes the gait check (see [`CHECKPOINT.md`](CHECKPOINT.md)).
-- Ride must be retrained. Its rewards were reshaped so the gait fits the motors (PLAN Task 16). The saved ride policy passes the curve check but fails the gait check, so it is for reference only. The retrain has not run yet.
-- Not done: retraining both tasks for the centred stance, measuring the board's truck stiffness and wheel drag, anything on the robot.
+As of 2026-11-17. Nothing has run on the robot.
+
+| Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
+| --- | --- | --- | --- | --- | --- |
+| Split balance | `gt60lfo0` | pass | pass | 21 of 21 | First candidate |
+| Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
+| Split ride | `ffcxbwup` | pass | fail | not run | No |
+| Centred ride | none | crashed | | | No |
+
+- Done: board model on the measured board, both stances, four tasks, tests, notebook, both balance policies.
+- Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
+- Ride is not ready in either stance. Split ride pushes the board at the commanded speed but too fast and too hard for the motors. The centred ride run crashed. The fixes are PLAN Task 30.
+- Not done: a ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md).
 
 Four tasks are registered:
 
@@ -123,10 +131,11 @@ when a run fails is in Tasks 9 and 11 of the plan.
 
 ### 4. Replay the trained policies (laptop)
 
-The two saved policies are in [`policies/`](policies/), so no W&B login is
-needed. Both were trained on the split stance, so replay them with the split
-task ids. The split tasks were rebuilt on 2026-11-16, so treat the policies as a
-way to try the tools, not as results. From the repo root:
+Saved policies are in [`policies/`](policies/), so no W&B login is needed. The
+current ones are `split_balance_gt60lfo0_*` and `balance_zdctdcyf_*` (centred).
+`balance_2ace1uqa_*` and `ride_29p4j81t_*` are from the first split stance on a
+guessed board; the commands below use them only to show the tools. From the repo
+root:
 
 ```bash
 # Ride, in the interactive viewer
