@@ -1,4 +1,4 @@
-b# Pupper Skateboard RL Training Implementation Plan (v7)
+b# Pupper Skateboard RL Training Implementation Plan (v8)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,6 +19,16 @@ b# Pupper Skateboard RL Training Implementation Plan (v7)
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
 - The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v7
+
+- New Task 26. A study of why the centred ride run (`14m5rs1f`) never pushes
+  found a board bug on the way: the deck roll and truck yaw limits were
+  compiled as degrees, so the deck could not lean in any run so far. Fix it
+  before any more training.
+- The same study measured that a front-leg push is reachable and holdable from
+  the centred stance, and that the ride rewards pay less for the push pose than
+  for standing. The ride reward change comes as a later task.
 
 ## What changed from v6
 
@@ -1261,6 +1271,63 @@ that stops it: `joint_torques_l2` at -2e-4 costs 0.007 per step.
 `uv run ruff check`, `uv run ty check` on the touched files.
 
 **Commit:** `fix: penalize balance policies that lean on the joint stops`
+
+### Task 26: Let the deck lean (board joint limits were compiled as degrees)
+
+**Why:** `skateboard_constants.py` gives the deck roll limit as 0.2 rad and the
+truck yaw limit as `steer_gain * roll_limit` rad, but the board spec compiles
+angles as degrees (`spec.compiler.degree` is 1). The compiled ranges are
+±0.00349 rad for `deck_roll` and ±0.00289 rad for both truck yaw joints. So in
+every run so far the deck could not lean or steer, and `deck_flat` was always
+zero. A real deck leans. Every policy trained so far is untested against that.
+
+**Files:**
+- Modify: `src/mjlab/asset_zoo/robots/mini_cruiser/skateboard_constants.py`
+- Modify: `skateboard/README.md` (one bullet in the board section)
+- Test: the existing board test file (find it with
+  `grep -ln mini_cruiser tests/*.py`), `tests/test_pupper_skate.py`
+
+**Interfaces:**
+- Consumes: `get_skateboard_spec()`, `get_skateboard_cfg()`, the params
+  dataclass fields `roll_limit` (0.2) and `steer_gain` (0.577).
+- Produces: no new names. The compiled joint ranges change.
+
+**Changes:**
+- [ ] Make the compiled limits equal the radian values in the dataclass:
+  `deck_roll` ±`roll_limit`, each truck yaw ±`steer_gain * roll_limit`. Either
+  set the spec's compiler to radians or convert the two ranges; pick the one
+  that leaves every other angle-valued attribute of the board spec with the
+  value it has today (check for any: `ref`, `springref`, eulers, other ranges)
+  and say in the report which you chose and why.
+- [ ] The limits must also hold in the model the tasks train on. The board is
+  attached to a scene with the robot, and the scene is compiled again: check
+  the ranges in a built env's MuJoCo model, not only in the board's own spec.
+- [ ] Do not change stiffness, damping, `roll_limit`, `steer_gain`, any reward,
+  keyframe or termination.
+- [ ] `skateboard/README.md`: one bullet saying the deck can now lean up to
+  0.2 rad, and that policies trained before this fix (runs `k4kci0oj`,
+  `14m5rs1f`, `2ace1uqa`, `29p4j81t`) saw a deck that could not lean.
+
+**Tests (write first, see them fail):**
+- [ ] Board spec compiled alone: `deck_roll` range is ±0.2 rad and each truck
+  yaw range is ±(0.577 * 0.2) rad, to 1e-6.
+- [ ] Built env for `Mjlab-Skate-Balance-Pupper-v3` and
+  `Mjlab-SkateSplit-Balance-Pupper-v3`: the same three ranges in the env's
+  compiled model.
+- [ ] Sim test on the board alone or in an env: a sideways load on the deck
+  edge leans the deck by more than 0.02 rad (it could not exceed 0.0035
+  before).
+- [ ] Run every existing skate test. The zero-action hold tests of both
+  stances are the ones at risk, because both keyframes were tuned on a deck
+  that could not lean. Do not loosen a threshold and do not retune a keyframe.
+  If one fails, stop, and report for each failing test the measured value, the
+  deck roll angle over the hold, and whether the robot falls; status
+  DONE_WITH_CONCERNS with the fix committed and the failing tests listed.
+
+**Verify:** `uv run pytest` on the skate test files; `uv run ruff format`,
+`uv run ruff check`, `uv run ty check` on the touched files.
+
+**Commit:** `fix: board joint limits were compiled as degrees`
 
 ## Self-review
 
