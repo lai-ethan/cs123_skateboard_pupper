@@ -1,4 +1,4 @@
-b# Pupper Skateboard RL Training Implementation Plan (v5)
+b# Pupper Skateboard RL Training Implementation Plan (v6)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,6 +19,14 @@ b# Pupper Skateboard RL Training Implementation Plan (v5)
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
 - The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v5
+
+- Team decision 2026-11-16: keep two stances and test both on the robot.
+  - **Centred** (Tasks 20 to 22): all four feet on the deck. Task ids `Mjlab-Skate-Balance-Pupper-v3` and `Mjlab-Skate-Ride-Pupper-v3`.
+  - **Split** (v1 to v3, brought back): left feet on the deck, right feet on the floor. New task ids `Mjlab-SkateSplit-Balance-Pupper-v3` and `Mjlab-SkateSplit-Ride-Pupper-v3`.
+- The split stance is refit to the measured board (deck top 10.3 cm, deck 16.1 cm wide) and uses the gait rewards written on 2026-11-16 that were never trained (`push_stride`, `push_leg_pose`, `joint_speed_limit`, `torque_saturation`).
+- Task 23 adds the split tasks. Task 24 makes the tools, the notebook and the docs work for both stances.
 
 ## What changed from v4
 
@@ -1052,6 +1060,128 @@ toward the floor. This task changes the ride task only. Balance is untouched.
   `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`,
   then ruff format, ruff check and ty on the touched files; commit
   `feat: reward reaching for the floor in the ride task`.
+
+### Task 23: Split-stance tasks on the measured board
+
+Bring the split stance back as a second pair of tasks next to the centred
+ones. The split code as last written is at git commit `a110b84` (read old
+files with `git show a110b84:<path>`). The centred tasks must not change.
+
+**Files:**
+- Create: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`
+- Create: `skateboard/tools/solve_split_stance.py`,
+  `skateboard/tools/check_split_stance.py`
+- Modify: `src/mjlab/asset_zoo/robots/pupper_v3/pupper_constants.py`,
+  `src/mjlab/tasks/pupper_skate/mdp/rewards.py`,
+  `src/mjlab/tasks/pupper_skate/mdp/__init__.py`,
+  `src/mjlab/tasks/pupper_skate/__init__.py` (task registration)
+- Test: create `tests/test_pupper_skate_split.py`
+
+**Interfaces:**
+- Consumes: the measured board in `skateboard_constants.py` (unchanged),
+  `DECK_HEIGHT_RANGE`, `JOINT_SPEED_LIMIT`, `RIDE_SPEED_RANGE` and
+  `PUSH_INTERVAL_S` from `pupper_skate_env_cfg.py` (import them, do not copy).
+- Produces:
+  - constants `SKATE_SPLIT_POSE` (12 joint angles, FR, FL, BR, BL order),
+    `SKATE_SPLIT_HEIGHT`, `SKATE_SPLIT_ROLL`, `SKATE_SPLIT_BOARD_OFFSET` and
+    `SKATE_SPLIT_KEYFRAME` in `pupper_constants.py`;
+  - `pupper_skate_split_balance_env_cfg(play: bool = False)` and
+    `pupper_skate_split_ride_env_cfg(play: bool = False)`;
+  - task ids `Mjlab-SkateSplit-Balance-Pupper-v3` and
+    `Mjlab-SkateSplit-Ride-Pupper-v3`, registered the same way as the centred
+    ids, with the same agent (PPO) config;
+  - contact sensors named exactly as at `a110b84` (two deck feet, the left
+    ones, and two ground feet, the right ones);
+  - reward functions `push_stride` and `push_leg_pose` (and any other reward
+    function the `a110b84` split config used that no longer exists), restored
+    under their old names next to the centred ones.
+
+- [ ] **Step 1: restore the stance tools.** `solve_split_stance.py` and
+  `check_split_stance.py` are the `a110b84` versions of `solve_stance.py` and
+  `check_stance.py`, changed only to read the `SKATE_SPLIT_*` constants and
+  the current board model. Do not change the centred tools.
+- [ ] **Step 2: refit the stance.** The `a110b84` stance was solved for a
+  10.0 cm deck guess. Solve it again for the measured board: deck top 0.103 m
+  above the floor, deck 0.161 m wide. Requirements for the result:
+  - left feet (FL, BL) on the deck, right feet (FR, BR) on the floor;
+  - each left foot centre at least 2.5 cm inside the deck's left and right
+    edges, and as close to the board's centre line as the legs allow, so the
+    robot's weight does not steer the trucks;
+  - `check_split_stance.py` holds the pose with zero actions for 10 s: no
+    reset, both left feet on the deck and both right feet on the floor at
+    least 95% of the time, deck roll under 0.05 rad at the end.
+  Write the solved numbers into the `SKATE_SPLIT_*` constants with a comment
+  giving the solver command that reproduces them.
+- [ ] **Step 3: the env config.** `pupper_skate_split_env_cfg.py` is the
+  `a110b84` version of `pupper_skate_env_cfg.py` with these changes only:
+  - functions renamed as in Interfaces; it uses `SKATE_SPLIT_*`;
+  - shared constants imported from `pupper_skate_env_cfg.py`;
+  - the deck height event uses `DECK_HEIGHT_RANGE` (now 6.8 to 11.3 cm);
+  - anything that no longer exists in the code base (event or reward
+    functions the centred work renamed or changed) is adapted to the current
+    function, keeping the `a110b84` behaviour. `push_stroke` now takes
+    `speed_fraction`; the split ride task keeps `push_stride` as it was and
+    does not use `push_stroke` or `foot_reach`.
+  Keep every reward name and weight of the `a110b84` balance and ride
+  configs. List them in the report.
+- [ ] **Step 4: tests** in `tests/test_pupper_skate_split.py`, plain
+  functions. Port the `a110b84` tests of `tests/test_pupper_skate.py` that
+  cover the stance, the sensors, the balance and ride reward names and
+  weights, `push_stride`, `push_leg_pose` and the terminations. Add:
+  - both split ids are registered and build; both centred ids still build;
+  - with zero actions and no randomization the split balance env runs 10 s
+    without a reset at deck offsets -0.035, 0.0 and +0.01;
+  - with the usual spawn noise, 64 envs, 10 s, zero actions: at most 20% of
+    envs reset. If this cannot be met, do not loosen it: report the number.
+  - the centred configs are unchanged: `pupper_skate_balance_env_cfg()` and
+    `pupper_skate_ride_env_cfg()` have the same reward names and weights as
+    before this task (compare against a literal dict in the test).
+- [ ] **Step 5:** run
+  `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`,
+  then ruff format, ruff check and ty on the touched files; commit
+  `feat: bring back the split stance as a second pair of skate tasks`.
+
+### Task 24: Tools, notebook and docs for both stances
+
+**Files:**
+- Modify: `skateboard/tools/run_summary.py`, `gait_report.py`,
+  `stance_audit.py`, `render_policy.py` (only if it needs it),
+  `policy_loader.py` (only if it needs it), `make_notebook.py`
+- Regenerate: `notebooks/CS123_Pupper_Skate.ipynb`
+- Modify: `skateboard/README.md`, `README.md` (task table: two new rows)
+- Test: `tests/test_skate_run_summary.py`, `tests/test_skate_gait_report.py`,
+  `tests/test_skate_stance_audit.py`, `tests/test_skate_notebook.py`
+
+**Interfaces:**
+- Consumes: the four task ids; the split sensors and reward names from
+  Task 23 (read `pupper_skate_split_env_cfg.py`).
+- Produces: every tool takes any of the four task ids and picks the stance
+  from the id (`"SkateSplit"` in the id means split).
+
+- [ ] **Step 1: `run_summary.py`.** Add pass criteria for the two split ids,
+  equal to the criteria the tool had at `a110b84` for balance and ride. The
+  centred criteria do not change.
+- [ ] **Step 2: `gait_report.py`.** For a split task the metrics are the
+  `a110b84` ones (deck feet are the two left feet, pushing feet are the two
+  right feet). For a centred task nothing changes. Keep one `GAIT_LIMITS`
+  table. Tests for both.
+- [ ] **Step 3: `stance_audit.py`.** Add `--task` (default
+  `Mjlab-Skate-Balance-Pupper-v3`). For a split task use the `a110b84` pass
+  rule (left feet on the deck 90% of the time) and its lift rows (FR, RR);
+  deck offsets -0.035, -0.02, +0.01, +0.02, +0.03 for both stances. Tests for
+  both.
+- [ ] **Step 4: notebook.** The settings cell lists all four task ids in a
+  comment, one line each saying what it trains. The reward tables and the
+  `REWARD_WEIGHTS` cell cover all four tasks (pick by `TASK`). The gait cell
+  runs for both ride tasks. Regenerate; add a test that the `REWARD_WEIGHTS`
+  cell's names and weights equal the config's for each of the four tasks.
+- [ ] **Step 5: docs.** `skateboard/README.md`: a short table of the two
+  stances (what stands where, which task ids, which needs the lowered trucks
+  to ride), and the commands with the split ids. Root `README.md`: two rows
+  in the task table. Plain language, short sentences, no em dashes.
+- [ ] **Step 6:** run the Task 23 Step 5 test command, ruff format, ruff
+  check and ty on the touched files; commit
+  `feat: skate tools and notebook for both stances`.
 
 ## Self-review
 
