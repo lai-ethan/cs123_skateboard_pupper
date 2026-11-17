@@ -1,4 +1,4 @@
-b# Pupper Skateboard RL Training Implementation Plan (v6)
+b# Pupper Skateboard RL Training Implementation Plan (v7)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,6 +19,13 @@ b# Pupper Skateboard RL Training Implementation Plan (v6)
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
 - The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v6
+
+- New Task 25. The first centred balance run (`k4kci0oj`) printed `RESULT: PASS`
+  but holds four motors at full torque against the joint stops. Both balance
+  tasks get a torque-saturation penalty, the balance pass check reads it, and
+  the notebook runs the gait check for balance too.
 
 ## What changed from v5
 
@@ -1182,6 +1189,78 @@ files with `git show a110b84:<path>`). The centred tasks must not change.
 - [ ] **Step 6:** run the Task 23 Step 5 test command, ruff format, ruff
   check and ty on the touched files; commit
   `feat: skate tools and notebook for both stances`.
+
+### Task 25: Stop balance policies from leaning on the joint stops
+
+**Why:** the first centred balance run (`k4kci0oj`, `RESULT: PASS`) fails the gait
+check. All four `_2` joints sit on their joint limit (0.42 rad) and their motors
+push at the full 3.0 N·m the whole time (`saturated_fraction = 1.000`). With zero
+actions the same stance holds at 17% torque. The policy found that jamming the
+legs against the stops makes it stiff. A real motor cannot hold stall torque for
+long, so this policy must not go on the robot. The balance tasks have no penalty
+that stops it: `joint_torques_l2` at -2e-4 costs 0.007 per step.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`
+- Modify: `skateboard/tools/run_summary.py`
+- Modify: `skateboard/tools/make_notebook.py`, then regenerate
+  `notebooks/CS123_Pupper_Skate.ipynb`
+- Modify: `skateboard/README.md`
+- Test: `tests/test_pupper_skate.py`, `tests/test_pupper_skate_split.py`, the
+  run summary and notebook tests that already exist
+
+**Interfaces:**
+- Consumes: `mdp.torque_saturation(env, limit, soft_ratio=0.8, asset_cfg)` in
+  `src/mjlab/tasks/pupper_skate/mdp/rewards.py` (unchanged), `PUPPER_EFFORT_LIMIT`.
+- Produces: a module constant `BALANCE_TORQUE_SOFT_RATIO = 0.5` in
+  `pupper_skate_env_cfg.py`, imported by the split config; a reward term named
+  `torque_saturation` in both balance tasks.
+
+**Changes:**
+- [ ] Both balance reward dicts (centred and split) get
+  `"torque_saturation": RewardTermCfg(func=mdp.torque_saturation, weight=-1.0,
+  params={"limit": PUPPER_EFFORT_LIMIT, "soft_ratio": BALANCE_TORQUE_SOFT_RATIO})`.
+  The penalty starts at 1.5 N·m per motor. Standing with zero actions peaks at
+  about 0.5 N·m, so an honest stance pays nothing.
+- [ ] Both ride tasks keep their own `torque_saturation` exactly as it is now
+  (weight -0.5, default `soft_ratio` 0.8): the ride config already assigns the
+  term after copying the balance rewards, so it must still end with those values.
+  No other reward name or weight changes in any of the four tasks.
+- [ ] `run_summary.py`: a balance run (either stance) also needs
+  `Episode_Reward/torque_saturation >= -0.05` (last-20 average) to print
+  `RESULT: PASS`. A run whose log has no such key fails that row with a line
+  that says the key is missing (old runs predate the term).
+- [ ] Notebook: the reward tables and `REWARD_WEIGHTS` for both balance tasks
+  list `torque_saturation` (the existing test that the notebook equals the
+  config must pass). The gait check cell runs for all four tasks: with
+  `--speed 0.4` for the two ride tasks and with no `--speed` for the two
+  balance tasks. The W&B cell is not touched.
+- [ ] `skateboard/README.md`: one short bullet under the balance task saying
+  the balance tasks penalize motors above half their torque limit, and why
+  (run `k4kci0oj` leaned on the joint stops).
+
+**Tests (write first, see them fail):**
+- [ ] Each balance config has `torque_saturation` with weight -1.0, func
+  `mdp.torque_saturation`, `limit == PUPPER_EFFORT_LIMIT`, `soft_ratio == 0.5`.
+- [ ] Each ride config has `torque_saturation` with weight -0.5 and no
+  `soft_ratio` param (or 0.8).
+- [ ] Update the literal centred reward dict pinned in
+  `tests/test_pupper_skate_split.py` to include the new balance term; every
+  other pinned value stays.
+- [ ] Sim test, both balance tasks: 10 s of zero actions, one env, randomization
+  as the existing zero-action hold tests set it; the mean of the unweighted
+  `torque_saturation` value over the last 5 s is below 0.01.
+- [ ] `run_summary` unit tests: a balance log that meets the old criteria with
+  `torque_saturation = -0.01` passes; the same with -0.2 fails; the same with
+  the key missing fails.
+- [ ] Do not loosen any existing threshold. If the zero-action sim test fails
+  for a stance, report the measured value; do not raise the 0.01.
+
+**Verify:** `uv run pytest` on the skate test files; `uv run ruff format`,
+`uv run ruff check`, `uv run ty check` on the touched files.
+
+**Commit:** `fix: penalize balance policies that lean on the joint stops`
 
 ## Self-review
 
