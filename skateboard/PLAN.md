@@ -30,6 +30,9 @@ b# Pupper Skateboard RL Training Implementation Plan (v8)
   falls in 21 of 64 noisy spawns (5 of 64 before). The cause is the soft end
   of the truck stiffness range, not the keyframe. The hold tests now run at
   nominal stiffness, and training covers 15 to 180 N*m/rad.
+- New Task 28. The centred ride run `14m5rs1f` failed: it stands and does not
+  push, because standing pays more than a push pose. The centred ride rewards
+  now stop charging for one lifted foot and pay for board speed from zero.
 - The same study measured that a front-leg push is reachable and holdable from
   the centred stance, and that the ride rewards pay less for the push pose than
   for standing. The ride reward change comes as a later task.
@@ -1367,6 +1370,81 @@ tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py`;
 `uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files.
 
 **Commit:** `fix: test the centred stance hold at nominal truck stiffness`
+
+### Task 28: Centred ride rewards that make a push pay
+
+**Why:** the centred ride run `14m5rs1f` learned to stand on the deck and not
+push (`track_board_velocity` 1.37 of 3.0, `push_stroke` 0.015). A push study
+with the saved policy showed why: standing pays 4.57 reward per step and a
+front-leg push pose pays 4.01, so lifting a foot loses reward before the board
+moves. A front-leg push is possible (the pose holds for 3 s on a 6.8 cm deck
+with a 2 cm margin and 25% peak torque). The split ride task is not touched.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/terminations.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+  (`pupper_skate_ride_env_cfg` only)
+- Modify: `skateboard/README.md` (the centred ride column of the reward table),
+  `notebooks/CS123_Pupper_Skate.ipynb` through `skateboard/tools/make_notebook.py`
+  if the notebook's reward table lists these weights
+- Test: `tests/test_pupper_skate.py`
+
+**Interfaces:**
+- `mdp.contact_count(env, sensor_name, max_count: float | None = None)`: with
+  `max_count` the count is clamped to it. Default keeps today's behaviour.
+- `mdp.contact_lost(env, sensor_name, grace_s, min_lost: int = 1)`: terminate
+  when at least `min_lost` of the sensor's geoms have been out of contact for
+  longer than `grace_s`. Default keeps today's behaviour.
+- New `mdp.board_progress(env, command_name, command_threshold, board_cfg=_BOARD)`:
+  `clamp(board_vx / cmd_vx, 0, 1)` where `cmd_vx > command_threshold`, else 0.
+  `board_vx` is `board.data.root_link_lin_vel_b[:, 0]`, the same frame as
+  `track_board_velocity`.
+
+**Exact values, centred ride only** (`pupper_skate_ride_env_cfg`):
+
+| Term | Now | New |
+| --- | --- | --- |
+| `feet_on_deck` | weight 0.5, counts 4 feet | weight 0.5, `max_count` 3.0 |
+| `feet_off_deck` termination | any foot off for 1.5 s | `min_lost` 2, grace 1.5 s |
+| `tilt` std | 0.2 | 0.35 |
+| `board_alignment` `std_pos` | 0.05 | 0.08 |
+| `foot_reach` weight | 0.5 | 1.5 |
+| `push_stroke` weight | 0.3 | 1.0 |
+| `board_progress` (new) | none | weight 1.0, `command_threshold` 0.1 |
+| `track_board_velocity` | weight 3.0, std 0.15 | unchanged |
+
+The balance task and both split tasks must build with exactly the rewards and
+terminations they have now. The split ride config builds on its own function;
+check it does not pick these changes up.
+
+**Steps:**
+- [ ] Tests first, in `tests/test_pupper_skate.py`, plain functions:
+  - `contact_count` with `max_count=3.0` returns 3 when four feet touch and 2
+    when two touch; without it returns 4.
+  - `contact_lost` with `min_lost=2`: one foot past the grace does not
+    terminate, two feet past it do; `min_lost=1` keeps the old result.
+  - `board_progress`: 0 with no command, 0 when rolling backwards, 0.5 at half
+    the commanded speed, 1.0 at or above it.
+  - The built centred ride env has the table's values; the built centred
+    balance env still has `feet_on_deck` without `max_count`, `tilt` std 0.2
+    and `feet_off_deck` with `min_lost` 1 (or absent) and grace 0.5.
+  - The built split ride env has no `board_progress` term.
+- [ ] Implement, run the tests.
+- [ ] Re-measure the study's comparison and put it in the report: reward per
+  step (weight times term, summed) for the standing pose against the
+  front-leg push pose on a 6.8 cm deck with the board at rest and command
+  0.4. The scripts are in `/Users/ethan/.claude/jobs/bc321137/tmp/pushstudy/`
+  (read them, copy what you need into your own scratch directory). Target:
+  the push pose pays at least as much as standing. If it does not, report the
+  per-term numbers and stop; do not invent further weight changes.
+- [ ] Update the README table (and the notebook generator if it lists them).
+
+**Verify:** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py
+tests/test_pupper_skate_split.py tests/test_pupper_skateboard.py`;
+`uv run ruff format`, `uv run ruff check`, `uv run ty check` on touched files.
+
+**Commit:** `feat: centred ride rewards that pay for a push`
 
 ## Self-review
 
