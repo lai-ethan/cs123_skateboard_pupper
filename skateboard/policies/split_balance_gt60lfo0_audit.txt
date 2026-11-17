@@ -1,0 +1,22 @@
+PASS  baseline           resets 0  deck 1.00  torque 0.14  roll -4.6 deg  travel -0.01 m  margin +0.063 m  lift_fr -0.023  lift_rr -0.002
+PASS  zero_action        resets 0  deck 1.00  torque 0.15  roll -4.9 deg  travel -0.00 m  margin +0.075 m  lift_fr -0.016  lift_rr -0.012
+PASS  deck-3.5cm         resets 0  deck 0.99  torque 0.22  roll -4.1 deg  travel -0.01 m  margin +0.067 m  lift_fr -0.021  lift_rr -0.006
+PASS  deck-2cm           resets 0  deck 1.00  torque 0.16  roll -4.2 deg  travel -0.00 m  margin +0.071 m  lift_fr -0.020  lift_rr -0.010
+PASS  deck+1cm           resets 0  deck 1.00  torque 0.16  roll -5.4 deg  travel +0.01 m  margin +0.069 m  lift_fr -0.021  lift_rr -0.011
+PASS  deck+2cm           resets 0  deck 1.00  torque 0.16  roll -6.8 deg  travel +0.01 m  margin +0.071 m  lift_fr -0.023  lift_rr -0.014
+PASS  deck+3cm           resets 0  deck 1.00  torque 0.44  roll -4.1 deg  travel -0.00 m  margin +0.062 m  lift_fr -0.028  lift_rr -0.005
+PASS  truck_x0.25        resets 0  deck 1.00  torque 0.17  roll -4.7 deg  travel +0.00 m  margin +0.074 m  lift_fr -0.017  lift_rr -0.014
+PASS  deck_mu_0.3        resets 0  deck 1.00  torque 0.16  roll -4.7 deg  travel +0.00 m  margin +0.069 m  lift_fr -0.021  lift_rr -0.009
+PASS  kp_x0.6            resets 0  deck 1.00  torque 0.16  roll -4.9 deg  travel -0.00 m  margin +0.068 m  lift_fr -0.023  lift_rr -0.009
+PASS  effort_1.0         resets 0  deck 1.00  torque 0.46  roll -4.8 deg  travel -0.01 m  margin +0.067 m  lift_fr -0.022  lift_rr -0.007
+PASS  board_y+1cm        resets 0  deck 1.00  torque 0.16  roll -4.6 deg  travel +0.00 m  margin +0.070 m  lift_fr -0.022  lift_rr -0.011
+PASS  board_y-1cm        resets 0  deck 1.00  torque 0.16  roll -4.8 deg  travel -0.00 m  margin +0.070 m  lift_fr -0.020  lift_rr -0.010
+PASS  board_y+2cm        resets 0  deck 1.00  torque 0.17  roll -4.8 deg  travel +0.00 m  margin +0.074 m  lift_fr -0.019  lift_rr -0.015
+PASS  board_y-2cm        resets 0  deck 1.00  torque 0.17  roll -4.6 deg  travel -0.00 m  margin +0.072 m  lift_fr -0.019  lift_rr -0.011
+PASS  board_yaw_0.2      resets 0  deck 1.00  torque 0.16  roll -4.7 deg  travel -0.00 m  margin +0.068 m  lift_fr -0.022  lift_rr -0.008
+PASS  joint_offset_0.3   resets 0  deck 1.00  torque 0.17  roll -4.8 deg  travel -0.01 m  margin +0.074 m  lift_fr -0.019  lift_rr -0.018
+PASS  push_left_0.6      resets 0  deck 1.00  torque 0.16  roll -4.7 deg  travel +0.00 m  margin +0.072 m  lift_fr -0.017  lift_rr -0.009
+PASS  push_right_0.6     resets 0  deck 0.98  torque 0.17  roll -4.8 deg  travel +0.00 m  margin +0.071 m  lift_fr -0.024  lift_rr -0.016
+PASS  board_kick_0.8     resets 0  deck 1.00  torque 0.13  roll -4.7 deg  travel +0.08 m  margin +0.053 m  lift_fr -0.029  lift_rr +0.007
+PASS  worst_combo        resets 0  deck 1.00  torque 0.25  roll -6.6 deg  travel +0.01 m  margin +0.072 m  lift_fr -0.022  lift_rr -0.014
+STANCE: PASS
