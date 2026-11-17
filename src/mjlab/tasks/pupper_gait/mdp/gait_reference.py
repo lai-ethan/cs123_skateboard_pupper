@@ -19,6 +19,7 @@ import numpy as np
 
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
+  SKATE_POSE,
   SPIDER_POSE,
   get_spec,
 )
@@ -275,6 +276,88 @@ def _spider_table(n_samples: int) -> np.ndarray:
   return table
 
 
+# Skate push: one push and glide from the centred skate stance, built for the
+# stock 103 mm deck. No task plays it yet: open loop it pushes the board but the
+# robot falls at the end of each push (skateboard/tools/play_push_reference.py).
+# Not a foot-space cycle either: the back right foot steps off the deck, sweeps
+# back along the floor and steps back on while the other three feet stay on the
+# deck. Each leg moves in joint space between
+# the keyframes below, minimum-jerk (smoothstep-5) on each segment.
+#
+# The poses were solved offline (SLSQP on MuJoCo forward kinematics of the
+# compiled ride scene at a 103 mm deck, 20 seeds): the three deck feet at least
+# 1 cm inside the deck edges, the centre of mass at least 4 cm inside their
+# triangle (2 cm let the soft PD tip the body over before the foot reached the
+# floor), total body tilt at most 17 degrees, knees 15 mm clear of the deck,
+# wheels and floor, joints 0.05 rad inside their limits, and the joints as close
+# to SKATE_POSE as that allows. `reach` and `sweep` put the push foot on the
+# floor 6 cm ahead of and 4 cm behind the solver's push spot (a 10 cm stroke)
+# with the deck feet in the same spots. `lift` holds the push foot 3.5 cm above
+# the deck top beside its stance spot, with the joints 30% of the way from the
+# stance to the push poses. The foot passes through `lift` both ways, so it
+# never cuts the deck edge.
+_PUSH_REACH: tuple[float, ...] = (
+  -0.877, -0.37, -0.031,
+  -0.302, 0.37, 0.017,
+  1.241, 0.889, -1.754,
+  1.165, 0.091, 0.46,
+)  # fmt: skip
+_PUSH_SWEEP: tuple[float, ...] = (
+  -0.886, -0.37, -0.049,
+  -0.274, 0.37, 0.003,
+  0.636, 0.894, -1.96,
+  1.136, 0.088, 0.514,
+)  # fmt: skip
+_PUSH_LIFT: tuple[float, ...] = (
+  -0.066, -0.316, -0.274,
+  0.083, 0.37, -0.186,
+  0.111, 0.436, -0.511,
+  0.2, 0.156, 0.228,
+)  # fmt: skip
+# (phase, keyframe) in cycle order: step out over the deck edge, down to the
+# floor ahead of the stance spot, sweep back, up and back over the edge, onto
+# the deck, then glide on four feet for the rest of the cycle. Segment lengths
+# follow each segment's largest joint move, so the reference peaks under
+# 6 rad/s at SKATE_PUSH_FREQUENCY.
+SKATE_PUSH_GLIDE_START: float = 0.71
+SKATE_PUSH_KEYFRAMES: tuple[tuple[float, str], ...] = (
+  (0.0, "stance"),
+  (0.09, "lift"),
+  (0.25, "reach"),
+  (0.43, "sweep"),
+  (0.62, "lift"),
+  (SKATE_PUSH_GLIDE_START, "stance"),
+)
+# Phase clock [Hz]: one push every 2.5 s.
+SKATE_PUSH_FREQUENCY: float = 0.4
+# Command speed [m/s] at and above which the push plays in full. Below it the
+# reference blends linearly toward the still stance, which it is at zero.
+SKATE_PUSH_BLEND_SPEED: float = 0.05
+
+
+def _smoothstep5(u: float) -> float:
+  return u * u * u * (10.0 - 15.0 * u + 6.0 * u * u)
+
+
+def _skate_push_table(n_samples: int) -> np.ndarray:
+  """Skate push and glide: minimum-jerk joint moves between the keyframes."""
+  poses = {
+    "stance": np.array(SKATE_POSE),
+    "lift": np.array(_PUSH_LIFT),
+    "reach": np.array(_PUSH_REACH),
+    "sweep": np.array(_PUSH_SWEEP),
+  }
+  table = np.tile(poses["stance"], (n_samples, 1))
+  segments = zip(SKATE_PUSH_KEYFRAMES[:-1], SKATE_PUSH_KEYFRAMES[1:], strict=True)
+  for (start, a), (end, b) in segments:
+    for i in range(n_samples):
+      phase = i / n_samples
+      if start <= phase < end:
+        u = _smoothstep5((phase - start) / (end - start))
+        table[i] = poses[a] + u * (poses[b] - poses[a])
+  return table
+
+
 def _base_cycle(
   stride: float | tuple[float, float],
   n_swing: int = 1,
@@ -375,6 +458,10 @@ def build_joint_reference_table(n_samples: int = 100, gait: str = "trot") -> np.
     return table
   if gait == "spider":
     table = _clamp_to_joint_limits(_spider_table(n_samples))
+    _TABLE_CACHE[key] = table
+    return table
+  if gait == "skate_push":
+    table = _clamp_to_joint_limits(_skate_push_table(n_samples))
     _TABLE_CACHE[key] = table
     return table
   if gait in _CAPTURED_KEYS and _CAPTURED_GAITS_FILE.exists():

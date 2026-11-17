@@ -13,6 +13,7 @@ import pytest
 import torch
 from conftest import get_test_device
 from rsl_rl.modules import MLP, EmpiricalNormalization
+from scipy.optimize import least_squares
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
@@ -36,6 +37,7 @@ from mjlab.tasks.pupper_gait.export import (
   export_pupper_gait_policy_from_env,
   gait_frame_kind,
 )
+from mjlab.tasks.pupper_gait.mdp import gait_reference as gr
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
@@ -104,6 +106,115 @@ def test_skate_keyframe_spawns_the_pose_above_the_deck():
   assert 2 * math.atan2(x, w) == pytest.approx(SKATE_ROLL)
   assert (y, z) == (0.0, 0.0)
   assert SKATE_KEYFRAME.pos[2] == pytest.approx(SKATE_HEIGHT + 0.01)
+
+
+##
+# The centred push reference (gait_reference's skate_push table).
+##
+
+_DECK_FEET = ("front_r", "front_l", "back_l")
+_PUSH_LEG = "back_r"
+
+
+@pytest.fixture(scope="module")
+def push_table() -> np.ndarray:
+  return gr.build_joint_reference_table(100, "skate_push")
+
+
+def _phase_row(name: str, n: int = 100) -> int:
+  """Table row of the keyframe ``name``, which must appear once in the cycle."""
+  (phase,) = [p for p, key in gr.SKATE_PUSH_KEYFRAMES if key == name]
+  return round(phase * n)
+
+
+def test_push_table_is_periodic_and_inside_the_joint_limits(push_table):
+  assert push_table.shape == (100, 12)
+  np.testing.assert_allclose(push_table[0], SKATE_POSE)
+  np.testing.assert_allclose(push_table[-1], SKATE_POSE)
+  model = get_spec().compile()
+  limits = np.array([model.joint(n).range for n in JOINT_NAMES])
+  assert np.all(push_table >= limits[:, 0]) and np.all(push_table <= limits[:, 1])
+
+
+def test_push_table_glides_on_the_stance(push_table):
+  glide = np.arange(100) / 100 >= gr.SKATE_PUSH_GLIDE_START
+  assert glide.sum() == 29
+  np.testing.assert_allclose(push_table[glide], np.tile(SKATE_POSE, (29, 1)))
+  # Before the glide the back right leg is moving on every row but the first.
+  push = slice(6, 9)
+  moving = np.any(push_table[1:71, push] != np.array(SKATE_POSE)[push], axis=1)
+  assert moving.all()
+
+
+def test_push_table_stays_under_the_ride_speed_onset(push_table):
+  step = np.diff(np.vstack([push_table, push_table[:1]]), axis=0)
+  speed = np.abs(step) * 100 * gr.SKATE_PUSH_FREQUENCY
+  assert speed.max() < 6.0
+  assert gr.SKATE_PUSH_FREQUENCY == 0.4
+  assert gr.SKATE_PUSH_BLEND_SPEED == 0.05
+
+
+def _place_on_deck(model, data, q, centroid, deck_top, foot_r, guess):
+  """Base pose (x, y, z, roll, pitch) that rests the three deck feet on the deck.
+
+  Their undersides touch the deck top and their xy centroid sits at
+  ``centroid``; yaw is zero.
+  """
+
+  def set_pose(b):
+    data.qpos[0:3] = b[0:3]
+    quat = np.zeros(4)
+    mujoco.mju_euler2Quat(quat, np.array([b[3], b[4], 0.0]), "xyz")
+    data.qpos[3:7] = quat
+    for name, angle in zip(JOINT_NAMES, q, strict=True):
+      data.qpos[model.joint(name).qposadr[0]] = angle
+    mujoco.mj_kinematics(model, data)
+
+  def residual(b):
+    set_pose(b)
+    feet = np.array([data.site(f"leg_{leg}_3_foot_site").xpos for leg in _DECK_FEET])
+    return np.r_[feet[:, 2] - (deck_top + foot_r), feet[:, :2].mean(0) - centroid]
+
+  b = least_squares(residual, guess).x
+  set_pose(b)
+  return b
+
+
+def test_push_foot_reaches_the_floor_and_clears_the_deck_side(push_table):
+  # The robot alone, three feet resting on a stock deck (its box from the board
+  # params, centred under the stance), the push foot free.
+  p = SkateboardParams()
+  model = get_spec().compile()
+  data = mujoco.MjData(model)
+  foot_r = float(model.geom(f"leg_{_PUSH_LEG}_3_collision").size[0])
+  deck_top = p.deck_top_height
+  centre = np.array([*SKATE_BOARD_OFFSET, deck_top - p.deck_thickness / 2])
+  half = np.array([p.deck_length / 2, p.deck_width / 2, p.deck_thickness / 2])
+  # Deck feet centroid with the stance on the board.
+  stance_base = np.array([0.0, 0.0, 0.3, 0.0, 0.0])
+  _place_on_deck(model, data, SKATE_POSE, np.zeros(2), deck_top, foot_r, stance_base)
+  centroid = (
+    np.mean(
+      [data.site(f"leg_{leg}_3_foot_site").xpos[:2] for leg in _DECK_FEET], axis=0
+    )
+    - data.qpos[0:2]
+  )
+  base = stance_base
+  underside, side_gap = [], []
+  for q in push_table:
+    base = _place_on_deck(model, data, q, centroid, deck_top, foot_r, base)
+    foot = data.site(f"leg_{_PUSH_LEG}_3_foot_site").xpos.copy()
+    outside = np.maximum(np.abs(foot - centre) - half, 0.0)
+    underside.append(foot[2] - foot_r)
+    side_gap.append(np.linalg.norm(outside) - foot_r)
+  underside_a, side_gap_a = np.array(underside), np.array(side_gap)
+  for name in ("reach", "sweep"):
+    assert abs(underside_a[_phase_row(name)]) < 0.01, name
+  # Below the deck top the foot is beside the deck, 3 mm clear of it. On or
+  # above the top (within 1 mm) it is standing on the deck or over it.
+  below_top = underside_a < deck_top - 0.001
+  assert below_top.sum() > 20
+  assert side_gap_a[below_top].min() >= 0.003
 
 
 ##

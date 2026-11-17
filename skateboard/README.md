@@ -182,6 +182,17 @@ the front right foot on the floor only 27% of the time). The board still rolled
 fast enough. Those numbers came from one unseeded env, before the check moved
 to 16 seeded envs, so they may not repeat.
 
+A clocked push-and-glide reference for the centred ride on the stock deck,
+`skate_push` in `gait_reference.py`, is not wired into any task yet. In one
+2.5 s cycle the back right foot steps off the deck, sweeps 10 cm back along the
+floor and steps back on, then all four feet glide. Played open loop it pushes
+the board but the robot falls at the end of each push. To play it:
+
+```bash
+FORCE_CPU=1 uv run python skateboard/tools/play_push_reference.py --rewards \
+  --video out/push_reference.mp4
+```
+
 To check how much balance margin a policy has when the sim is wrong (deck
 height, board placement, grip, motors, shoves):
 
