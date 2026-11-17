@@ -9,6 +9,7 @@ from .observations import (  # noqa: F401
 )
 from .rewards import (  # noqa: F401
   board_alignment,
+  board_progress,
   board_speed_l2,
   board_yaw_rate_l2,
   contact_count,

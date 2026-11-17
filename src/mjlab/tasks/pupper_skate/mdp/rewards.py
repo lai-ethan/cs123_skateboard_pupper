@@ -22,12 +22,18 @@ _ROBOT = SceneEntityCfg("robot")
 _BOARD = SceneEntityCfg("board")
 
 
-def contact_count(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
-  """How many of the sensor's primary geoms are touching its secondary."""
+def contact_count(
+  env: ManagerBasedRlEnv, sensor_name: str, max_count: float | None = None
+) -> torch.Tensor:
+  """How many of the sensor's primary geoms are touching its secondary.
+
+  With ``max_count`` the count stops there, so contacts past it earn nothing.
+  """
   sensor: ContactSensor = env.scene[sensor_name]
   found = sensor.data.found
   assert found is not None
-  return (found > 0).float().sum(dim=1)
+  count = (found > 0).float().sum(dim=1)
+  return count if max_count is None else torch.clamp(count, max=max_count)
 
 
 def gravity_tracking(
@@ -128,6 +134,28 @@ def track_board_velocity(
   assert command is not None
   error = command[:, 0] - board.data.root_link_lin_vel_b[:, 0]
   return torch.exp(-torch.square(error) / std**2)
+
+
+def board_progress(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  command_threshold: float,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the board's share of the commanded speed, clamp(board_vx / cmd, 0, 1).
+
+  ``board_vx`` is along the board's own long axis, as in
+  ``track_board_velocity``. Unlike that term, this one grows from the first
+  centimetre per second, so a small push already pays. Rolling backwards pays
+  nothing, and so does a command at or under ``command_threshold`` m/s.
+  """
+  board: Entity = env.scene[board_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  speed = command[:, 0]
+  active = speed > command_threshold
+  share = board.data.root_link_lin_vel_b[:, 0] / torch.where(active, speed, 1.0)
+  return torch.clamp(share, 0.0, 1.0) * active.float()
 
 
 def joint_speed_over_limit(

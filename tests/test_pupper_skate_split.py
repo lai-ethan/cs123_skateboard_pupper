@@ -193,7 +193,7 @@ SPLIT_RIDE_WEIGHTS = {
 }
 
 # The centred configs as they were before the split tasks came back, plus the
-# balance torque penalty (Task 25).
+# balance torque penalty (Task 25) and the ride push weights (Task 28).
 CENTRED_BALANCE_WEIGHTS = {
   "feet_on_deck": 1.0,
   "feet_on_ground": -1.0,
@@ -221,8 +221,9 @@ CENTRED_RIDE_WEIGHTS = {
   "termination": -100.0,
   "track_board_velocity": 3.0,
   "board_yaw_rate": -0.5,
-  "foot_reach": 0.5,
-  "push_stroke": 0.3,
+  "foot_reach": 1.5,
+  "push_stroke": 1.0,
+  "board_progress": 1.0,
   "joint_vel_l2": -1e-3,
   "joint_speed_limit": -0.02,
   "torque_saturation": -0.5,

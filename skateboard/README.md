@@ -39,7 +39,7 @@ Four tasks are registered:
 
 - `Mjlab-Skate-Balance-Pupper-v3`: hold the centred stance on a board that is free to roll.
   - Both balance tasks penalize any motor above half its torque limit (`torque_saturation`). The first centred balance run, `k4kci0oj`, passed the curve check while it held its legs on the joint stops at full torque, which a real motor cannot keep up.
-- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s). Two rewards teach the push while the board is too slow: `foot_reach` pays more the closer the lowest foot gets to the floor, and `push_stroke` pays once for each planted stroke as the foot lifts off the floor.
+- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s). Two rewards teach the push while the board is too slow: `foot_reach` pays more the closer the lowest foot gets to the floor, and `push_stroke` pays once for each planted stroke as the foot lifts off the floor. `board_progress` pays the share of the commanded speed the board reaches, so a first slow push pays too. Standing on four feet must not out-earn a push on three: the deck pays for three feet at most, one foot may stay off it (two off past 1.5 s ends the episode), and `tilt` and `board_alignment` are looser than in balance (PLAN Task 28).
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
 - `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet.
 

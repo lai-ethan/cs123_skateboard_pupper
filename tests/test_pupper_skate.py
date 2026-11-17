@@ -48,6 +48,9 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
+from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  pupper_skate_split_ride_env_cfg,
+)
 from mjlab.tasks.registry import list_tasks, load_env_cfg
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
@@ -130,6 +133,25 @@ def test_contact_count_counts_touching_geoms():
 def test_contact_lost_waits_for_the_grace_period():
   env = _sensor_env(current_air_time=torch.tensor([[0.0, 0.0], [0.4, 0.0], [0.0, 0.6]]))
   assert mdp.contact_lost(env, "feet", grace_s=0.5).tolist() == [False, False, True]
+
+
+def test_contact_count_clamps_to_max_count():
+  env = _sensor_env(found=torch.tensor([[1.0, 1.0, 1.0, 1.0], [1.0, 0.0, 1.0, 0.0]]))
+  assert mdp.contact_count(env, "feet", max_count=3.0).tolist() == [3.0, 2.0]
+  assert mdp.contact_count(env, "feet").tolist() == [4.0, 2.0]
+
+
+def test_contact_lost_with_min_lost_needs_that_many_geoms_out():
+  # Rows: one foot past the grace, two feet past it, two feet inside it.
+  env = _sensor_env(
+    current_air_time=torch.tensor(
+      [[2.0, 0.0, 0.0, 0.0], [2.0, 1.6, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]]
+    )
+  )
+  lost = mdp.contact_lost(env, "feet", grace_s=1.5, min_lost=2)
+  assert lost.tolist() == [False, True, False]
+  lost = mdp.contact_lost(env, "feet", grace_s=1.5, min_lost=1)
+  assert lost.tolist() == [True, True, False]
 
 
 def test_gravity_tracking_peaks_at_the_stance_tilt():
@@ -268,6 +290,18 @@ def test_push_stroke_pays_once_as_a_foot_leaves_the_floor():
   assert reward.tolist() == pytest.approx([50.0, 20.0, 0.0, 0.0, 0.0])
   _with_command(env, 0.1, [0.0] * 5)
   assert mdp.push_stroke(env, **params).tolist() == [0.0] * 5
+
+
+def test_board_progress_pays_the_share_of_the_commanded_speed():
+  # Rows: rolling backwards, at rest, half the command, the command, above it.
+  env = _with_command(_fake_env(), 0.4, [-0.2, 0.0, 0.2, 0.4, 0.6])
+  progress = mdp.board_progress(env, command_name="twist", command_threshold=0.1)
+  assert progress.tolist() == pytest.approx([0.0, 0.0, 0.5, 1.0, 1.0])
+  # No command, or one at the threshold, pays nothing.
+  for speed in (0.0, 0.1):
+    env = _with_command(_fake_env(), speed, [0.0, 0.2])
+    progress = mdp.board_progress(env, command_name="twist", command_threshold=0.1)
+    assert progress.tolist() == [0.0, 0.0]
 
 
 def _foot_reach_env(foot_z: list[list[float]]) -> Any:
@@ -553,7 +587,7 @@ def test_ride_task_rewards_reaching_for_the_floor():
   cfg = pupper_skate_ride_env_cfg()
   reach = cfg.rewards["foot_reach"]
   assert reach.func is mdp.foot_reach
-  assert reach.weight == 0.5
+  assert reach.weight == 1.5
   params = dict(reach.params)
   foot_cfg = params.pop("foot_cfg")
   assert params == {
@@ -566,13 +600,45 @@ def test_ride_task_rewards_reaching_for_the_floor():
   assert foot_cfg.name == "robot"
   assert tuple(foot_cfg.site_names) == FOOT_SITE_NAMES
   stroke = cfg.rewards["push_stroke"]
-  assert stroke.weight == 0.3
+  assert stroke.weight == 1.0
   assert stroke.params["speed_fraction"] == 1.0
   # Ride trains on the lowered trucks only; balance keeps both.
   assert cfg.events["deck_height"].params["ranges"] == RIDE_DECK_HEIGHT_RANGE
   balance = pupper_skate_balance_env_cfg()
   assert balance.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
   assert "foot_reach" not in balance.rewards
+
+
+def test_ride_task_pays_for_a_push():
+  # Standing on four feet must not out-earn a push on three, so the deck pays
+  # for at most three feet, one foot may stay off, and the body may tilt and
+  # the board shift a little while a leg reaches the floor.
+  cfg = pupper_skate_ride_env_cfg()
+  r = cfg.rewards
+  assert r["feet_on_deck"].weight == 0.5
+  assert r["feet_on_deck"].params["max_count"] == 3.0
+  feet_off = cfg.terminations["feet_off_deck"].params
+  assert (feet_off["min_lost"], feet_off["grace_s"]) == (2, 1.5)
+  assert r["tilt"].params["std"] == 0.35
+  assert r["board_alignment"].params["std_pos"] == 0.08
+  assert (r["foot_reach"].weight, r["push_stroke"].weight) == (1.5, 1.0)
+  progress = r["board_progress"]
+  assert progress.func is mdp.board_progress
+  assert progress.weight == 1.0
+  assert progress.params == {"command_name": "twist", "command_threshold": 0.1}
+  track = r["track_board_velocity"]
+  assert (track.weight, track.params["std"]) == (3.0, 0.15)
+  # The balance task keeps the strict stance.
+  balance = pupper_skate_balance_env_cfg()
+  assert "max_count" not in balance.rewards["feet_on_deck"].params
+  assert balance.rewards["tilt"].params["std"] == 0.2
+  assert balance.rewards["board_alignment"].params["std_pos"] == 0.05
+  feet_off = balance.terminations["feet_off_deck"].params
+  assert feet_off.get("min_lost", 1) == 1 and feet_off["grace_s"] == 0.5
+
+
+def test_split_ride_has_no_board_progress():
+  assert "board_progress" not in pupper_skate_split_ride_env_cfg().rewards
 
 
 @pytest.mark.slow

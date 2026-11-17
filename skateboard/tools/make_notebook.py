@@ -179,9 +179,10 @@ else:
   if RIDE:
     REWARD_WEIGHTS.update({
       "track_board_velocity": 3.0,
+      "board_progress": 1.0,
       "board_yaw_rate": -0.5,
-      "foot_reach": 0.5,
-      "push_stroke": 0.3,
+      "foot_reach": 1.5,
+      "push_stroke": 1.0,
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.02,
     })
@@ -264,20 +265,23 @@ out = [
     "it. Shipped defaults, for reference.\n\n"
     "**Centred** (`Mjlab-Skate-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
-    "| `feet_on_deck` | 1.0 | 0.5 | +1 per foot touching the deck |\n"
+    "| `feet_on_deck` | 1.0 | 0.5 | +1 per foot touching the deck (ride: three"
+    " at most, so a push loses nothing) |\n"
     "| `feet_on_ground` | -1.0 | n/a | a foot on the floor (balance only) |\n"
     "| `knees_on_deck` | -1.0 | -1.0 | knee resting on the deck |\n"
-    "| `tilt` | 1.0 | 1.0 | body level: no roll, no pitch |\n"
+    "| `tilt` | 1.0 | 1.0 | body level: no roll, no pitch (ride: looser) |\n"
     "| `stance_pose` | 1.0 | 0.5 | joints near the keyframe (ride: looser) |\n"
     "| `board_alignment` | 1.0 | 1.0 | board centred under the feet, parallel to"
-    " the robot |\n"
+    " the robot (ride: looser) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
+    "| `board_progress` | n/a | 1.0 | the share of the commanded speed the board"
+    " reaches, so a first slow push pays |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `foot_reach` | n/a | 0.5 | the lowest foot gets close to the floor while"
+    "| `foot_reach` | n/a | 1.5 | the lowest foot gets close to the floor while"
     " the board is too slow |\n"
-    "| `push_stroke` | n/a | 0.3 | a foot pushes against the floor; paid once as"
+    "| `push_stroke` | n/a | 1.0 | a foot pushes against the floor; paid once as"
     " it lifts, in full for a 0.25 s stroke |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
     "| `joint_speed_limit` | n/a | -0.02 | joint speed above 6 rad/s |\n"
@@ -285,7 +289,8 @@ out = [
     " of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
-    "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
+    "| `termination` | -100 | -100 | falling, leaving the deck (ride: two feet"
+    " off), tipping the board |\n"
     "\n**Split** (`Mjlab-SkateSplit-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
     "| `feet_on_deck` | 1.0 | 1.0 | +1 per left foot touching the deck |\n"
@@ -325,8 +330,9 @@ out = [
     "What to watch on W&B (or TensorBoard without a key):\n\n"
     "- `Train/mean_episode_length`: 500 is a full 10 s episode.\n"
     "- `Episode_Reward/feet_on_deck`: centred, 4.0 means all four feet on the"
-    " deck all episode (ride pays half, so 2.0); balance passes at 3.6. Split,\n"
-    "  2.0 means both left feet on the deck all episode; balance passes at 1.8.\n"
+    " deck all episode (ride pays half for three feet at most, so 1.5); balance\n"
+    "  passes at 3.6. Split, 2.0 means both left feet on the deck all episode;\n"
+    "  balance passes at 1.8.\n"
     "- Centred balance: `Episode_Reward/feet_on_ground` should stay near 0.\n"
     "- Balance: `Episode_Reward/torque_saturation` should stay near 0; balance\n"
     "  passes at -0.05 or above. Lower means motors push near their limit.\n"
