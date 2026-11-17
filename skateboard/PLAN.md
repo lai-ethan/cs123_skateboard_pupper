@@ -1,4 +1,4 @@
-b# Pupper Skateboard RL Training Implementation Plan (v4)
+b# Pupper Skateboard RL Training Implementation Plan (v5)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,6 +19,13 @@ b# Pupper Skateboard RL Training Implementation Plan (v4)
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
 - The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v4
+
+- The final review of v4 (2026-11-16) found the ride task could not learn to push. Measured in sim: the leg reaches 19.3 cm below the base, and the base settles 18.8 cm above the floor on a 6.8 cm deck, 22.4 cm on the stock 10.3 cm deck and 23.4 cm at 11.3 cm. So from the centred stance a foot reaches the floor only on the lowered trucks, and only if the body crouches.
+- Nothing rewarded moving a foot toward the floor. Task 22 adds a reward for that, pays for a push only while the board is slower than commanded, and trains ride on the lowered deck only (6.8 to 8.3 cm).
+- Balance is unchanged and still covers 6.8 to 11.3 cm.
+- The gait check now counts floor strokes, and the notebook always pulls the latest code.
 
 ## What changed from v3
 
@@ -909,6 +916,143 @@ the Colab notebook and the docs in line. Nothing here changes training.
   outside this work); commit
   `feat: update skate tools, notebook and docs for the centred stance`.
 
+### Task 22: Make pushing learnable from the centred stance
+
+The final review showed the ride task as built in Task 20 has no path to a
+push: the floor is out of reach on the stock deck, and no reward points a foot
+toward the floor. This task changes the ride task only. Balance is untouched.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`,
+  `src/mjlab/tasks/pupper_skate/mdp/__init__.py` (if it lists names),
+  `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Modify: `skateboard/tools/gait_report.py`, `skateboard/tools/make_notebook.py`
+- Regenerate: `notebooks/CS123_Pupper_Skate.ipynb`
+  (`python3 skateboard/tools/make_notebook.py notebooks/CS123_Pupper_mjlab.ipynb notebooks/CS123_Pupper_Skate.ipynb`)
+- Modify: `skateboard/README.md` (ride reward table or list, deck range for
+  ride), `skateboard/SIM2REAL.md` (one bullet in the 2026-11-16 update)
+- Test: `tests/test_pupper_skate.py`, `tests/test_skate_gait_report.py`,
+  `tests/test_skate_notebook.py`
+
+**Interfaces:**
+- Consumes: `ground_feet_contact` and `deck_feet_contact` (four feet, order
+  FR, FL, BR, BL), `FOOT_SITE_NAMES`, the `twist` command (column 0 is the
+  commanded board speed), `mdp.track_board_velocity` (shows how the board's
+  forward speed is read: `board.data.root_link_lin_vel_b[:, 0]`),
+  `DECK_HEIGHT_RANGE`, the `deck_height` event.
+- Produces: reward functions `foot_reach` and the changed `push_stroke`;
+  constant `RIDE_DECK_HEIGHT_RANGE`; ride reward names `foot_reach` and
+  `push_stroke`.
+
+- [ ] **Step 1: `foot_reach` reward** in `mdp/rewards.py`:
+
+  ```python
+  def foot_reach(
+    env: ManagerBasedRlEnv,
+    std: float,
+    foot_radius: float,
+    command_name: str,
+    command_threshold: float,
+    speed_fraction: float,
+    foot_cfg: SceneEntityCfg,
+    board_cfg: SceneEntityCfg = SceneEntityCfg("board"),
+  ) -> torch.Tensor:
+  ```
+
+  It returns `exp(-clearance / std)` where `clearance` is the height of the
+  lowest foot's underside above the floor, clamped at 0: the smallest world z
+  over the four foot sites, minus `foot_radius`. The floor is the plane z = 0.
+  It is zero unless the commanded speed is above `command_threshold` and the
+  board's forward speed is below `speed_fraction` times the commanded speed.
+  A foot on the deck is at least a deck height up, so this pays almost nothing
+  until a foot goes over the edge and down. Resolve the foot sites the way the
+  existing code in this package reads foot site positions (look for
+  `FOOT_SITE_NAMES` and `site_pos_w`); `foot_cfg` is
+  `SceneEntityCfg("robot", site_names=FOOT_SITE_NAMES)` with whatever
+  `preserve_order` setting that existing code uses.
+- [ ] **Step 2: gate `push_stroke` on board speed.** Add parameters
+  `speed_fraction: float` and `board_cfg: SceneEntityCfg =
+  SceneEntityCfg("board")`. The reward is also zero when the board's forward
+  speed is at or above `speed_fraction` times the commanded speed. Update the
+  docstring. This stops a policy collecting stroke pay by tapping while the
+  board already rolls fast enough.
+- [ ] **Step 3: ride config** in `pupper_skate_ride_env_cfg`:
+  - new module constant next to `DECK_HEIGHT_RANGE`:
+
+    ```python
+    # Ride trains on the lowered trucks only (deck top 6.8 to 8.3 cm). The leg
+    # reaches 19.3 cm below the base; on the stock 10.3 cm deck the floor is
+    # 22 cm below it, so a push from the centred stance is out of reach there.
+    RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, -0.02)
+    ```
+
+    and the ride cfg sets the `deck_height` event's `ranges` to it (read how
+    the balance cfg passes `DECK_HEIGHT_RANGE` and mirror it; the balance cfg
+    keeps `DECK_HEIGHT_RANGE`);
+  - `r["foot_reach"]` with weight 0.5 and params `std=0.03`,
+    `foot_radius=0.02`, `command_name="twist"`, `command_threshold=0.1`,
+    `speed_fraction=0.8`, `foot_cfg` as in Step 1;
+  - `push_stroke` gains `speed_fraction=1.0`; its weight stays 0.3;
+  - a comment above the two terms saying what each is for, in plain words.
+- [ ] **Step 4: tests** in `tests/test_pupper_skate.py` (plain functions,
+  follow the style of the existing `push_stroke` test, which builds a small
+  fake env):
+  - `foot_reach`: lowest foot at z = `foot_radius` pays 1.0; at
+    `foot_radius + 0.03` pays `exp(-1)`; a foot below the radius does not pay
+    more than 1.0; zero when the command is at the threshold; zero when the
+    board speed is at or above 0.8 of the command; only the lowest foot
+    counts;
+  - `push_stroke`: the existing rows still pass with a slow board; a row with
+    the board at the commanded speed pays zero;
+  - ride cfg: `foot_reach` weight 0.5 and its params; `push_stroke`
+    `speed_fraction` 1.0; the ride `deck_height` range is
+    `RIDE_DECK_HEIGHT_RANGE` and the balance one is still
+    `DECK_HEIGHT_RANGE`;
+  - an env-level check on the ride task with one env, clean spawn, deck offset
+    -0.035 and zero actions for 1 s: `foot_reach` is below 0.2 (all feet on
+    the deck) and the env does not reset.
+- [ ] **Step 5: `gait_report.py`.**
+  - `min_foot_duty`: the smallest share of time any foot is in contact with
+    the deck or the floor (a pushing foot is on the floor for part of the
+    cycle). Limit stays 0.4.
+  - `max_stride_rate`: the most often any foot lands on the floor, per second
+    (touchdowns from `ground_feet_contact`). Limit stays 2.0.
+  - `gait_metrics` therefore takes both contact arrays (`[T, 4]` each). Update
+    `main`, the docstrings and the tests; add a test where a foot taps the
+    floor 4 times a second and fails `max_stride_rate`, and one where a foot
+    alternates deck and floor and passes `min_foot_duty`.
+- [ ] **Step 6: notebook.** In `make_notebook.py`:
+  - the setup cell must update an existing clone instead of skipping it.
+    After the generator's existing `REPO_URL` replacement, replace the two
+    clone lines so the cell reads:
+
+    ```python
+    if not os.path.exists("/content/pupper-mjlab"):
+      !git clone --branch {BRANCH} --depth 1 {REPO_URL} /content/pupper-mjlab
+    else:
+      !git -C /content/pupper-mjlab fetch --depth 1 origin {BRANCH}
+      !git -C /content/pupper-mjlab reset --hard FETCH_HEAD
+    ```
+
+    with an assert that the replacement happened;
+  - add `foot_reach` (0.5) to the ride reward table and the ride part of the
+    `REWARD_WEIGHTS` cell, and say in the "what to watch" text that
+    `Episode_Reward/push_stroke` and `Episode_Reward/foot_reach` should rise
+    above zero within about 300 iterations, and that a ride run where both
+    stay at zero should be stopped;
+  - regenerate the notebook; `tests/test_skate_notebook.py` must still pass.
+- [ ] **Step 7: docs.** `skateboard/README.md`: ride trains on a 6.8 to 8.3 cm
+  deck (lowered trucks), balance on 6.8 to 11.3 cm; list `foot_reach`.
+  `skateboard/SIM2REAL.md`: in the "Update 2026-11-16" section add that the
+  leg reaches 19.3 cm below the base, the base sits 18.8 cm above the floor on
+  a 6.8 cm deck and 22.4 cm on the stock deck, so riding from the centred
+  stance needs the lowered trucks; update its accounting section. Plain
+  language, short sentences, no em dashes.
+- [ ] **Step 8:** run
+  `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`,
+  then ruff format, ruff check and ty on the touched files; commit
+  `feat: reward reaching for the floor in the ride task`.
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
@@ -918,5 +1062,5 @@ the Colab notebook and the docs in line. Nothing here changes training.
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** centred stance with feet 6.0 to 6.6 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (deck height is randomized 6.8 to 11.3 cm to cover both); W&B project name `mjlab` as in the course notebook.
+- **Assumed:** centred stance with feet 6.0 to 6.6 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (balance randomizes deck height 6.8 to 11.3 cm to cover both; ride trains on 6.8 to 8.3 cm only, v5); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.
