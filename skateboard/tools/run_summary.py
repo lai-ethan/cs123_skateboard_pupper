@@ -18,6 +18,13 @@ from pathlib import Path
 
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
+_RIDE_CRITERIA = {
+  "Train/mean_episode_length": 450.0,
+  "Episode_Reward/track_board_velocity": 2.0,
+  # Penalties, logged as weight x mean cost: near zero means rarely paid.
+  "Episode_Reward/joint_speed_limit": -0.1,
+  "Episode_Reward/torque_saturation": -0.2,
+}
 # Minimum value of each tag, averaged over the run's last points.
 PASS_CRITERIA: dict[str, dict[str, float]] = {
   "Mjlab-Skate-Balance-Pupper-v3": {
@@ -25,13 +32,13 @@ PASS_CRITERIA: dict[str, dict[str, float]] = {
     # +1 per foot on the deck: 3.6 is four feet down 90% of the time.
     "Episode_Reward/feet_on_deck": 3.6,
   },
-  "Mjlab-Skate-Ride-Pupper-v3": {
+  "Mjlab-Skate-Ride-Pupper-v3": dict(_RIDE_CRITERIA),
+  "Mjlab-SkateSplit-Balance-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
-    "Episode_Reward/track_board_velocity": 2.0,
-    # Penalties, logged as weight x mean cost: near zero means rarely paid.
-    "Episode_Reward/joint_speed_limit": -0.1,
-    "Episode_Reward/torque_saturation": -0.2,
+    # Two feet on the deck: 1.8 is both down 90% of the time.
+    "Episode_Reward/feet_on_deck": 1.8,
   },
+  "Mjlab-SkateSplit-Ride-Pupper-v3": dict(_RIDE_CRITERIA),
 }
 SHOWN_PREFIXES = ("Train/", "Episode_Reward/", "Episode_Termination/")
 

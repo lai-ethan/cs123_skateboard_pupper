@@ -108,3 +108,26 @@ def test_lift_feet_cover_all_four_feet_in_sensor_order():
 def test_unknown_condition_is_an_error():
   with pytest.raises(SystemExit):
     sa.main(["--conditions", "baseline,not_a_condition"])
+
+
+def test_split_lift_rows_are_the_right_feet():
+  split = sa.lift_feet("Mjlab-SkateSplit-Balance-Pupper-v3")
+  assert split == {
+    "lift_fr": "leg_front_r_3_foot_site",
+    "lift_rr": "leg_back_r_3_foot_site",
+  }
+  assert sa.lift_feet("Mjlab-Skate-Balance-Pupper-v3") == sa.LIFT_FEET
+
+
+def test_task_defaults_to_centred_balance():
+  assert sa.DEFAULT_TASK == "Mjlab-Skate-Balance-Pupper-v3"
+  with pytest.raises(SystemExit):
+    sa.main(["--task", "Mjlab-Skate-Balance-Pupper-v3", "--conditions", "nope"])
+
+
+def test_split_rule_is_left_feet_on_deck_90_percent():
+  # In the split tasks the deck sensor holds only the two left feet, so the same
+  # min_deck_contact limit means both left feet on the deck 90% of the time.
+  good = {"resets": 0, "min_deck_contact": 0.92, "max_torque_use": 0.2, "margin": 0.06}
+  assert sa.condition_verdict(good)
+  assert not sa.condition_verdict({**good, "min_deck_contact": 0.85})

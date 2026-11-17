@@ -69,6 +69,8 @@ task from scratch (using the cartpole task as the example).
 | `Mjlab-Tracking-Flat-Pupper-v3` | Tricks: tracks one reference motion (root pose + joints, BeyondMimic-style) with no velocity command. Design motions and replay them in sim first; see `src/mjlab/tasks/tracking/config/pupper/README.md`. |
 | `Mjlab-Skate-Balance-Pupper-v3` | Final project: hold a centred stance on a mini cruiser skateboard (all four feet on the deck) while the board is free to roll. |
 | `Mjlab-Skate-Ride-Pupper-v3` | Final project: push with one foot off either side of the deck so the board rolls at a commanded forward speed. |
+| `Mjlab-SkateSplit-Balance-Pupper-v3` | Final project, split stance: hold the left feet on the deck and the right feet on the floor while the board is free to roll. |
+| `Mjlab-SkateSplit-Ride-Pupper-v3` | Final project, split stance: push with the right legs so the board rolls at a commanded forward speed. |
 
 **The lift gait is yours**: only the trot reference ships
 (`src/mjlab/tasks/pupper_gait/mdp/gait_reference.py`). StableGait also needs a

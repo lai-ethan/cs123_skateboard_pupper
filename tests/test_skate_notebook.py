@@ -9,9 +9,19 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
+from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  pupper_skate_split_balance_env_cfg,
+  pupper_skate_split_ride_env_cfg,
+)
 
 REPO = Path(__file__).parent.parent
 NOTEBOOK = REPO / "notebooks" / "CS123_Pupper_Skate.ipynb"
+TASKS = (
+  "Mjlab-Skate-Balance-Pupper-v3",
+  "Mjlab-Skate-Ride-Pupper-v3",
+  "Mjlab-SkateSplit-Balance-Pupper-v3",
+  "Mjlab-SkateSplit-Ride-Pupper-v3",
+)
 
 
 def _reward_weights_cell() -> str:
@@ -30,6 +40,8 @@ def _reward_weights_cell() -> str:
   [
     ("Mjlab-Skate-Balance-Pupper-v3", pupper_skate_balance_env_cfg),
     ("Mjlab-Skate-Ride-Pupper-v3", pupper_skate_ride_env_cfg),
+    ("Mjlab-SkateSplit-Balance-Pupper-v3", pupper_skate_split_balance_env_cfg),
+    ("Mjlab-SkateSplit-Ride-Pupper-v3", pupper_skate_split_ride_env_cfg),
   ],
 )
 def test_reward_weights_match_the_env(task, make_cfg):
@@ -55,3 +67,24 @@ def test_setup_cell_updates_an_existing_clone():
   assert len(setup) == 1
   assert "!git -C /content/pupper-mjlab fetch --depth 1 origin {BRANCH}" in setup[0]
   assert "!git -C /content/pupper-mjlab reset --hard FETCH_HEAD" in setup[0]
+
+
+def _code_cells() -> list[str]:
+  nb = json.loads(NOTEBOOK.read_text())
+  return ["".join(c["source"]) for c in nb["cells"] if c["cell_type"] == "code"]
+
+
+def test_settings_cell_lists_all_four_tasks():
+  settings = [c for c in _code_cells() if "NUM_ENVS = " in c]
+  assert len(settings) == 1
+  for task in TASKS:
+    assert f"#   {task}" in settings[0], task
+
+
+@pytest.mark.parametrize("task", TASKS)
+def test_gait_cell_runs_for_ride_tasks_only(task):
+  gait = [c for c in _code_cells() if "gait_report.py" in c]
+  assert len(gait) == 1
+  scope: dict = {"TASK": task}
+  exec(_reward_weights_cell(), scope)
+  assert scope["RIDE"] == ("-Ride-" in task)

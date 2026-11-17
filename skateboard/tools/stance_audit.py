@@ -1,24 +1,29 @@
-"""Audit how much balance margin the centred stance has when the sim is wrong.
+"""Audit how much balance margin a skate stance has when the sim is wrong.
 
 Runs the balance policy under off-nominal conditions (deck height, truck
 stiffness, deck grip, motor gain and torque, board placement, shoves), one
 change per condition, and prints one PASS/FAIL row per condition. A row passes
-when all four feet stay on the deck at least 90% of the time, the motors stay
+when the deck feet stay on the deck at least 90% of the time, the motors stay
 under 60% of their torque, the centre of mass stays 3 cm inside the feet and
-nothing resets. Each row also shows the margin left on three feet with each
-foot lifted in turn (lift FR, FL, BR, BL). It trains nothing and changes no
-task.
+nothing resets. Each row also shows the margin left on three feet with one
+foot lifted. It trains nothing and changes no task.
+
+`--task` picks the stance (default: centred balance):
+* centred (`Mjlab-Skate-*`): all four feet are deck feet; the lift rows lift
+  FR, FL, BR and BL in turn.
+* split (`Mjlab-SkateSplit-*`): the two left feet are the deck feet; the lift
+  rows lift the floor-side feet, FR and RR.
 
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \\
-    [skateboard/policies/balance_2ace1uqa_policy.json] [--conditions a,b,c]
+    [skateboard/policies/balance_2ace1uqa_policy.json] [--conditions a,b,c] \\
+    [--task Mjlab-SkateSplit-Balance-Pupper-v3]
 
 Each condition is one env and 500 steps, measured after the first 100; a full
 run takes about a minute per condition on a Mac. The last line is
 `STANCE: PASS` or `STANCE: FAIL`. The exit code is always 0. A pass here says
 nothing about the real board's size, its grip or the legs' backlash. The saved
-policies were trained on the old split stance, so expect them to fail here
-until a centred-stance policy is trained.
+policies were trained on the split stance, so audit them with a split task id.
 """
 
 from __future__ import annotations
@@ -32,7 +37,7 @@ from typing import Any, Sequence
 import numpy as np
 from scipy.spatial import ConvexHull
 
-TASK = "Mjlab-Skate-Balance-Pupper-v3"
+DEFAULT_TASK = "Mjlab-Skate-Balance-Pupper-v3"
 DEFAULT_POLICY = Path("skateboard/policies/balance_2ace1uqa_policy.json")
 STEPS, SKIP, KICK_STEP = 500, 100, 200
 WHEEL_FRICTION = 0.85
@@ -43,6 +48,17 @@ LIFT_FEET = {
   "lift_br": "leg_back_r_3_foot_site",
   "lift_bl": "leg_back_l_3_foot_site",
 }
+# Split stance: lift the floor-side (right) feet, front and rear.
+SPLIT_LIFT_FEET = {
+  "lift_fr": "leg_front_r_3_foot_site",
+  "lift_rr": "leg_back_r_3_foot_site",
+}
+
+
+def lift_feet(task: str) -> dict[str, str]:
+  """The lift rows for the task's stance ("SkateSplit" in the id means split)."""
+  return SPLIT_LIFT_FEET if "SkateSplit" in task else LIFT_FEET
+
 
 # Override key -> default. Lengths in m, angles in rad, speeds in m/s.
 OVERRIDE_DEFAULTS: dict[str, float] = {
@@ -224,12 +240,12 @@ def _configure(env_cfg: Any, o: dict[str, float]) -> None:
   robot.articulation = dataclasses.replace(articulation, actuators=(actuator,))
 
 
-def _fmt(row: dict[str, float]) -> str:
+def _fmt(row: dict[str, float], lift_keys: Sequence[str]) -> str:
   return (
     f"resets {row['resets']:d}  deck {row['min_deck_contact']:.2f}  "
     f"torque {row['max_torque_use']:.2f}  roll {row['roll_deg']:+.1f} deg  "
     f"travel {row['board_travel']:+.2f} m  margin {row['margin']:+.3f} m  "
-    + "  ".join(f"{key} {row[key]:+.3f}" for key in LIFT_FEET)
+    + "  ".join(f"{key} {row[key]:+.3f}" for key in lift_keys)
   )
 
 
@@ -243,6 +259,7 @@ def main(argv: list[str] | None = None) -> int:
     default=",".join(CONDITIONS),
     help=f"comma-separated, from: {', '.join(CONDITIONS)}",
   )
+  parser.add_argument("--task", default=DEFAULT_TASK, help="balance task id")
   args = parser.parse_args(argv)
   names = [name for name in args.conditions.split(",") if name]
   unknown = [name for name in names if name not in CONDITIONS]
@@ -253,13 +270,14 @@ def main(argv: list[str] | None = None) -> int:
   import torch
   from policy_loader import load_policy
 
-  print(f"task: {TASK}  policy: {args.policy}")
+  lifts = lift_feet(args.task)
+  print(f"task: {args.task}  policy: {args.policy}")
   print(f"{STEPS} steps per condition, measured after {SKIP}; limits {STANCE_LIMITS}")
   all_passed = True
   for name in names:
     o = {**OVERRIDE_DEFAULTS, **CONDITIONS[name]}
     raw, env, policy = load_policy(
-      TASK, args.policy, None, configure=lambda cfg, o=o: _configure(cfg, o)
+      args.task, args.policy, None, configure=lambda cfg, o=o: _configure(cfg, o)
     )
     robot, board = raw.scene["robot"], raw.scene["board"]
     deck_feet = raw.scene["deck_feet_contact"]
@@ -310,11 +328,13 @@ def main(argv: list[str] | None = None) -> int:
       "roll_deg": float(np.mean(roll)),
       "board_travel": travel,
       "margin": support_margin(feet_xy, com_xy),
-      **{key: lifted[site] for key, site in LIFT_FEET.items()},
+      **{key: lifted[site] for key, site in lifts.items()},
     }
     passed = condition_verdict(row)
     all_passed &= passed
-    print(f"{'PASS' if passed else 'FAIL'}  {name:18s} {_fmt(row)}", flush=True)
+    print(
+      f"{'PASS' if passed else 'FAIL'}  {name:18s} {_fmt(row, list(lifts))}", flush=True
+    )
   print("STANCE:", "PASS" if all_passed else "FAIL")
   return 0
 

@@ -130,6 +130,68 @@ else:
 print("logger:", LOGGER)
 """
 
+REWARD_CELL = """\
+RIDE = "-Ride-" in TASK
+SPLIT = "SkateSplit" in TASK
+
+# These are the shipped defaults. Change a number, then rerun from here.
+if SPLIT:
+  REWARD_WEIGHTS = {
+    "feet_on_deck": 1.0,
+    "feet_on_ground": 0.1 if RIDE else 0.5,
+    "deck_feet_on_ground": -2.0,
+    "ground_feet_on_deck": -2.0,
+    "knees_on_deck": -1.0,
+    "tilt": 1.0,
+    "base_height": 1.0,
+    "stance_pose": 1.0,
+    "board_alignment": 1.0,
+    "deck_flat": -5.0,
+    "action_rate_l2": -0.01,
+    "joint_torques_l2": -0.0002,
+    "termination": -100.0,
+  }
+  if RIDE:
+    REWARD_WEIGHTS.update({
+      "track_board_velocity": 3.0,
+      "board_yaw_rate": -0.5,
+      "push_stride": 0.3,
+      "push_leg_pose": 0.3,
+      "joint_vel_l2": -0.001,
+      "joint_speed_limit": -0.02,
+      "torque_saturation": -0.5,
+    })
+  else:
+    REWARD_WEIGHTS["board_still"] = -2.0
+else:
+  REWARD_WEIGHTS = {
+    "feet_on_deck": 0.5 if RIDE else 1.0,
+    "knees_on_deck": -1.0,
+    "tilt": 1.0,
+    "stance_pose": 0.5 if RIDE else 1.0,
+    "board_alignment": 1.0,
+    "deck_flat": -5.0,
+    "action_rate_l2": -0.01,
+    "joint_torques_l2": -0.0002,
+    "termination": -100.0,
+  }
+  if RIDE:
+    REWARD_WEIGHTS.update({
+      "track_board_velocity": 3.0,
+      "board_yaw_rate": -0.5,
+      "foot_reach": 0.5,
+      "push_stroke": 0.3,
+      "joint_vel_l2": -0.001,
+      "joint_speed_limit": -0.02,
+      "torque_saturation": -0.5,
+    })
+  else:
+    REWARD_WEIGHTS.update({
+      "feet_on_ground": -1.0,
+      "board_still": -2.0,
+    })
+"""
+
 GAIT_CELL = """\
 from pathlib import Path
 
@@ -143,15 +205,18 @@ if RIDE:
   print("Gait check on:", ckpt)
   !python skateboard/tools/gait_report.py {TASK} {ckpt} --speed 0.4
 else:
-  print("Gait check is for the ride task only.")
+  print("Gait check is for the ride tasks only.")
 """
 
 out = [
   md(
     "# Pupper on a skateboard 🛹\n\n"
-    "Trains the skateboard tasks. Pupper stands centred on the deck with all four\n"
-    "feet on it. Built from `CS123_Pupper_mjlab.ipynb`; the tasks live in\n"
-    "`src/mjlab/tasks/pupper_skate/`.\n\n"
+    "Trains the skateboard tasks. There are two stances:\n\n"
+    "- **Centred** (`Mjlab-Skate-*`): all four feet on the deck.\n"
+    "- **Split** (`Mjlab-SkateSplit-*`): left feet on the deck, right feet on\n"
+    "  the floor.\n\n"
+    "Each stance has a balance task and a ride task. Built from\n"
+    "`CS123_Pupper_mjlab.ipynb`; the tasks live in `src/mjlab/tasks/pupper_skate/`.\n\n"
     "*Runtime → Change runtime type → **G4 GPU**.* Run all works unattended; or\n"
     "run cells one at a time. Section 7 prints the verdict: the last line is\n"
     "`RESULT: PASS` or `RESULT: FAIL`.\n"
@@ -175,9 +240,20 @@ out = [
     "| `Mjlab-Skate-Balance-Pupper-v3` | Hold the centred stance on a board that"
     " is free to roll. Train this first. |\n"
     "| `Mjlab-Skate-Ride-Pupper-v3` | Push with one foot off either side so the"
-    " board rolls at the commanded speed (0 to 0.5 m/s). |\n"
+    " board rolls at the commanded speed (0 to 0.5 m/s). Needs the lowered"
+    " trucks on the real board. |\n"
+    "| `Mjlab-SkateSplit-Balance-Pupper-v3` | Hold the split stance (left feet"
+    " on the deck, right feet on the floor) on a board that is free to roll. |\n"
+    "| `Mjlab-SkateSplit-Ride-Pupper-v3` | Push with the right legs so the board"
+    " rolls at the commanded speed (0 to 0.5 m/s). |\n\n"
+    "Train a stance's balance task before its ride task.\n"
   ),
   code(
+    "# Pick one:\n"
+    "#   Mjlab-Skate-Balance-Pupper-v3       centred: hold the stance on a free board\n"
+    "#   Mjlab-Skate-Ride-Pupper-v3          centred: push off either side to ride\n"
+    "#   Mjlab-SkateSplit-Balance-Pupper-v3  split: hold the stance, right feet down\n"
+    "#   Mjlab-SkateSplit-Ride-Pupper-v3     split: push with the right legs to ride\n"
     'TASK = "Mjlab-Skate-Balance-Pupper-v3"\n'
     "NUM_ENVS = 4096  # halve it if you hit GPU OOM\n"
     "ITERATIONS = 1500\n"
@@ -188,7 +264,8 @@ out = [
     "## 4. Reward weights ✏️\n\n"
     "Unlike the course tasks, the skate tasks ship with working weights. The\n"
     "cell below lists every one for the chosen task; change a number to tune\n"
-    "it. Shipped defaults, for reference:\n\n"
+    "it. Shipped defaults, for reference.\n\n"
+    "**Centred** (`Mjlab-Skate-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
     "| `feet_on_deck` | 1.0 | 0.5 | +1 per foot touching the deck |\n"
     "| `feet_on_ground` | -1.0 | n/a | a foot on the floor (balance only) |\n"
@@ -211,37 +288,34 @@ out = [
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
+    "\n**Split** (`Mjlab-SkateSplit-*`):\n\n"
+    "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
+    "| `feet_on_deck` | 1.0 | 1.0 | +1 per left foot touching the deck |\n"
+    "| `feet_on_ground` | 0.5 | 0.1 | +1 per right foot touching the floor |\n"
+    "| `deck_feet_on_ground` | -2.0 | -2.0 | left foot on the floor |\n"
+    "| `ground_feet_on_deck` | -2.0 | -2.0 | right foot on the deck |\n"
+    "| `knees_on_deck` | -1.0 | -1.0 | knee resting on the deck |\n"
+    "| `tilt` | 1.0 | 1.0 | hold the stance's 0.083 rad roll, no pitch |\n"
+    "| `base_height` | 1.0 | 1.0 | hold 0.154 m |\n"
+    "| `stance_pose` | 1.0 | 1.0 | joints near the keyframe (ride: left legs"
+    " only) |\n"
+    "| `board_alignment` | 1.0 | 1.0 | board under the left feet, parallel to"
+    " the robot |\n"
+    "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
+    "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
+    "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
+    "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
+    "| `push_stride` | n/a | 0.3 | right feet take planted strides: 0.4 s on the"
+    " floor, then a 0.2 to 0.5 s swing |\n"
+    "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
+    "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
+    "| `joint_speed_limit` | n/a | -0.02 | joint speed above 6 rad/s |\n"
+    "| `torque_saturation` | n/a | -0.5 | motors above 80% of their 3 Nm limit |\n"
+    "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
+    "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
+    "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
   ),
-  code(
-    'RIDE = TASK == "Mjlab-Skate-Ride-Pupper-v3"\n\n'
-    "# These are the shipped defaults. Change a number, then rerun from here.\n"
-    "REWARD_WEIGHTS = {\n"
-    '  "feet_on_deck": 0.5 if RIDE else 1.0,\n'
-    '  "knees_on_deck": -1.0,\n'
-    '  "tilt": 1.0,\n'
-    '  "stance_pose": 0.5 if RIDE else 1.0,\n'
-    '  "board_alignment": 1.0,\n'
-    '  "deck_flat": -5.0,\n'
-    '  "action_rate_l2": -0.01,\n'
-    '  "joint_torques_l2": -0.0002,\n'
-    '  "termination": -100.0,\n'
-    "}\n"
-    "if RIDE:\n"
-    "  REWARD_WEIGHTS.update({\n"
-    '    "track_board_velocity": 3.0,\n'
-    '    "board_yaw_rate": -0.5,\n'
-    '    "foot_reach": 0.5,\n'
-    '    "push_stroke": 0.3,\n'
-    '    "joint_vel_l2": -0.001,\n'
-    '    "joint_speed_limit": -0.02,\n'
-    '    "torque_saturation": -0.5,\n'
-    "  })\n"
-    "else:\n"
-    "  REWARD_WEIGHTS.update({\n"
-    '    "feet_on_ground": -1.0,\n'
-    '    "board_still": -2.0,\n'
-    "  })\n"
-  ),
+  code(REWARD_CELL),
   md(dr_md),
   cells[12],
   md(
@@ -251,15 +325,18 @@ out = [
     "The stop button is safe.\n\n"
     "What to watch on W&B (or TensorBoard without a key):\n\n"
     "- `Train/mean_episode_length`: 500 is a full 10 s episode.\n"
-    "- `Episode_Reward/feet_on_deck`: 4.0 means all four feet on the deck all"
-    " episode (ride pays half, so 2.0). Balance passes at 3.6.\n"
-    "- Balance: `Episode_Reward/feet_on_ground` should stay near 0.\n"
+    "- `Episode_Reward/feet_on_deck`: centred, 4.0 means all four feet on the"
+    " deck all episode (ride pays half, so 2.0); balance passes at 3.6. Split,\n"
+    "  2.0 means both left feet on the deck all episode; balance passes at 1.8.\n"
+    "- Centred balance: `Episode_Reward/feet_on_ground` should stay near 0.\n"
     "- `Episode_Termination/*`: which termination ends episodes.\n"
-    "- Ride only: `Episode_Reward/track_board_velocity` (3.0 is perfect),\n"
-    "  `Episode_Reward/foot_reach` (above 0 means a foot reaches for the floor)\n"
-    "  and `Episode_Reward/push_stroke` (above 0 means a foot is pushing). Both\n"
-    "  should rise above zero within about 300 iterations. If both stay at zero,\n"
-    "  stop the ride run: it is not learning to push.\n"
+    "- Ride: `Episode_Reward/track_board_velocity` (3.0 is perfect).\n"
+    "- Centred ride: `Episode_Reward/foot_reach` (above 0 means a foot reaches\n"
+    "  for the floor) and `Episode_Reward/push_stroke` (above 0 means a foot is\n"
+    "  pushing). Both should rise above zero within about 300 iterations. If\n"
+    "  both stay at zero, stop the ride run: it is not learning to push.\n"
+    "- Split ride: `Episode_Reward/push_stride` (above 0 means the right feet\n"
+    "  take planted strides).\n"
   ),
   md(watch_live_md),
   code(only_if("WATCH_LIVE", watch_live)),
@@ -274,13 +351,14 @@ out = [
   code("!python skateboard/tools/run_summary.py {TASK}\n"),
   md(
     "### Gait check (ride)\n\n"
-    "Curves can pass while the gait is one the robot cannot do. This rolls out the\n"
-    "newest checkpoint at 0.4 m/s and checks joint speed, torque, that each foot\n"
-    "touches the deck or floor most of the time, how often a foot lands on the\n"
-    "floor and that the board rolls at half the command or faster. It also\n"
-    "prints each foot's time on the floor, so you can see which foot pushes. The\n"
-    "last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too before\n"
-    "trusting a pass.\n"
+    "Curves can pass while the gait is one the robot cannot do. For either ride\n"
+    "task this rolls out the newest checkpoint at 0.4 m/s and checks joint speed,\n"
+    "torque, that each foot touches the deck or floor most of the time, how often\n"
+    "a foot lands on the floor and that the board rolls at half the command or\n"
+    "faster. In the split stance only the two right (pushing) feet are counted.\n"
+    "It also prints each foot's time on the floor, so you can see which foot\n"
+    "pushes. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too\n"
+    "before trusting a pass.\n"
   ),
   code(GAIT_CELL),
   md(viewer_md),

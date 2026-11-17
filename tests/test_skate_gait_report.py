@@ -186,3 +186,51 @@ def test_a_foot_on_deck_then_floor_counts_as_in_contact():
   assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
   rows = {row[0]: row for row in gr.gait_verdict(metrics)}
   assert rows["min_foot_duty"][4] and rows["max_stride_rate"][4]
+
+
+def test_stance_comes_from_the_task_id():
+  assert not gr.is_split("Mjlab-Skate-Ride-Pupper-v3")
+  assert gr.is_split("Mjlab-SkateSplit-Ride-Pupper-v3")
+  assert gr.floor_feet("Mjlab-Skate-Ride-Pupper-v3") == ("FR", "FL", "BR", "BL")
+  # Split: the ground sensor holds the two right (pushing) feet.
+  assert gr.floor_feet("Mjlab-SkateSplit-Ride-Pupper-v3") == ("FR", "BR")
+
+
+def _split_metrics(ground: np.ndarray) -> dict[str, float]:
+  # Split stance: no deck contacts, only the two right feet on the floor.
+  return gr.gait_metrics(
+    np.full((T, 12), 2.0),
+    np.full((T, 12), 1.0),
+    None,
+    ground,
+    DT,
+    EFFORT,
+    board_speed=np.full(T, 0.38),
+    command_speed=0.4,
+  )
+
+
+def test_split_calm_push_passes():
+  on = (np.arange(T) % 50 < 40).astype(float)
+  metrics = _split_metrics(np.stack([on, on], axis=1))
+  assert metrics["min_foot_duty"] == pytest.approx(0.8)
+  assert metrics["max_stride_rate"] == pytest.approx(1.0, abs=0.11)
+  assert all(row[4] for row in gr.gait_verdict(metrics))
+
+
+def test_split_pushing_foot_in_the_air_fails_duty_and_rate():
+  # The front right foot taps the floor about 3 times a second and is in the air
+  # in between: with no deck to count, its duty is tiny.
+  ground = np.ones((T, 2))
+  ground[:, 0] = (np.arange(T) % 16 == 0).astype(float)
+  metrics = _split_metrics(ground)
+  rows = {row[0]: row for row in gr.gait_verdict(metrics)}
+  assert not rows["min_foot_duty"][4]
+  assert not rows["max_stride_rate"][4]
+
+
+def test_floor_share_for_split_names_the_right_feet():
+  ground = np.zeros((T, 2))
+  ground[:, 1] = 1.0
+  share = gr.floor_share(ground, ("FR", "BR"))
+  assert share == {"FR": 0.0, "BR": 1.0}

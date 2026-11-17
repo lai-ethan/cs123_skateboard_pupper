@@ -12,6 +12,8 @@ from torch.utils.tensorboard import SummaryWriter
 REPO = Path(__file__).parent.parent
 BALANCE = "Mjlab-Skate-Balance-Pupper-v3"
 RIDE = "Mjlab-Skate-Ride-Pupper-v3"
+SPLIT_BALANCE = "Mjlab-SkateSplit-Balance-Pupper-v3"
+SPLIT_RIDE = "Mjlab-SkateSplit-Ride-Pupper-v3"
 
 
 def _load_run_summary():
@@ -69,6 +71,28 @@ def test_verdict_passes_and_fails():
   missing = rs.verdict(BALANCE, {length: 480.0})
   assert missing[1][0] == deck and not missing[1][3]
   assert math.isnan(missing[1][1])
+
+
+def test_split_balance_needs_two_feet_on_deck():
+  length, deck = "Train/mean_episode_length", "Episode_Reward/feet_on_deck"
+  passing = rs.verdict(SPLIT_BALANCE, {length: 480.0, deck: 1.9})
+  assert [row[0] for row in passing] == [length, deck]
+  assert all(row[3] for row in passing)
+
+  failing = rs.verdict(SPLIT_BALANCE, {length: 480.0, deck: 1.0})
+  assert failing[1][1:3] == (1.0, 1.8) and not failing[1][3]
+
+
+def test_split_ride_criteria_match_centred_ride():
+  assert rs.PASS_CRITERIA[SPLIT_RIDE] == rs.PASS_CRITERIA[RIDE]
+
+
+def test_cli_accepts_all_four_tasks(tmp_path, capsys):
+  run_dir = tmp_path / "exp" / "run1"
+  run_dir.mkdir(parents=True)
+  for task in (BALANCE, RIDE, SPLIT_BALANCE, SPLIT_RIDE):
+    assert rs.main([task, "--run-dir", str(run_dir)]) == 0
+    assert capsys.readouterr().out.rstrip().endswith("RESULT: UNKNOWN")
 
 
 def test_cli_prints_result_line(tmp_path, capsys):
