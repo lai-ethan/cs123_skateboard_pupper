@@ -15,7 +15,7 @@ from .rewards import (  # noqa: F401
   deck_roll_l2,
   gravity_tracking,
   joint_speed_over_limit,
-  push_stride,
+  push_stroke,
   stance_pose,
   torque_saturation,
   track_board_velocity,

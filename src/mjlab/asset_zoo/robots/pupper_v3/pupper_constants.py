@@ -66,20 +66,23 @@ SPIDER_POSE: tuple[float, ...] = (
 )  # fmt: skip
 SPIDER_HEIGHT: float = 0.042  # base_link height in the spider stance, feet down
 
-# The skateboard split stance: left feet on the deck of the mini cruiser (0.10 m
-# above the floor), right feet on the floor. The legs cannot make up the whole
-# deck height, so the stance is rolled toward the floor side. Left feet sit
-# 0.14 m out and 0.070 m below the base; right feet 0.145 m below it.
+# Centred stance: all four feet on the deck and 0.115 m below the base. The
+# front feet sit 0.066 m either side of the centre line and 0.02 m behind
+# their default spot, the back feet 0.060 m. The deck is 0.161 m wide, so
+# the feet have 1.5 to 2 cm to the edge. Any wider and spawn noise drops a
+# foot off the edge.
 SKATE_POSE: tuple[float, ...] = (
-  0.3, 0.0, -0.594,
-  0.282, -0.479, -0.33,
-  0.3, 0.0, -0.594,
-  0.22, -0.579, -0.229,
+  -0.138, -0.299, -0.107,
+  0.138, 0.299, 0.107,
+  -0.002, -0.264, -0.045,
+  0.002, 0.264, 0.045,
 )  # fmt: skip
-SKATE_HEIGHT: float = 0.156  # base_link height once settled in the split stance
-SKATE_ROLL: float = 0.09  # settled roll [rad], floor (right) side lower
+# base_link height with the feet just touching a 0.103 m deck. The legs
+# give about 2 cm once loaded.
+SKATE_HEIGHT: float = 0.238
+SKATE_ROLL: float = 0.0  # the centred stance is level
 # Board centre in the robot's heading frame (x forward, y left).
-SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.14)
+SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.0)
 
 FOOT_SITE_NAMES: tuple[str, ...] = (
   "leg_front_r_3_foot_site",
@@ -164,7 +167,7 @@ SPIDER_KEYFRAME = EntityCfg.InitialStateCfg(
   joint_vel={".*": 0.0},
 )
 
-# Spawns already rolled, so the robot settles into the stance instead of tipping.
+# Spawns at the stance roll with the feet 1 cm above the deck, and drops onto it.
 SKATE_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, SKATE_HEIGHT + 0.01),
   rot=(math.cos(SKATE_ROLL / 2), math.sin(SKATE_ROLL / 2), 0.0, 0.0),

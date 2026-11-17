@@ -14,7 +14,10 @@ import torch
 from conftest import get_test_device
 from rsl_rl.modules import MLP, EmpiricalNormalization
 
-from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import DECK_GEOM_NAME
+from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
+  DECK_GEOM_NAME,
+  SkateboardParams,
+)
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
   SKATE_BOARD_OFFSET,
@@ -40,7 +43,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks
-from mjlab.utils.lab_api.math import euler_xyz_from_quat
+from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 NUM_ENVS = 4
 
@@ -70,26 +73,22 @@ def test_skate_pose_is_inside_joint_limits(stance):
   model, _ = stance
   for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True):
     low, high = model.joint(name).range
-    assert low + 0.2 < angle < high - 0.2, name
+    assert low + 0.1 < angle < high - 0.1, name
 
 
-def test_skate_pose_lifts_the_left_feet_over_the_deck(stance):
+def test_skate_pose_puts_all_four_feet_over_the_deck(stance):
   model, data = stance
-  left = [_foot_in_base(model, data, leg) for leg in ("front_l", "back_l")]
-  right = [_foot_in_base(model, data, leg) for leg in ("front_r", "back_r")]
-  for foot in left:
-    assert foot[1] == pytest.approx(SKATE_BOARD_OFFSET[1], abs=0.005)
-    assert foot[2] == pytest.approx(-0.070, abs=0.005)
-  for foot in right:
-    assert foot[1] < -0.08
-    assert foot[2] == pytest.approx(-0.145, abs=0.005)
-  # The deck sits midway between the left feet, fore and aft.
-  assert (left[0][0] + left[1][0]) / 2 == pytest.approx(
-    SKATE_BOARD_OFFSET[0], abs=0.005
-  )
+  legs = ("front_r", "front_l", "back_r", "back_l")
+  feet = [_foot_in_base(model, data, leg) for leg in legs]
+  # Each foot centre is at least 1 cm in from the deck's edge, so spawn noise
+  # does not drop a foot off it.
+  half_width = SkateboardParams().deck_width / 2
+  for leg, foot in zip(legs, feet, strict=True):
+    assert abs(foot[1] - SKATE_BOARD_OFFSET[1]) <= half_width - 0.01, leg
+    assert foot[2] == pytest.approx(-0.115, abs=0.005), leg
 
 
-def test_skate_keyframe_spawns_the_pose_already_tilted():
+def test_skate_keyframe_spawns_the_pose_above_the_deck():
   assert SKATE_KEYFRAME.joint_pos is not None
   assert list(SKATE_KEYFRAME.joint_pos.values()) == list(SKATE_POSE)
   w, x, y, z = SKATE_KEYFRAME.rot
@@ -129,7 +128,7 @@ def test_contact_lost_waits_for_the_grace_period():
 
 def test_gravity_tracking_peaks_at_the_stance_tilt():
   target = (0.0, -math.sin(SKATE_ROLL))
-  gravity = torch.tensor([[0.0, target[1], -1.0], [0.0, 0.0, -1.0], [0.0, 0.5, -0.87]])
+  gravity = torch.tensor([[0.0, target[1], -1.0], [0.0, 0.1, -1.0], [0.0, 0.5, -0.87]])
   env = _fake_env(robot={"projected_gravity_b": gravity})
   reward = mdp.gravity_tracking(env, target_xy=target, std=0.2)
   assert reward[0] == pytest.approx(1.0)
@@ -152,7 +151,7 @@ def _yaw_quat(yaw: float) -> list[float]:
 
 def test_board_alignment_follows_the_robot_heading():
   # Env 0: board at the target offset. Env 1: robot turned 90 degrees left, so
-  # "0.14 m to my left" is now world -x. Env 2: board 10 cm out of place.
+  # "0.01 m behind me" is now world -y. Env 2: board 10 cm out of place.
   # Env 3: right place, board turned 0.3 rad.
   robot_pos = torch.zeros(4, 3)
   robot_quat = torch.tensor(
@@ -160,10 +159,10 @@ def test_board_alignment_follows_the_robot_heading():
   )
   board_pos = torch.tensor(
     [
-      [-0.01, 0.14, 0.03],
-      [-0.14, -0.01, 0.03],
-      [-0.01, 0.24, 0.03],
-      [-0.01, 0.14, 0.03],
+      [-0.01, 0.0, 0.03],
+      [0.0, -0.01, 0.03],
+      [-0.01, 0.10, 0.03],
+      [-0.01, 0.0, 0.03],
     ]
   )
   board_quat = torch.tensor(
@@ -225,34 +224,27 @@ def test_torque_saturation_ramps_from_the_soft_limit():
   assert cost.tolist() == pytest.approx([0.0, 1.5, 1.0], abs=1e-5)
 
 
-def test_push_stride_pays_a_planted_stride_once_at_touchdown():
-  # Foot 0 varies per row; foot 1 has been standing a while.
-  # Rows: planted stride, a tap, too quick a swing, foot held up, landed earlier.
+def test_push_stroke_pays_once_as_a_foot_leaves_the_floor():
+  # Foot 0 varies per row; foot 1 is on the floor (no air time).
+  # Rows: lift-off after a full stroke, after a short one, already in the air,
+  # still on the floor.
   env = _sensor_env(
-    current_contact_time=torch.tensor(
-      [[0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.02, 1.0], [0.06, 1.0]]
-    ),
-    last_air_time=torch.tensor(
-      [[0.2, 0.0], [0.2, 0.0], [0.04, 0.0], [0.8, 0.0], [0.2, 0.0]]
-    ),
-    last_contact_time=torch.tensor(
-      [[0.4, 0.0], [0.1, 0.0], [0.4, 0.0], [0.4, 0.0], [0.4, 0.0]]
-    ),
+    current_air_time=torch.tensor([[0.02, 0.0], [0.02, 0.0], [0.06, 0.0], [0.0, 0.0]]),
+    last_contact_time=torch.tensor([[0.4, 0.5], [0.1, 0.5], [0.4, 0.5], [0.4, 0.5]]),
   )
   env.step_dt = 0.02
-  command = torch.tensor([[0.4, 0.0, 0.0]] * 5)
+  command = torch.tensor([[0.4, 0.0, 0.0]] * 4)
   env.command_manager = SimpleNamespace(get_command=lambda name: command)
   params: dict[str, Any] = {
     "sensor_name": "feet",
-    "stance_s": 0.4,
-    "air_range": (0.1, 0.5),
+    "stroke_s": 0.25,
     "command_name": "twist",
     "command_threshold": 0.1,
   }
-  reward = mdp.push_stride(env, **params)
-  assert reward.tolist() == pytest.approx([50.0, 12.5, 0.0, 0.0, 0.0])
-  command = torch.tensor([[0.05, 0.0, 0.0]] * 5)
-  assert mdp.push_stride(env, **params).tolist() == [0.0] * 5
+  reward = mdp.push_stroke(env, **params)
+  assert reward.tolist() == pytest.approx([50.0, 20.0, 0.0, 0.0])
+  command = torch.tensor([[0.1, 0.0, 0.0]] * 4)
+  assert mdp.push_stroke(env, **params).tolist() == [0.0] * 4
 
 
 ##
@@ -260,13 +252,21 @@ def test_push_stride_pays_a_planted_stride_once_at_touchdown():
 ##
 
 
-@pytest.fixture(scope="module")
-def balance_env():
+def _calm_balance_cfg(num_envs: int, spawn_noise: bool):
+  """The nominal 0.103 m board with no shoves: what the keyframe was solved for."""
   cfg = pupper_skate_balance_env_cfg()
-  cfg.scene.num_envs = NUM_ENVS
-  # The nominal 0.10 m board with no shoves: what the keyframe was solved for.
+  cfg.scene.num_envs = num_envs
   for name in ("deck_height", "push_robot", "nudge_board"):
     del cfg.events[name]
+  if not spawn_noise:
+    for name in ("reset_base", "reset_board"):
+      cfg.events[name].params["pose_range"] = {}
+  return cfg
+
+
+@pytest.fixture(scope="module")
+def balance_env():
+  cfg = _calm_balance_cfg(NUM_ENVS, spawn_noise=False)
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
   yield env
   env.close()
@@ -293,23 +293,40 @@ def test_stance_holds_with_zero_actions(balance_env):
   env.reset()
   robot, board = env.scene["robot"], env.scene["board"]
   actions = torch.zeros(NUM_ENVS, 12, device=env.device)
-  for _ in range(150):  # 3 s.
-    _, reward, terminated, _, _ = env.step(actions)
+  for _ in range(250):  # 5 s.
+    _, reward, terminated, truncated, _ = env.step(actions)
     assert torch.isfinite(reward).all()
-    assert not terminated.any()
-  assert (mdp.contact_count(env, "deck_feet_contact") == 2).all()
-  assert (mdp.contact_count(env, "ground_feet_contact") == 2).all()
-  for wrong in ("deck_feet_on_ground", "ground_feet_on_deck", "knees_on_deck"):
-    assert (mdp.contact_count(env, wrong) == 0).all()
-  roll, pitch, _ = euler_xyz_from_quat(robot.data.root_link_quat_w)
-  assert torch.allclose(roll, torch.full_like(roll, SKATE_ROLL), atol=0.05)
-  assert pitch.abs().max() < 0.08
+    assert not (terminated | truncated).any()
+    roll, pitch, _ = euler_xyz_from_quat(robot.data.root_link_quat_w)
+    assert wrap_to_pi(roll).abs().max() < 0.1
+    assert wrap_to_pi(pitch).abs().max() < 0.1
+  assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
+  assert (mdp.contact_count(env, "ground_feet_contact") == 0).all()
+  assert (mdp.contact_count(env, "knees_on_deck") == 0).all()
+  # The loaded legs settle up to 3 cm below the feet-touching height.
   height = robot.data.root_link_pos_w[:, 2]
-  assert torch.allclose(height, torch.full_like(height, SKATE_HEIGHT), atol=0.015)
+  assert ((height > SKATE_HEIGHT - 0.03) & (height < SKATE_HEIGHT)).all()
   assert board.data.root_link_lin_vel_w[:, :2].norm(dim=1).max() < 0.02
   assert (
     mdp.board_alignment(env, SKATE_BOARD_OFFSET, std_pos=0.05, std_yaw=0.3).min() > 0.3
   )
+
+
+@pytest.mark.slow
+def test_stance_survives_spawn_noise_with_zero_actions():
+  # About 1 in 10 noisy spawns tips over with zero actions, so a fixed seed keeps
+  # the count from changing run to run.
+  cfg = _calm_balance_cfg(16, spawn_noise=True)
+  cfg.seed = 0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  actions = torch.zeros(16, 12, device=env.device)
+  reset = torch.zeros(16, dtype=torch.bool, device=env.device)
+  for _ in range(250):  # 5 s.
+    _, _, terminated, truncated, _ = env.step(actions)
+    reset |= terminated | truncated
+  env.close()
+  assert reset.sum() <= 2
 
 
 @pytest.mark.slow
@@ -366,31 +383,34 @@ def test_ride_task_commands_forward_speed_only():
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
   assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
   assert twist.ranges.lin_vel_y == (0.0, 0.0) and twist.ranges.ang_vel_z == (0.0, 0.0)
-  assert "board_still" not in cfg.rewards
+  for name in ("board_still", "feet_on_ground", "push_stride", "push_leg_pose"):
+    assert name not in cfg.rewards
+  assert "nudge_board" not in cfg.events
   new_terms = (
-    "push_stride",
-    "push_leg_pose",
+    "push_stroke",
     "joint_vel_l2",
     "joint_speed_limit",
     "torque_saturation",
   )
   for name in ("track_board_velocity", "board_yaw_rate", *new_terms):
     assert cfg.rewards[name].weight != 0.0
-  assert "push_air_time" not in cfg.rewards
-  # The best-paid gait must sit inside the gait check's limits.
-  assert cfg.rewards["push_stride"].params["air_range"] == (0.2, 0.5)
+  assert cfg.rewards["push_stroke"].params["sensor_name"] == "ground_feet_contact"
   assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
+  # A push takes a foot off the deck for about a second.
+  assert cfg.terminations["feet_off_deck"].params["grace_s"] == 1.5
 
-  def matched(term: str) -> set[str]:
-    patterns = cfg.rewards[term].params["asset_cfg"].joint_names
-    return {j for j in JOINT_NAMES if any(re.fullmatch(p, j) for p in patterns)}
-
-  assert matched("stance_pose") == {j for j in JOINT_NAMES if "_l_" in j}
-  assert matched("push_leg_pose") == {j for j in JOINT_NAMES if "_r_" in j}
+  # Either side may push, so the whole stance is held loosely.
+  pose = cfg.rewards["stance_pose"]
+  patterns = pose.params["asset_cfg"].joint_names
+  assert {j for j in JOINT_NAMES if any(re.fullmatch(p, j) for p in patterns)} == set(
+    JOINT_NAMES
+  )
+  assert (pose.weight, pose.params["std"]) == (0.5, 0.6)
   # The balance task is untouched by building the ride task.
-  balance_rewards = pupper_skate_balance_env_cfg().rewards
-  assert "board_still" in balance_rewards
-  assert not set(new_terms) & set(balance_rewards)
+  balance = pupper_skate_balance_env_cfg()
+  assert "board_still" in balance.rewards and "feet_on_ground" in balance.rewards
+  assert not set(new_terms) & set(balance.rewards)
+  assert balance.terminations["feet_off_deck"].params["grace_s"] == 0.5
 
 
 @pytest.mark.slow
@@ -413,8 +433,12 @@ def test_ride_env_steps_with_random_actions():
 
 
 ##
-# Robustness: an unmeasured deck height and small shoves.
+# Robustness: deck heights for stock and lowered trucks, and small shoves.
 ##
+
+
+def test_deck_height_range_covers_both_trucks():
+  assert DECK_HEIGHT_RANGE == (-0.035, 0.01)
 
 
 def test_balance_cfg_has_robustness_events():

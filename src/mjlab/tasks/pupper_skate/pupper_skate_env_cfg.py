@@ -1,11 +1,11 @@
 """Pupper v3 on a mini cruiser skateboard.
 
-One side of the robot stands on the deck, the other on the floor. Two tasks
-share one scene:
+The robot stands centred on the deck, all four feet on it. Two tasks share one
+scene:
 
-* balance -- hold the split stance on a board that is free to roll.
-* ride    -- push with the floor-side legs so the board rolls at a commanded
-             forward speed.
+* balance -- hold the stance on a board that is free to roll.
+* ride    -- step a foot off either side, push against the floor and step back
+             on, so the board rolls at a commanded forward speed.
 
 The actor is the stock 48-dim zero-reference frame (IMU, joints, command, last
 action), so policies export and deploy like any gait policy. Everything about
@@ -17,7 +17,6 @@ The board model follows the structure of HUSKY (Han et al., arXiv:2602.03205).
 from __future__ import annotations
 
 import dataclasses
-import math
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
@@ -30,9 +29,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   PUPPER_EFFORT_LIMIT,
   PUPPER_MUJOCO_OPTIONS,
   SKATE_BOARD_OFFSET,
-  SKATE_HEIGHT,
   SKATE_KEYFRAME,
-  SKATE_ROLL,
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
@@ -46,12 +43,8 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 
-# Which side stands on the deck ("l" or "r"). SKATE_KEYFRAME is solved for "l".
-DECK_SIDE = "l"
-GROUND_SIDE = "r"
-
-_DECK_FEET = rf"^leg_(front|back)_{DECK_SIDE}_3_collision$"
-_GROUND_FEET = rf"^leg_(front|back)_{GROUND_SIDE}_3_collision$"
+# All four feet, matched in FOOT_SITE_NAMES order (FR, FL, BR, BL).
+_FEET = r"^leg_(front|back)_(r|l)_3_collision$"
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
 # Forward speed range for the ride task [m/s].
@@ -62,11 +55,11 @@ RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 # the real motor's limit.
 JOINT_SPEED_LIMIT: float = 8.0
 
-# The real board is not measured yet: deck height offset from the nominal
-# 0.10 m [m], and the seconds between shoves to the robot and the board. The
-# range (7 to 13 cm) is wide enough for a 23 inch mini cruiser on 60 mm wheels;
-# a policy trained on +-1.5 cm saturated its motors on a deck 2.5 cm too high.
-DECK_HEIGHT_RANGE: tuple[float, float] = (-0.03, 0.03)
+# Deck height offset from the nominal [m], and the seconds between shoves to the
+# robot and the board. Nominal is the measured 0.103 m; the range is 6.8 to
+# 11.3 cm, which covers the stock trucks and the planned trucks that sit 2 to
+# 3 cm lower.
+DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 
 
@@ -91,40 +84,30 @@ def _contact(
 
 def _balance_rewards() -> dict[str, RewardTermCfg]:
   return {
-    # Feet where they belong: +1 per foot, two feet per sensor.
+    # Feet on the deck: +1 per foot, so 4.0 with all four down.
     "feet_on_deck": RewardTermCfg(
       func=mdp.contact_count, weight=1.0, params={"sensor_name": "deck_feet_contact"}
     ),
+    # Feet (or knees) where they do not belong. A foot on the floor is wrong here.
     "feet_on_ground": RewardTermCfg(
-      func=mdp.contact_count, weight=0.5, params={"sensor_name": "ground_feet_contact"}
-    ),
-    # Feet (or knees) where they do not belong.
-    "deck_feet_on_ground": RewardTermCfg(
-      func=mdp.contact_count, weight=-2.0, params={"sensor_name": "deck_feet_on_ground"}
-    ),
-    "ground_feet_on_deck": RewardTermCfg(
-      func=mdp.contact_count, weight=-2.0, params={"sensor_name": "ground_feet_on_deck"}
+      func=mdp.contact_count, weight=-1.0, params={"sensor_name": "ground_feet_contact"}
     ),
     "knees_on_deck": RewardTermCfg(
       func=mdp.contact_count, weight=-1.0, params={"sensor_name": "knees_on_deck"}
     ),
-    # Body: the stance's tilt and height, joints near the keyframe.
+    # Body: level, joints near the keyframe. No base height term: the deck
+    # height is randomized, and the joint pose already sets the height above it.
     "tilt": RewardTermCfg(
       func=mdp.gravity_tracking,
       weight=1.0,
-      params={"target_xy": (0.0, -math.sin(SKATE_ROLL)), "std": 0.2},
-    ),
-    "base_height": RewardTermCfg(
-      func=mdp.base_height,
-      weight=1.0,
-      params={"target_height": SKATE_HEIGHT, "std": 0.03},
+      params={"target_xy": (0.0, 0.0), "std": 0.2},
     ),
     "stance_pose": RewardTermCfg(
       func=mdp.stance_pose,
       weight=1.0,
       params={"std": 0.3, "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
     ),
-    # Board: under the deck-side feet, parallel to the robot, flat, not rolling.
+    # Board: centred under the feet, parallel to the robot, flat, not rolling.
     "board_alignment": RewardTermCfg(
       func=mdp.board_alignment,
       weight=1.0,
@@ -146,11 +129,11 @@ def _balance_rewards() -> dict[str, RewardTermCfg]:
 
 
 def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Hold the split stance on a free-rolling board. Command is always zero."""
+  """Hold the centred stance on a free-rolling board. Command is always zero."""
   cfg = pupper_velocity_fs_env_cfg(play=play)
 
   ##
-  # Scene: robot in the split stance, board under its deck-side feet.
+  # Scene: robot in the centred stance, board under its feet.
   ##
   robot = cfg.scene.entities["robot"]
   robot.init_state = dataclasses.replace(SKATE_KEYFRAME)
@@ -167,13 +150,11 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   ##
   # Sensors. The stock feet_ground_contact (all four feet vs floor) stays for
-  # the critic; these split contacts by side and by surface.
+  # the critic; these split each foot's contacts by surface.
   ##
   cfg.scene.sensors = (cfg.scene.sensors or ()) + (
-    _contact("deck_feet_contact", _DECK_FEET, on_deck=True, track_air_time=True),
-    _contact("ground_feet_contact", _GROUND_FEET, on_deck=False, track_air_time=True),
-    _contact("deck_feet_on_ground", _DECK_FEET, on_deck=False),
-    _contact("ground_feet_on_deck", _GROUND_FEET, on_deck=True),
+    _contact("deck_feet_contact", _FEET, on_deck=True, track_air_time=True),
+    _contact("ground_feet_contact", _FEET, on_deck=False, track_air_time=True),
     _contact("knees_on_deck", _KNEES, on_deck=True),
   )
 
@@ -311,10 +292,11 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.rewards = _balance_rewards()
 
   ##
-  # Terminations. The stance itself is tilted by SKATE_ROLL, so the fall limit
-  # is wider than the walking tasks' 30 degrees.
+  # Terminations. The centred stance is level, so the fall limit is a little
+  # under the walking tasks' 30 degrees. Any foot off the deck past the grace
+  # period ends the episode.
   ##
-  cfg.terminations["fell_over"].params["limit_angle"] = 0.6
+  cfg.terminations["fell_over"].params["limit_angle"] = 0.5
   cfg.terminations["feet_off_deck"] = TerminationTermCfg(
     func=mdp.contact_lost, params={"sensor_name": "deck_feet_contact", "grace_s": 0.5}
   )
@@ -330,7 +312,7 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Push with the floor-side legs so the board rolls at the commanded speed."""
+  """Push off either side so the board rolls at the commanded speed."""
   cfg = pupper_skate_balance_env_cfg(play=play)
 
   twist = cfg.commands["twist"]
@@ -339,46 +321,36 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   twist.rel_standing_envs = 0.1
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
+  # A push takes a foot off the deck for about a second.
+  cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
 
   r = cfg.rewards
   del r["board_still"]
+  del r["feet_on_ground"]
+  r["feet_on_deck"].weight = 0.5
   r["track_board_velocity"] = RewardTermCfg(
     func=mdp.track_board_velocity,
     weight=3.0,
     params={"command_name": "twist", "std": 0.15},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
-  # Pushing: pay once per stride for a planted stance of 0.4 s followed by a
-  # swing of 0.2 to 0.5 s (only when a speed is commanded). Short stances pay
-  # proportionally less, so the speed and torque penalties below are what make a
-  # fast tap unattractive. Paying for air time taught a 3 Hz leg windmill.
-  r["push_stride"] = RewardTermCfg(
-    func=mdp.push_stride,
+  # Pushing: pay once per stroke as a foot leaves the floor, full pay for a
+  # stroke of 0.25 s or more (only when a speed is commanded). Either side may
+  # push.
+  r["push_stroke"] = RewardTermCfg(
+    func=mdp.push_stroke,
     weight=0.3,
     params={
       "sensor_name": "ground_feet_contact",
-      "stance_s": 0.4,
-      "air_range": (0.2, 0.5),
+      "stroke_s": 0.25,
       "command_name": "twist",
       "command_threshold": 0.1,
     },
   )
-  r["feet_on_ground"].weight = 0.1
-  # Hold the keyframe firmly on the deck-side legs and loosely on the pushing
-  # legs, so they stride around the stance instead of flailing.
-  r["stance_pose"].params["asset_cfg"] = SceneEntityCfg(
-    "robot", joint_names=(rf"leg_(front|back)_{DECK_SIDE}_[123]",)
-  )
-  r["push_leg_pose"] = RewardTermCfg(
-    func=mdp.stance_pose,
-    weight=0.3,
-    params={
-      "std": 0.6,
-      "asset_cfg": SceneEntityCfg(
-        "robot", joint_names=(rf"leg_(front|back)_{GROUND_SIDE}_[123]",)
-      ),
-    },
-  )
+  # Hold the keyframe loosely on every leg, so one leg can stride off the deck
+  # while the others stay put.
+  r["stance_pose"].weight = 0.5
+  r["stance_pose"].params["std"] = 0.6
   # Keep the motion inside what the motors can do. The sim actuator limits
   # torque but not speed, so speed is limited here. The penalty starts at 75% of
   # the limit the gait check enforces (6 of 8 rad/s), so the best-paid gait

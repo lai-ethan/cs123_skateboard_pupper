@@ -39,7 +39,7 @@ def gravity_tracking(
   """Reward holding a target tilt, exp(-|g_xy - target|^2 / std^2).
 
   ``g_xy`` is the x, y of gravity in the body frame (what the IMU reports). The
-  split stance is not level, so the target is the stance's tilt rather than zero.
+  target is the stance's tilt, which is zero for the level centred stance.
   """
   asset: Entity = env.scene[asset_cfg.name]
   target = torch.tensor(target_xy, device=env.device)
@@ -155,31 +155,26 @@ def torque_saturation(
   return torch.sum(torch.clamp(over, 0.0, 1.0), dim=1)
 
 
-def push_stride(
+def push_stroke(
   env: ManagerBasedRlEnv,
   sensor_name: str,
-  stance_s: float,
-  air_range: tuple[float, float],
+  stroke_s: float,
   command_name: str,
   command_threshold: float,
 ) -> torch.Tensor:
-  """Reward slow, planted push strides, paid once per touchdown.
+  """Reward planted pushes against the floor, paid once as the foot lifts off.
 
-  A stride is the stance that ended at lift-off plus the swing that just
-  landed. It scores min(stance / stance_s, 1) when the swing lasted within
-  ``air_range`` seconds, and 0 otherwise, so quick taps and feet held in the air
-  earn little. The score is divided by the step so the weight is the reward for
-  one full stride. Paid only above ``command_threshold`` m/s of commanded speed.
+  A stroke is the floor contact that just ended. It scores
+  min(stroke / stroke_s, 1), so quick taps earn little. The score is divided by
+  the step so the weight is the reward for one full stroke. Paid only above
+  ``command_threshold`` m/s of commanded speed.
   """
   sensor: ContactSensor = env.scene[sensor_name]
-  data = sensor.data
-  contact_time, air_time = data.current_contact_time, data.last_air_time
-  stance_time = data.last_contact_time
-  assert contact_time is not None and air_time is not None and stance_time is not None
-  landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
-  swing_ok = (air_time >= air_range[0]) & (air_time <= air_range[1])
-  score = torch.clamp(stance_time / stance_s, max=1.0)
-  reward = torch.sum(score * (landed & swing_ok).float(), dim=1) / env.step_dt
+  air_time, stroke_time = sensor.data.current_air_time, sensor.data.last_contact_time
+  assert air_time is not None and stroke_time is not None
+  lifted = (air_time > 0.0) & (air_time < env.step_dt + 1.0e-6)
+  score = torch.clamp(stroke_time / stroke_s, max=1.0)
+  reward = torch.sum(score * lifted.float(), dim=1) / env.step_dt
   command = env.command_manager.get_command(command_name)
   assert command is not None
   return reward * (command[:, 0] > command_threshold).float()

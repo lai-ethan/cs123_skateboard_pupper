@@ -5,9 +5,9 @@ a bushing spring, two trucks that yaw, and joint equalities that turn deck roll
 into truck yaw (lean to steer). Nothing is actuated; the bushings are joint
 stiffness and damping.
 
-Deck length, deck width and wheel radius come from the product listing. Deck
-height, wheelbase, track, mass and the bushing numbers are estimates until the
-board is measured; change them in `SkateboardParams`.
+Deck length, deck width, wheel radius, deck height, wheelbase and track are
+measured on the team's board. Mass and the truck, bushing and wheel numbers are
+still guesses; change them in `SkateboardParams`.
 """
 
 from dataclasses import dataclass
@@ -28,34 +28,35 @@ DECK_ROLL_JOINT_NAME = "deck_roll"
 
 @dataclass(frozen=True)
 class SkateboardParams:
-  deck_length: float = 0.58
-  """Listed: 23 inch deck."""
-  deck_width: float = 0.165
-  """Listed: 6.5 inch deck."""
-  wheel_radius: float = 0.03
-  """Listed: 60 mm wheels."""
-  deck_top_height: float = 0.10
-  """Estimate. Floor to top of deck with the board resting on its wheels."""
+  deck_length: float = 0.584
+  """Measured."""
+  deck_width: float = 0.161
+  """Measured."""
+  wheel_radius: float = 0.029
+  """Measured: 58 mm wheels."""
+  deck_top_height: float = 0.103
+  """Measured. Floor to top of deck with the board resting on its wheels."""
   deck_thickness: float = 0.03
   """Collision box thickness, not the real 12 mm: Pupper's soft foot contacts
   sink about 1 to 3 cm, so the box is thick enough to keep them from tunnelling
   through. The top face stays at `deck_top_height`."""
-  wheelbase: float = 0.30
-  """Estimate. Front axle to rear axle."""
-  track: float = 0.12
-  """Estimate. Left wheel centre to right wheel centre."""
+  wheelbase: float = 0.365
+  """Measured, less accurately: front axle to rear axle, longer than the
+  caliper reaches."""
+  track: float = 0.104
+  """Measured. Left wheel centre to right wheel centre."""
   mass: float = 1.8
-  """Estimate. Whole board."""
+  """Guess. Whole board."""
   roll_stiffness: float = 30.0
-  """Estimate. Bushing spring about the roll axis, N*m/rad."""
+  """Guess. Bushing spring about the roll axis, N*m/rad."""
   roll_damping: float = 0.5
   roll_limit: float = 0.2
   """Deck roll range, rad (wheel bite on the real board)."""
   steer_gain: float = 0.577
-  """Truck yaw per unit deck roll: tan(30 deg kingpin rake), as in HUSKY."""
+  """Guess. Truck yaw per unit deck roll: tan(30 deg kingpin rake), as in HUSKY."""
   wheel_damping: float = 2e-4
   wheel_frictionloss: float = 2e-3
-  """Bearing drag. Fit to a coast-down of the real board."""
+  """Guess for bearing drag. Fit to a coast-down of the real board."""
   deck_friction: tuple[float, float, float] = (1.0, 0.02, 0.01)
   wheel_friction: tuple[float, float, float] = (0.9, 0.005, 0.0001)
 

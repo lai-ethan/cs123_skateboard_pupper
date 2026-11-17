@@ -1,19 +1,24 @@
-"""Solve the split-stance joint angles for a given deck height.
+"""Solve the centred-stance joint angles for a given foot spread and depth.
 
 Usage (repo root):
-  FORCE_CPU=1 uv run python skateboard/tools/solve_stance.py LEFT_Y LEFT_DEPTH RIGHT_DEPTH
+  FORCE_CPU=1 uv run python skateboard/tools/solve_stance.py \
+    FOOT_Y DEPTH [--back-y METRES] [--front-dx METRES]
 
-LEFT_Y:      how far left of the base the deck-side feet sit [m] (0.14 today).
-LEFT_DEPTH:  how far below the base the deck-side feet sit [m] (0.070 today).
-RIGHT_DEPTH: how far below the base the floor-side feet sit [m] (0.145 today).
+FOOT_Y:     how far either side of the base's centre line each foot sits [m]
+            (0.066 today; the deck is 0.161 m wide).
+DEPTH:      how far below the base every foot sits [m] (0.115 today).
+--back-y:   FOOT_Y for the back feet only (default FOOT_Y; 0.060 today).
+--front-dx: shift of the front feet from their default x, forward positive
+            (default 0; -0.02 today).
 
-Prints, per leg, the solved angles, the foot position they give, and each
-joint's margin to its limit (keep every margin above 0.2 rad). The last line
-is the 12 angles in SKATE_POSE order, ready for check_stance.py.
+The back feet keep their default x. Prints, per leg, the solved angles, the
+foot position they give, and each joint's margin to its limit (keep every
+margin above 0.1 rad). The last line is the 12 angles in SKATE_POSE order,
+ready for check_stance.py.
 """
 
+import argparse
 import itertools
-import sys
 
 import mujoco
 import numpy as np
@@ -25,7 +30,13 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   get_spec,
 )
 
-left_y, left_depth, right_depth = (float(v) for v in sys.argv[1:4])
+parser = argparse.ArgumentParser()
+parser.add_argument("foot_y", type=float)
+parser.add_argument("depth", type=float)
+parser.add_argument("--back-y", type=float, default=None)
+parser.add_argument("--front-dx", type=float, default=0.0)
+args = parser.parse_args()
+back_y = args.foot_y if args.back_y is None else args.back_y
 
 model = get_spec().compile()
 data = mujoco.MjData(model)
@@ -48,12 +59,13 @@ for leg in ("front_r", "front_l", "back_r", "back_l"):
   lower = np.array([model.joint(name).range[0] for name in names])
   upper = np.array([model.joint(name).range[1] for name in names])
   default_foot = foot_in_base(leg, default)
-  on_deck = leg.endswith("_l")
+  side = 1.0 if leg.endswith("_l") else -1.0
+  front = leg.startswith("front")
   target = np.array(
     [
-      default_foot[0],
-      left_y if on_deck else default_foot[1],
-      -left_depth if on_deck else -right_depth,
+      default_foot[0] + (args.front_dx if front else 0.0),
+      side * (args.foot_y if front else back_y),
+      -args.depth,
     ]
   )
 
