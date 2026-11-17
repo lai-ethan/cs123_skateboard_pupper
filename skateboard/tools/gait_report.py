@@ -8,9 +8,12 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
     --speed 0.4 [--steps 500] [--skip 100]
 
 Drops the first `--skip` steps (settling), then measures peak joint speed
-(the largest per-joint 99th percentile), time at the torque limit, how long
-each floor-side foot stays down, how often it lands, and the board's mean
-forward speed as a share of `--speed` (a robot that does not move fails).
+(the largest per-joint 99th percentile), time at the torque limit, the
+smallest share of time any foot spends on the deck, the most often any foot
+lands back on the deck, and the board's mean forward speed as a share of
+`--speed` (a robot that does not move fails). It also prints each foot's share
+of time on the floor, so you can see which foot pushes; that line is not part
+of the verdict.
 Without `--speed`, or with 0 (balance), that share is reported as 1.0 and
 passes. Any episode reset in the measured steps fails the gait: a policy that
 falls is not a passing gait.
@@ -34,26 +37,31 @@ GAIT_LIMITS: dict[str, tuple[str, float]] = {
   "max_stride_rate": ("max", 2.0),
   "board_speed_ratio": ("min", 0.5),
 }
+# Column order of both foot contact sensors.
+FOOT_ORDER = ("FR", "FL", "BR", "BL")
 
 
 def gait_metrics(
   joint_vel: np.ndarray,
   torque: np.ndarray,
-  ground_contact: np.ndarray,
+  deck_contact: np.ndarray,
   dt: float,
   effort_limit: float,
   *,
   board_speed: np.ndarray,
   command_speed: float | None,
 ) -> dict[str, float]:
-  """Gait metrics from [T, 12] joint speeds and torques and [T, 2] contacts.
+  """Gait metrics from [T, 12] joint speeds and torques and [T, 4] contacts.
 
-  `ground_contact` is 1.0 while a floor-side foot is on the floor.
+  `deck_contact` is 1.0 while a foot is on the deck, one column per foot in
+  FR, FL, BR, BL order. `min_foot_duty` is the smallest share of time any foot
+  spends on the deck; `max_stride_rate` is the most landings on the deck per
+  second by any one foot.
   `board_speed` is the board's [T] forward speed along its own long axis in
   m/s; `command_speed` is the commanded speed, and None or 0 (no speed
   command) makes `board_speed_ratio` 1.0.
   """
-  contact = np.asarray(ground_contact) > 0.5
+  contact = np.asarray(deck_contact) > 0.5
   saturated = np.abs(torque) >= 0.95 * effort_limit
   touchdowns = np.sum(contact[1:] & ~contact[:-1], axis=0)
   return {
@@ -65,6 +73,16 @@ def gait_metrics(
       float(np.mean(board_speed) / command_speed) if command_speed else 1.0
     ),
   }
+
+
+def floor_share(ground_contact: np.ndarray) -> dict[str, float]:
+  """Each foot's share of time on the floor, from [T, 4] contacts.
+
+  Columns are in FOOT_ORDER. Not part of the verdict: it shows which foot
+  pushes.
+  """
+  share = np.mean(np.asarray(ground_contact) > 0.5, axis=0)
+  return {name: float(value) for name, value in zip(FOOT_ORDER, share, strict=True)}
 
 
 def gait_verdict(
@@ -101,11 +119,12 @@ def main(argv: list[str] | None = None) -> int:
 
   raw, env, policy = load_policy(args.task, args.policy, args.speed)
   robot = raw.scene["robot"]
-  feet = raw.scene["ground_feet_contact"]
+  deck_feet = raw.scene["deck_feet_contact"]
+  ground_feet = raw.scene["ground_feet_contact"]
   board = raw.scene["board"]
   obs = env.get_observations()
   obs = obs[0] if isinstance(obs, tuple) else obs
-  joint_vel, torque, contact, board_speed = [], [], [], []
+  joint_vel, torque, deck, ground, board_speed = [], [], [], [], []
   resets = 0
   with torch.no_grad():
     for step in range(args.steps):
@@ -115,14 +134,15 @@ def main(argv: list[str] | None = None) -> int:
       resets += int(done.any())
       joint_vel.append(robot.data.joint_vel[0].cpu().numpy())
       torque.append(robot.data.actuator_force[0].cpu().numpy())
-      contact.append((feet.data.found[0] > 0).float().cpu().numpy())
+      deck.append((deck_feet.data.found[0] > 0).float().cpu().numpy())
+      ground.append((ground_feet.data.found[0] > 0).float().cpu().numpy())
       # Same frame as the ride reward track_board_velocity: the board's own axis.
       board_speed.append(float(board.data.root_link_lin_vel_b[0, 0]))
 
   metrics = gait_metrics(
     np.stack(joint_vel),
     np.stack(torque),
-    np.stack(contact),
+    np.stack(deck),
     raw.step_dt,
     PUPPER_EFFORT_LIMIT,
     board_speed=np.array(board_speed),
@@ -132,6 +152,11 @@ def main(argv: list[str] | None = None) -> int:
   print(f"measured {len(joint_vel)} steps after {args.skip}")
   if not args.speed:
     print("no speed command: board_speed_ratio is reported as 1.0")
+  floor = floor_share(np.stack(ground))
+  print(
+    "time on the floor (not part of the verdict): "
+    + "  ".join(f"{name} {value:.2f}" for name, value in floor.items())
+  )
   rows = gait_verdict(metrics)
   for name, value, kind, limit, passed in rows:
     op = "<=" if kind == "max" else ">="

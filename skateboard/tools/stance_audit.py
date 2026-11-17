@@ -1,9 +1,13 @@
-"""Audit how much balance margin the split stance has when the sim is wrong.
+"""Audit how much balance margin the centred stance has when the sim is wrong.
 
 Runs the balance policy under off-nominal conditions (deck height, truck
 stiffness, deck grip, motor gain and torque, board placement, shoves), one
-change per condition, and prints one PASS/FAIL row per condition. It trains
-nothing and changes no task.
+change per condition, and prints one PASS/FAIL row per condition. A row passes
+when all four feet stay on the deck at least 90% of the time, the motors stay
+under 60% of their torque, the centre of mass stays 3 cm inside the feet and
+nothing resets. Each row also shows the margin left on three feet with each
+foot lifted in turn (lift FR, FL, BR, BL). It trains nothing and changes no
+task.
 
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \\
@@ -12,7 +16,9 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
 Each condition is one env and 500 steps, measured after the first 100; a full
 run takes about a minute per condition on a Mac. The last line is
 `STANCE: PASS` or `STANCE: FAIL`. The exit code is always 0. A pass here says
-nothing about the real board's size, its grip or the legs' backlash.
+nothing about the real board's size, its grip or the legs' backlash. The saved
+policies were trained on the old split stance, so expect them to fail here
+until a centred-stance policy is trained.
 """
 
 from __future__ import annotations
@@ -30,9 +36,12 @@ TASK = "Mjlab-Skate-Balance-Pupper-v3"
 DEFAULT_POLICY = Path("skateboard/policies/balance_2ace1uqa_policy.json")
 STEPS, SKIP, KICK_STEP = 500, 100, 200
 WHEEL_FRICTION = 0.85
+# Row key -> foot site, in the contact sensors' order (FR, FL, BR, BL).
 LIFT_FEET = {
-  "lift_front_right": "leg_front_r_3_foot_site",
-  "lift_rear_right": "leg_back_r_3_foot_site",
+  "lift_fr": "leg_front_r_3_foot_site",
+  "lift_fl": "leg_front_l_3_foot_site",
+  "lift_br": "leg_back_r_3_foot_site",
+  "lift_bl": "leg_back_l_3_foot_site",
 }
 
 # Override key -> default. Lengths in m, angles in rad, speeds in m/s.
@@ -55,14 +64,21 @@ OVERRIDE_DEFAULTS: dict[str, float] = {
 CONDITIONS: dict[str, dict[str, float]] = {
   "baseline": {},
   "zero_action": {"zero_action": 1},
+  # Training randomizes the deck from -3.5 to +1 cm; +2 and +3 cm are outside.
+  "deck-3.5cm": {"deck": -0.035},
+  "deck-2cm": {"deck": -0.02},
+  "deck+1cm": {"deck": 0.01},
+  "deck+2cm": {"deck": 0.02},
   "deck+3cm": {"deck": 0.03},
-  "deck-3cm": {"deck": -0.03},
   "truck_x0.25": {"truck": 0.25},
   "deck_mu_0.3": {"mu": 0.3},
   "kp_x0.6": {"kp": 0.6},
   "effort_1.0": {"effort": 1.0},
-  "board_y+4cm": {"board_y": 0.04},
-  "board_y-4cm": {"board_y": -0.04},
+  # The feet sit 1.5 to 2 cm inside the deck edge.
+  "board_y+1cm": {"board_y": 0.01},
+  "board_y-1cm": {"board_y": -0.01},
+  "board_y+2cm": {"board_y": 0.02},
+  "board_y-2cm": {"board_y": -0.02},
   "board_yaw_0.2": {"board_yaw": 0.2},
   "joint_offset_0.3": {"joint_offset": 0.3},
   "push_left_0.6": {"push_y": 0.6},
@@ -213,7 +229,7 @@ def _fmt(row: dict[str, float]) -> str:
     f"resets {row['resets']:d}  deck {row['min_deck_contact']:.2f}  "
     f"torque {row['max_torque_use']:.2f}  roll {row['roll_deg']:+.1f} deg  "
     f"travel {row['board_travel']:+.2f} m  margin {row['margin']:+.3f} m  "
-    f"lift_fr {row['lift_front_right']:+.3f}  lift_rr {row['lift_rear_right']:+.3f}"
+    + "  ".join(f"{key} {row[key]:+.3f}" for key in LIFT_FEET)
   )
 
 
@@ -288,6 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     roll = np.degrees(np.arcsin(np.clip(np.array(gravity)[:, 1], -1, 1)))
     row: dict[str, Any] = {
       "resets": resets,
+      # One column per foot: the share of time the least-planted foot is down.
       "min_deck_contact": float(np.min(np.mean(contact, axis=0))),
       "max_torque_use": float(np.max(np.mean(np.abs(torque), axis=0)) / o["effort"]),
       "roll_deg": float(np.mean(roll)),

@@ -4,7 +4,28 @@ The TA's concern after the checkpoint report: "I doubt if Pupper can remain bala
 at this pose on the board." This note is the answer so far. It is version 1,
 written 2026-11-16, from simulation only. Nothing here has been tried on the robot.
 
-## Short answer
+## Update 2026-11-16: centred stance
+
+- The stance is now centred on the measured board. All four feet stand on the
+  deck. The deck top is 103 mm above the floor and the deck is 161 mm wide.
+- The results table below is for the old split stance. It has not been rerun.
+  The saved policies were trained on the old stance too, so they are not a test
+  of the new one.
+- The feet sit 1.5 to 2 cm inside the deck edge. The front feet are 6.6 cm and
+  the back feet 6.0 cm from the centre line, and half the deck is 8.05 cm wide.
+  So sideways placement is the new thing to check.
+- With no policy and the usual spawn noise, about 9% of spawns tip over. The
+  trained policy has to correct a small sideways error.
+- A deck plate about 20 cm wide would remove the problem.
+- From this stance a foot cannot reach the floor on the stock trucks. The floor
+  is 18.6 cm below the base and the leg reaches about 17 cm, so the body would
+  have to drop or roll first. On a 7 cm deck a foot can reach the floor.
+- The audit now needs all four feet on the deck 90% of the time to pass a row.
+  It lifts each of the four feet in turn (lift FR, FL, BR, BL). It checks deck
+  heights of -3.5, -2, +1, +2 and +3 cm and the board 1 or 2 cm to
+  either side.
+
+## Short answer (split stance, before the update)
 
 - **Standing: yes in sim, with room to spare, except for one thing.** The centre of
   mass sits about 7 cm inside the four feet and the motors use 16% of their torque.
@@ -118,6 +139,9 @@ right foot is in the air.
 
 ## What changed from the checkpoint report
 
+- 2026-11-16: added the centred-stance update at the top. The rest of the note
+  is unchanged and describes the split stance.
+
 - The checkpoint report claimed the stance holds. This note adds how much margin it
   has, where it breaks, and what sim cannot show.
 - New finding: the balance policy fails when the deck is 2.5 cm or more higher than
@@ -127,8 +151,11 @@ right foot is in the air.
 ## Accounting
 
 - **Skipped:** any hardware test; retraining (the saved policies still come from
-  the plus or minus 1.5 cm range); a three-foot reward term.
+  the plus or minus 1.5 cm range and the split stance); a three-foot reward term;
+  rerunning the audit table for the centred stance.
 - **Assumed:** the board dimensions marked "guess" in `README.md`; the 3 N·m torque
   limit; the pass limits of the audit (60% torque, 3 cm margin).
 - **Issues:** deck height must be measured before the first run; pushing needs a
-  weight shift the current ride policy does not do.
+  weight shift the current ride policy does not do; in the centred stance about
+  9% of spawns tip over with no policy, and a foot cannot reach the floor on the
+  stock trucks without the body dropping or rolling.

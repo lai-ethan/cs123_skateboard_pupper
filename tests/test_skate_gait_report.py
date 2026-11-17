@@ -35,8 +35,9 @@ def test_gait_limits():
 def _calm_gait():
   joint_vel = np.full((T, 12), 2.0)
   torque = np.full((T, 12), 1.0)
+  # One foot steps off and back every second; the other three stay on the deck.
   on = (np.arange(T) % 50 < 40).astype(float)
-  contact = np.stack([on, on], axis=1)
+  contact = np.stack([on, np.ones(T), np.ones(T), np.ones(T)], axis=1)
   return joint_vel, torque, contact
 
 
@@ -69,8 +70,8 @@ def test_windmill_gait_fails():
   joint_vel[steps % 20 == 0, 0] = 39.0
   torque = np.zeros((T, 12))
   torque[steps % 2 == 1, 1] = 3.0
-  contact = np.ones((T, 2))
-  contact[:, 0] = (steps % 16 == 0).astype(float)
+  contact = np.ones((T, 4))
+  contact[:, 2] = (steps % 16 == 0).astype(float)
   metrics = gr.gait_metrics(
     joint_vel,
     torque,
@@ -116,3 +117,16 @@ def test_no_speed_command_passes_board_speed(command_speed):
     command_speed=command_speed,
   )
   assert metrics["board_speed_ratio"] == 1.0
+
+
+def test_foot_order_matches_the_sensors():
+  assert gr.FOOT_ORDER == ("FR", "FL", "BR", "BL")
+
+
+def test_floor_share_names_the_pushing_foot():
+  ground = np.zeros((T, 4))
+  ground[np.arange(T) % 50 >= 40, 0] = 1.0
+  share = gr.floor_share(ground)
+  assert list(share) == ["FR", "FL", "BR", "BL"]
+  assert share["FR"] == pytest.approx(0.2)
+  assert share["FL"] == share["BR"] == share["BL"] == 0.0

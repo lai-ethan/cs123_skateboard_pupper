@@ -4,8 +4,8 @@ CS 123 final project, Team 9. Goal: train a policy in simulation so Pupper
 rides the Walmart 23" mini cruiser, then run it on the real robot by Demo Day
 (Dec 3).
 
-**The stance:** left feet on the deck, right feet on the floor. Pupper never
-has all four feet on the board. The right legs balance, and later push.
+**The stance:** centred on the deck, all four feet on it. To ride, Pupper steps
+one foot off either side, pushes against the floor and steps back on.
 
 ## Where things are
 
@@ -25,36 +25,39 @@ has all four feet on the board. The right legs balance, and later push.
 ## Status
 
 - Done: board model, stance, both training tasks, tests, notebook.
-- Balance is trained in sim and passes the gait check. It is the candidate for the robot (see [`CHECKPOINT.md`](CHECKPOINT.md)).
+- The stance moved from split (left feet on the deck, right feet on the floor) to centred on 2026-11-16. Both tasks must be retrained for it. The saved policies in [`policies/`](policies/) were trained on the split stance.
+- Balance (split stance) was trained in sim and passes the gait check (see [`CHECKPOINT.md`](CHECKPOINT.md)).
 - Ride must be retrained. Its rewards were reshaped so the gait fits the motors (PLAN Task 16). The saved ride policy passes the curve check but fails the gait check, so it is for reference only. The retrain has not run yet.
-- Not done: the ride retrain, measuring the real board, anything on the robot.
+- Not done: retraining both tasks for the centred stance, measuring the board's mass, trucks and wheel drag, anything on the robot.
 
 Two tasks are registered:
 
-- `Mjlab-Skate-Balance-Pupper-v3`: hold the stance on a board that is free to roll.
-- `Mjlab-Skate-Ride-Pupper-v3`: push so the board rolls at a commanded speed (0 to 0.5 m/s).
+- `Mjlab-Skate-Balance-Pupper-v3`: hold the centred stance on a board that is free to roll.
+- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s).
 
 ## How to start
 
-### 1. Measure the board (do this first)
+### 1. The board
 
-The sim uses the numbers below. Only the first three come from the listing.
-Replace the guesses in `SkateboardParams`, then follow Task 10 in the plan.
+The sim uses the numbers below. The sizes are measured on the team's board.
+Replace the guesses in `SkateboardParams` when you measure them.
 
 | Parameter | Sim value | Source | How to measure |
 | --- | --- | --- | --- |
-| Deck length | 0.58 m | listing | ruler |
-| Deck width | 0.165 m | listing | ruler |
-| Wheel radius | 0.03 m | listing | ruler |
-| Deck top height | 0.10 m | guess | ruler, floor to top of deck |
-| Wheelbase | 0.30 m | guess | ruler, front axle to rear axle |
-| Track | 0.12 m | guess | ruler, left to right wheel centre |
+| Deck top height | 103 mm | measured | ruler, floor to top of deck |
+| Deck width | 161 mm | measured | ruler |
+| Deck length | 584 mm | measured | ruler |
+| Wheel radius | 29 mm | measured | ruler (58 mm wheels) |
+| Track | 104 mm | measured | ruler, left to right wheel centre |
+| Wheelbase | 365 mm | measured, less accurate | ruler, front axle to rear axle |
 | Mass | 1.8 kg | guess | kitchen scale |
 | Roll stiffness | 30 N·m/rad | guess | put about 1.5 kg on the deck edge, measure how far the edge drops |
 | Wheel drag | 2e-3 N·m per wheel | guess | roll off a ramp of known height, measure the coast distance |
 
-Deck height matters most. The stance is solved for 0.10 m; if the real deck is
-more than 5 mm off, re-solve it (Task 10, step 3).
+Deck height matters most. The stance is solved for 103 mm. Training randomizes
+the deck from 6.8 to 11.3 cm, which covers the stock trucks and the lower trucks
+we plan to fit. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
+placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
 
 ### 2. Run the tests (laptop, optional)
 
@@ -66,7 +69,7 @@ cd cs123_skateboard_pupper
 FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_task_configs.py -q
 ```
 
-Expected: `36 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
+Expected: `42 passed`. `FORCE_CPU=1` is for Macs; drop it on a machine with an
 NVIDIA GPU.
 
 To see the stance in a viewer:
@@ -99,8 +102,9 @@ when a run fails is in Tasks 9 and 11 of the plan.
 ### 4. Replay the trained policies (laptop)
 
 The two saved policies are in [`policies/`](policies/), so no W&B login is
-needed. Balance is the robot candidate. The ride policy is for reference only
-(see Status). From the repo root:
+needed. Both were trained on the old split stance, so they now run in the
+centred-stance scene they never saw. Use them to try the tools, not as results.
+From the repo root:
 
 ```bash
 # Ride, in the interactive viewer
@@ -123,10 +127,28 @@ FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pu
   skateboard/policies/balance_2ace1uqa_policy.json
 ```
 
-The last line is `GAIT: PASS` or `GAIT: FAIL`. Expect `GAIT: PASS` for balance
-and `GAIT: FAIL` for the saved ride policy: its legs move too fast and its
-motors sit at the torque limit. The numbers change between runs (the play env
-is unseeded). Single rows can flip; the overall verdict has not.
+The gait check reads the deck contacts of all four feet. `min_foot_duty` is
+the smallest share of time any foot is on the deck, and `max_stride_rate` the
+most often any foot lands back on it. A line above the verdict shows each
+foot's share of time on the floor, so you can see which foot pushes; it is not
+part of the verdict. The last line is `GAIT: PASS` or `GAIT: FAIL`. On
+2026-11-16 the saved balance policy gave `GAIT: PASS` and the saved ride policy
+`GAIT: FAIL` (legs too fast, motors at the torque limit, 30 resets). The numbers
+change between runs (the play env is unseeded).
+
+To check how much balance margin a policy has when the sim is wrong (deck
+height, board placement, grip, motors, shoves):
+
+```bash
+FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \
+  skateboard/policies/balance_2ace1uqa_policy.json --conditions baseline,board_y+2cm
+```
+
+A row passes when all four feet stay on the deck at least 90% of the time. Each
+row also shows the margin on three feet with each foot lifted (lift FR, FL, BR,
+BL). Drop `--conditions` to run all 21; each takes about 10 s on a Mac. On
+2026-11-16 the saved balance policy passed `baseline` and `deck-3.5cm` and failed
+`board_y+2cm` (28 resets). See [`SIM2REAL.md`](SIM2REAL.md).
 
 Each video takes about a minute on a Mac. The balance run kept only its
 exported `policy.json`, so it replays through `render_policy.py`, not `play`.

@@ -81,9 +81,28 @@ def test_conditions_use_known_overrides():
   assert set(sa.OVERRIDE_DEFAULTS) == OVERRIDE_KEYS
   assert list(sa.CONDITIONS)[:2] == ["baseline", "zero_action"]
   assert sa.CONDITIONS["baseline"] == {}
-  assert len(sa.CONDITIONS) == 16
+  assert len(sa.CONDITIONS) == 21
   for name, overrides in sa.CONDITIONS.items():
     assert set(overrides) <= OVERRIDE_KEYS, name
+
+
+def test_deck_and_sideways_conditions_fit_the_centred_stance():
+  # Single-change conditions only (worst_combo also moves the deck).
+  single = [c for c in sa.CONDITIONS.values() if len(c) == 1]
+  deck = sorted(c["deck"] for c in single if "deck" in c)
+  assert deck == [-0.035, -0.02, 0.01, 0.02, 0.03]
+  board_y = sorted(c["board_y"] for c in single if "board_y" in c)
+  assert board_y == [-0.02, -0.01, 0.01, 0.02]
+
+
+def test_lift_feet_cover_all_four_feet_in_sensor_order():
+  assert list(sa.LIFT_FEET) == ["lift_fr", "lift_fl", "lift_br", "lift_bl"]
+  assert list(sa.LIFT_FEET.values()) == [
+    "leg_front_r_3_foot_site",
+    "leg_front_l_3_foot_site",
+    "leg_back_r_3_foot_site",
+    "leg_back_l_3_foot_site",
+  ]
 
 
 def test_unknown_condition_is_an_error():

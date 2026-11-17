@@ -58,13 +58,13 @@ def test_latest_run_dir_raises_when_empty(tmp_path):
 
 def test_verdict_passes_and_fails():
   length, deck = "Train/mean_episode_length", "Episode_Reward/feet_on_deck"
-  passing = rs.verdict(BALANCE, {length: 480.0, deck: 1.9})
+  passing = rs.verdict(BALANCE, {length: 480.0, deck: 3.8})
   assert [row[0] for row in passing] == [length, deck]
   assert all(row[3] for row in passing)
 
-  failing = rs.verdict(BALANCE, {length: 480.0, deck: 1.0})
+  failing = rs.verdict(BALANCE, {length: 480.0, deck: 1.9})
   assert failing[0][3] and not failing[1][3]
-  assert failing[1][1:3] == (1.0, 1.8)
+  assert failing[1][1:3] == (1.9, 3.6)
 
   missing = rs.verdict(BALANCE, {length: 480.0})
   assert missing[1][0] == deck and not missing[1][3]
@@ -77,7 +77,7 @@ def test_cli_prints_result_line(tmp_path, capsys):
     run_dir,
     {
       "Train/mean_episode_length": [480.0] * 5,
-      "Episode_Reward/feet_on_deck": [1.9] * 5,
+      "Episode_Reward/feet_on_deck": [3.8] * 5,
       "Episode_Termination/time_out": [1.0] * 5,
       "Loss/value": [0.1] * 5,
     },

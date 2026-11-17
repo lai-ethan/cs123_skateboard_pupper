@@ -67,8 +67,8 @@ task from scratch (using the cartpole task as the example).
 | `Mjlab-Mystery-Flat-Pupper-v3` / `-Bumpy-` | ??? |
 | `Mjlab-SpiderWalk-Flat-Pupper-v3` | Walking in the spider stance (torso 1 cm up, legs splayed): velocity tracking plus the `spider` reference gait, a trot in place. The walking half of lab 6's spider trick. |
 | `Mjlab-Tracking-Flat-Pupper-v3` | Tricks: tracks one reference motion (root pose + joints, BeyondMimic-style) with no velocity command. Design motions and replay them in sim first; see `src/mjlab/tasks/tracking/config/pupper/README.md`. |
-| `Mjlab-Skate-Balance-Pupper-v3` | Final project: hold a split stance on a mini cruiser skateboard (left feet on the deck, right feet on the floor) while the board is free to roll. |
-| `Mjlab-Skate-Ride-Pupper-v3` | Final project: push with the floor-side legs so the board rolls at a commanded forward speed. |
+| `Mjlab-Skate-Balance-Pupper-v3` | Final project: hold a centred stance on a mini cruiser skateboard (all four feet on the deck) while the board is free to roll. |
+| `Mjlab-Skate-Ride-Pupper-v3` | Final project: push with one foot off either side of the deck so the board rolls at a commanded forward speed. |
 
 **The lift gait is yours**: only the trot reference ships
 (`src/mjlab/tasks/pupper_gait/mdp/gait_reference.py`). StableGait also needs a

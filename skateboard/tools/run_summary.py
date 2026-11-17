@@ -22,7 +22,8 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 PASS_CRITERIA: dict[str, dict[str, float]] = {
   "Mjlab-Skate-Balance-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
-    "Episode_Reward/feet_on_deck": 1.8,
+    # +1 per foot on the deck: 3.6 is four feet down 90% of the time.
+    "Episode_Reward/feet_on_deck": 3.6,
   },
   "Mjlab-Skate-Ride-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
