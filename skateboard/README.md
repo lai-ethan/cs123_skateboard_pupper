@@ -71,6 +71,10 @@ trucks): on the stock deck a foot cannot reach the floor from the centred
 stance. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
 placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
 
+With no policy, the centred stance holds on a stiff truck (2 to 7 of 64 noisy
+spawns fall at 180 N·m/rad) but tips in about half of them at the guessed 30
+N·m/rad, so truck stiffness is the most important board number still to measure.
+
 The deck can now lean up to 0.2 rad and the trucks steer with it. Until
 2026-11-16 the board's joint limits were read as degrees, so the deck could
 barely lean (0.0035 rad). Policies trained before this fix (runs `k4kci0oj`,
