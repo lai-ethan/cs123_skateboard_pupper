@@ -21,6 +21,7 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   FOOT_SITE_NAMES,
   JOINT_NAMES,
+  PUPPER_EFFORT_LIMIT,
   SKATE_BOARD_OFFSET,
   SKATE_HEIGHT,
   SKATE_KEYFRAME,
@@ -37,6 +38,7 @@ from mjlab.tasks.pupper_gait.export import (
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
+  BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
@@ -385,6 +387,28 @@ def test_stance_holds_with_zero_actions(balance_env):
 
 
 @pytest.mark.slow
+def test_stance_holds_without_torque_saturation():
+  # The balance task pays for motors above half their limit; an honest stance
+  # should not.
+  cfg = _calm_balance_cfg(1, spawn_noise=False)
+  cfg.episode_length_s = 20.0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  actions = torch.zeros(1, 12, device=env.device)
+  costs = []
+  for _ in range(500):  # 10 s.
+    _, _, terminated, truncated, _ = env.step(actions)
+    assert not (terminated | truncated).any()
+    costs.append(
+      mdp.torque_saturation(
+        env, PUPPER_EFFORT_LIMIT, soft_ratio=BALANCE_TORQUE_SOFT_RATIO
+      ).item()
+    )
+  env.close()
+  assert sum(costs[250:]) / 250 < 0.01
+
+
+@pytest.mark.slow
 def test_stance_survives_spawn_noise_with_zero_actions():
   # About 9% of noisy spawns tip over with zero actions (30 of 320 envs measured;
   # seed 0 gives 5 of 64). A policy has to correct those; this checks the rest
@@ -484,7 +508,8 @@ def test_ride_task_commands_forward_speed_only():
   # The balance task is untouched by building the ride task.
   balance = pupper_skate_balance_env_cfg()
   assert "board_still" in balance.rewards and "feet_on_ground" in balance.rewards
-  assert not set(new_terms) & set(balance.rewards)
+  # Balance has its own, stricter torque_saturation.
+  assert set(new_terms) & set(balance.rewards) == {"torque_saturation"}
   assert balance.terminations["feet_off_deck"].params["grace_s"] == 0.5
 
 

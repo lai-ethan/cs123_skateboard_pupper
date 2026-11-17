@@ -25,18 +25,23 @@ _RIDE_CRITERIA = {
   "Episode_Reward/joint_speed_limit": -0.1,
   "Episode_Reward/torque_saturation": -0.2,
 }
+# Balance pays for motors above half their torque limit. Holding the legs on the
+# joint stops at full torque (run k4kci0oj) costs far more than this.
+_BALANCE_TORQUE = {"Episode_Reward/torque_saturation": -0.05}
 # Minimum value of each tag, averaged over the run's last points.
 PASS_CRITERIA: dict[str, dict[str, float]] = {
   "Mjlab-Skate-Balance-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
     # +1 per foot on the deck: 3.6 is four feet down 90% of the time.
     "Episode_Reward/feet_on_deck": 3.6,
+    **_BALANCE_TORQUE,
   },
   "Mjlab-Skate-Ride-Pupper-v3": dict(_RIDE_CRITERIA),
   "Mjlab-SkateSplit-Balance-Pupper-v3": {
     "Train/mean_episode_length": 450.0,
     # Two feet on the deck: 1.8 is both down 90% of the time.
     "Episode_Reward/feet_on_deck": 1.8,
+    **_BALANCE_TORQUE,
   },
   "Mjlab-SkateSplit-Ride-Pupper-v3": dict(_RIDE_CRITERIA),
 }
@@ -117,7 +122,10 @@ def main(argv: list[str] | None = None) -> int:
       print(f"  {tag:<45} {scalars[tag]:10.3f}")
   rows = verdict(args.task, scalars)
   for tag, value, minimum, passed in rows:
-    print(f"{'PASS' if passed else 'FAIL'}  {tag} = {value:.3f} (need >= {minimum})")
+    if math.isnan(value):
+      print(f"FAIL  {tag} is missing from the log (need >= {minimum})")
+    else:
+      print(f"{'PASS' if passed else 'FAIL'}  {tag} = {value:.3f} (need >= {minimum})")
   print("RESULT:", "PASS" if all(row[3] for row in rows) else "FAIL")
   return 0
 

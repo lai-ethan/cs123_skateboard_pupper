@@ -68,6 +68,12 @@ PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 # 22 cm below it, so a push from the centred stance is out of reach there.
 RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, -0.02)
 
+# The balance tasks penalize motors above this share of their torque limit
+# (1.5 N*m). Standing with zero actions peaks near 0.5 N*m; run k4kci0oj instead
+# held its legs on the joint stops at full torque, which a real motor cannot
+# sustain.
+BALANCE_TORQUE_SOFT_RATIO: float = 0.5
+
 
 def _contact(
   name: str, feet: str, on_deck: bool, track_air_time: bool = False
@@ -131,6 +137,11 @@ def _balance_rewards() -> dict[str, RewardTermCfg]:
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
     "joint_torques_l2": RewardTermCfg(func=mdp.joint_torques_l2, weight=-2e-4),
     "termination": RewardTermCfg(func=mdp.is_terminated, weight=-100.0),
+    "torque_saturation": RewardTermCfg(
+      func=mdp.torque_saturation,
+      weight=-1.0,
+      params={"limit": PUPPER_EFFORT_LIMIT, "soft_ratio": BALANCE_TORQUE_SOFT_RATIO},
+    ),
   }
 
 

@@ -150,6 +150,7 @@ if SPLIT:
     "action_rate_l2": -0.01,
     "joint_torques_l2": -0.0002,
     "termination": -100.0,
+    "torque_saturation": -0.5 if RIDE else -1.0,
   }
   if RIDE:
     REWARD_WEIGHTS.update({
@@ -159,7 +160,6 @@ if SPLIT:
       "push_leg_pose": 0.3,
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.02,
-      "torque_saturation": -0.5,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -174,6 +174,7 @@ else:
     "action_rate_l2": -0.01,
     "joint_torques_l2": -0.0002,
     "termination": -100.0,
+    "torque_saturation": -0.5 if RIDE else -1.0,
   }
   if RIDE:
     REWARD_WEIGHTS.update({
@@ -183,7 +184,6 @@ else:
       "push_stroke": 0.3,
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.02,
-      "torque_saturation": -0.5,
     })
   else:
     REWARD_WEIGHTS.update({
@@ -195,17 +195,14 @@ else:
 GAIT_CELL = """\
 from pathlib import Path
 
-if RIDE:
-  runs = sorted(Path("logs/rsl_rl").glob("*/*"), key=lambda p: p.stat().st_mtime)
-  assert runs, "No runs yet -- train first."
-  ckpts = sorted(
-    runs[-1].glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1])
-  )
-  ckpt = ckpts[-1]
-  print("Gait check on:", ckpt)
-  !python skateboard/tools/gait_report.py {TASK} {ckpt} --speed 0.4
-else:
-  print("Gait check is for the ride tasks only.")
+runs = sorted(Path("logs/rsl_rl").glob("*/*"), key=lambda p: p.stat().st_mtime)
+assert runs, "No runs yet -- train first."
+ckpts = sorted(runs[-1].glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
+ckpt = ckpts[-1]
+print("Gait check on:", ckpt)
+# Ride is checked at 0.4 m/s; balance has no speed command.
+SPEED_FLAG = "--speed 0.4" if RIDE else ""
+!python skateboard/tools/gait_report.py {TASK} {ckpt} {SPEED_FLAG}
 """
 
 out = [
@@ -284,7 +281,8 @@ out = [
     " it lifts, in full for a 0.25 s stroke |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
     "| `joint_speed_limit` | n/a | -0.02 | joint speed above 6 rad/s |\n"
-    "| `torque_saturation` | n/a | -0.5 | motors above 80% of their 3 Nm limit |\n"
+    "| `torque_saturation` | -1.0 | -0.5 | motors above half (balance) or 80% (ride)"
+    " of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
@@ -310,7 +308,8 @@ out = [
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
     "| `joint_speed_limit` | n/a | -0.02 | joint speed above 6 rad/s |\n"
-    "| `torque_saturation` | n/a | -0.5 | motors above 80% of their 3 Nm limit |\n"
+    "| `torque_saturation` | -1.0 | -0.5 | motors above half (balance) or 80% (ride)"
+    " of their 3 Nm limit |\n"
     "| `action_rate_l2` | -0.01 | -0.01 | jerky actions |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
@@ -329,6 +328,8 @@ out = [
     " deck all episode (ride pays half, so 2.0); balance passes at 3.6. Split,\n"
     "  2.0 means both left feet on the deck all episode; balance passes at 1.8.\n"
     "- Centred balance: `Episode_Reward/feet_on_ground` should stay near 0.\n"
+    "- Balance: `Episode_Reward/torque_saturation` should stay near 0; balance\n"
+    "  passes at -0.05 or above. Lower means motors push near their limit.\n"
     "- `Episode_Termination/*`: which termination ends episodes.\n"
     "- Ride: `Episode_Reward/track_board_velocity` (3.0 is perfect).\n"
     "- Centred ride: `Episode_Reward/foot_reach` (above 0 means a foot reaches\n"
@@ -350,12 +351,13 @@ out = [
   ),
   code("!python skateboard/tools/run_summary.py {TASK}\n"),
   md(
-    "### Gait check (ride)\n\n"
-    "Curves can pass while the gait is one the robot cannot do. For either ride\n"
-    "task this rolls out the newest checkpoint at 0.4 m/s and checks joint speed,\n"
-    "torque, that each foot touches the deck or floor most of the time, how often\n"
-    "a foot lands on the floor and that the board rolls at half the command or\n"
-    "faster. In the split stance only the two right (pushing) feet are counted.\n"
+    "### Gait check\n\n"
+    "Curves can pass while the gait is one the robot cannot do. This rolls out\n"
+    "the newest checkpoint and checks joint speed, torque, that each foot touches\n"
+    "the deck or floor most of the time and how often a foot lands on the floor.\n"
+    "Ride runs at 0.4 m/s and also checks that the board rolls at half the\n"
+    "command or faster; balance has no speed command, so it skips that check.\n"
+    "In the split stance only the two right (pushing) feet are counted.\n"
     "It also prints each foot's time on the floor, so you can see which foot\n"
     "pushes. The last line is `GAIT: PASS` or `GAIT: FAIL`. Watch the video too\n"
     "before trusting a pass.\n"

@@ -48,6 +48,7 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
+  BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
@@ -140,6 +141,11 @@ def _balance_rewards() -> dict[str, RewardTermCfg]:
     "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
     "joint_torques_l2": RewardTermCfg(func=mdp.joint_torques_l2, weight=-2e-4),
     "termination": RewardTermCfg(func=mdp.is_terminated, weight=-100.0),
+    "torque_saturation": RewardTermCfg(
+      func=mdp.torque_saturation,
+      weight=-1.0,
+      params={"limit": PUPPER_EFFORT_LIMIT, "soft_ratio": BALANCE_TORQUE_SOFT_RATIO},
+    ),
   }
 
 

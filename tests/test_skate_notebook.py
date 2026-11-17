@@ -82,9 +82,21 @@ def test_settings_cell_lists_all_four_tasks():
 
 
 @pytest.mark.parametrize("task", TASKS)
-def test_gait_cell_runs_for_ride_tasks_only(task):
+def test_gait_cell_runs_for_all_four_tasks(task):
   gait = [c for c in _code_cells() if "gait_report.py" in c]
   assert len(gait) == 1
+  lines = gait[0].splitlines()
+  # One shell command, not indented, so no `if` can skip it.
+  commands = [line for line in lines if line.lstrip().startswith("!")]
+  assert commands == [
+    "!python skateboard/tools/gait_report.py {TASK} {ckpt} {SPEED_FLAG}"
+  ]
   scope: dict = {"TASK": task}
   exec(_reward_weights_cell(), scope)
-  assert scope["RIDE"] == ("-Ride-" in task)
+  exec("\n".join(line for line in lines if line.startswith("SPEED_FLAG = ")), scope)
+  command = commands[0].format(ckpt="model_1499.pt", **scope)
+  assert command.split()[2] == task
+  if "-Ride-" in task:
+    assert command.endswith(" --speed 0.4")
+  else:
+    assert "--speed" not in command

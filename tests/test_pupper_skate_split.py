@@ -16,6 +16,7 @@ from conftest import get_test_device
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardParams
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
+  PUPPER_EFFORT_LIMIT,
   SKATE_SPLIT_BOARD_OFFSET,
   SKATE_SPLIT_HEIGHT,
   SKATE_SPLIT_KEYFRAME,
@@ -27,6 +28,7 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
+  BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
   RIDE_SPEED_RANGE,
@@ -156,7 +158,8 @@ def test_push_stride_pays_a_planted_stride_once_at_touchdown():
 
 
 ##
-# Rewards: the a110b84 split configs, name for name and weight for weight.
+# Rewards: the a110b84 split configs, name for name and weight for weight, plus
+# the balance torque penalty (Task 25).
 ##
 
 SPLIT_BALANCE_WEIGHTS = {
@@ -174,6 +177,7 @@ SPLIT_BALANCE_WEIGHTS = {
   "action_rate_l2": -0.01,
   "joint_torques_l2": -2e-4,
   "termination": -100.0,
+  "torque_saturation": -1.0,
 }
 
 SPLIT_RIDE_WEIGHTS = {
@@ -188,7 +192,8 @@ SPLIT_RIDE_WEIGHTS = {
   "torque_saturation": -0.5,
 }
 
-# The centred configs as they were before the split tasks came back.
+# The centred configs as they were before the split tasks came back, plus the
+# balance torque penalty (Task 25).
 CENTRED_BALANCE_WEIGHTS = {
   "feet_on_deck": 1.0,
   "feet_on_ground": -1.0,
@@ -201,6 +206,7 @@ CENTRED_BALANCE_WEIGHTS = {
   "action_rate_l2": -0.01,
   "joint_torques_l2": -2e-4,
   "termination": -100.0,
+  "torque_saturation": -1.0,
 }
 
 CENTRED_RIDE_WEIGHTS = {
@@ -227,7 +233,7 @@ def _weights(cfg) -> dict[str, float]:
   return {name: term.weight for name, term in cfg.rewards.items()}
 
 
-def test_split_balance_rewards_match_a110b84():
+def test_split_balance_rewards_match_a110b84_plus_torque_penalty():
   cfg = pupper_skate_split_balance_env_cfg()
   assert _weights(cfg) == pytest.approx(SPLIT_BALANCE_WEIGHTS)
   r = cfg.rewards
@@ -296,6 +302,28 @@ def test_split_terminations_match_a110b84():
   assert terms["board_tipped"].params["limit_angle"] == 0.3
   ride = pupper_skate_split_ride_env_cfg().terminations
   assert ride["feet_off_deck"].params["grace_s"] == 0.5
+
+
+@pytest.mark.parametrize(
+  "make_cfg", [pupper_skate_balance_env_cfg, pupper_skate_split_balance_env_cfg]
+)
+def test_balance_penalizes_torque_above_half_the_limit(make_cfg):
+  term = make_cfg().rewards["torque_saturation"]
+  assert term.func is mdp.torque_saturation
+  assert term.weight == -1.0
+  assert term.params == {"limit": PUPPER_EFFORT_LIMIT, "soft_ratio": 0.5}
+  assert BALANCE_TORQUE_SOFT_RATIO == 0.5
+
+
+@pytest.mark.parametrize(
+  "make_cfg", [pupper_skate_ride_env_cfg, pupper_skate_split_ride_env_cfg]
+)
+def test_ride_keeps_its_own_torque_penalty(make_cfg):
+  term = make_cfg().rewards["torque_saturation"]
+  assert term.func is mdp.torque_saturation
+  assert term.weight == -0.5
+  assert term.params["limit"] == PUPPER_EFFORT_LIMIT
+  assert term.params.get("soft_ratio", 0.8) == 0.8
 
 
 def test_centred_cfgs_are_unchanged():
@@ -412,6 +440,28 @@ def test_split_stance_holds_for_10_s_across_deck_heights(deck_offset):
     _, _, terminated, truncated, _ = env.step(actions)
     assert not (terminated | truncated).any()
   env.close()
+
+
+@pytest.mark.slow
+def test_split_stance_holds_without_torque_saturation():
+  # The balance task pays for motors above half their limit; an honest stance
+  # should not.
+  env = ManagerBasedRlEnv(
+    cfg=_calm_split_cfg(1, spawn_noise=False), device=get_test_device()
+  )
+  env.reset()
+  actions = torch.zeros(1, 12, device=env.device)
+  costs = []
+  for _ in range(500):  # 10 s.
+    _, _, terminated, truncated, _ = env.step(actions)
+    assert not (terminated | truncated).any()
+    costs.append(
+      mdp.torque_saturation(
+        env, PUPPER_EFFORT_LIMIT, soft_ratio=BALANCE_TORQUE_SOFT_RATIO
+      ).item()
+    )
+  env.close()
+  assert sum(costs[250:]) / 250 < 0.01
 
 
 @pytest.mark.slow
