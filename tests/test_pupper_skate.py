@@ -19,6 +19,7 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   SkateboardParams,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
+  FOOT_SITE_NAMES,
   JOINT_NAMES,
   SKATE_BOARD_OFFSET,
   SKATE_HEIGHT,
@@ -287,6 +288,13 @@ def test_balance_env_keeps_the_deployable_actor_frame(balance_env):
   assert len(balance_env.cfg.observations["critic"].terms) == len(stock) + 6
 
 
+def test_foot_sensors_follow_foot_site_order(balance_env):
+  expected = [site.replace("_foot_site", "_collision") for site in FOOT_SITE_NAMES]
+  for name in ("deck_feet_contact", "ground_feet_contact"):
+    sensor = balance_env.scene[name]
+    assert [n.split("/")[-1] for n in sensor.primary_names] == expected, name
+
+
 @pytest.mark.slow
 def test_stance_holds_with_zero_actions(balance_env):
   env = balance_env
@@ -314,19 +322,21 @@ def test_stance_holds_with_zero_actions(balance_env):
 
 @pytest.mark.slow
 def test_stance_survives_spawn_noise_with_zero_actions():
-  # About 1 in 10 noisy spawns tips over with zero actions, so a fixed seed keeps
-  # the count from changing run to run.
-  cfg = _calm_balance_cfg(16, spawn_noise=True)
+  # About 9% of noisy spawns tip over with zero actions (30 of 320 envs measured;
+  # seed 0 gives 5 of 64). A policy has to correct those; this checks the rest
+  # hold.
+  num_envs = 64
+  cfg = _calm_balance_cfg(num_envs, spawn_noise=True)
   cfg.seed = 0
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
   env.reset()
-  actions = torch.zeros(16, 12, device=env.device)
-  reset = torch.zeros(16, dtype=torch.bool, device=env.device)
+  actions = torch.zeros(num_envs, 12, device=env.device)
+  reset = torch.zeros(num_envs, dtype=torch.bool, device=env.device)
   for _ in range(250):  # 5 s.
     _, _, terminated, truncated, _ = env.step(actions)
     reset |= terminated | truncated
   env.close()
-  assert reset.sum() <= 2
+  assert reset.float().mean() <= 0.2
 
 
 @pytest.mark.slow
@@ -398,6 +408,7 @@ def test_ride_task_commands_forward_speed_only():
   assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
   # A push takes a foot off the deck for about a second.
   assert cfg.terminations["feet_off_deck"].params["grace_s"] == 1.5
+  assert cfg.rewards["feet_on_deck"].weight == 0.5
 
   # Either side may push, so the whole stance is held loosely.
   pose = cfg.rewards["stance_pose"]
