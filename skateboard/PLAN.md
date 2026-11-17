@@ -1,8 +1,8 @@
-b# Pupper Skateboard RL Training Implementation Plan (v3)
+b# Pupper Skateboard RL Training Implementation Plan (v4)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** train a policy in sim that holds Pupper in a split stance on the Walmart mini cruiser (left feet on the deck, right feet on the floor), then one that pushes the board forward at a commanded speed, and get it onto the real robot by Demo Day (Dec 3).
+**Goal:** train a policy in sim that holds Pupper centred on the Walmart mini cruiser with all four feet on the deck, then one that reaches a foot down to the floor and pushes the board forward at a commanded speed, and get it onto the real robot by Demo Day (Dec 3).
 
 **Architecture:** the board is a second, unactuated entity in the pupper-mjlab scene. A new task package `tasks/pupper_skate/` builds on the stock `pupper_velocity_fs_env_cfg`, swaps in a split-stance keyframe, and adds contact sensors, rewards, terminations and board randomization. The actor keeps the stock 48-dim observation, so the exported `policy.json` deploys with no robot-side changes. Board state goes to the critic only (the critic is the value network used during training; it never ships).
 
@@ -18,7 +18,14 @@ b# Pupper Skateboard RL Training Implementation Plan (v3)
 - HUSKY is CC-BY-NC-4.0: use its structure and ideas, copy no code, credit it.
 - No robot motion without the team agreeing first. TA sign-off before the first real run of any new policy.
 - `make check` before every commit. Commits `<type>: <description>`, no AI trailers.
-- Deck side is left (`DECK_SIDE = "l"`). The keyframe is solved for left only.
+- The stance is centred: all four feet on the deck, body level, board under the middle of the robot. Either side may push. (v1 to v3 used a split stance with the left feet on the deck; Tasks 20 and 21 replace it.)
+
+## What changed from v3
+
+- The board is measured (Alexander, 2026-11-16): deck top 103 mm off the floor, deck 161 mm wide and 23 in (584 mm) long, wheel radius 29 mm, track 104 mm, wheelbase 14 3/8 in (365 mm, less accurate). Mass is not measured yet and stays at the 1.8 kg guess.
+- The stance is now centred, as the team asked: all four feet on the deck, body level. The split stance is gone. Tasks 20 and 21 do this; where they disagree with the Design tables below, Tasks 20 and 21 win.
+- Alexander is modelling lower trucks (deck 2 to 3 cm lower). Deck height is randomized from 6.8 to 11.3 cm to cover both the stock and the lowered board.
+- What the prototypes showed: Pupper's default stance is 20 cm wide and the deck is 16.1 cm, so the feet come in to 7.2 cm each side (about 1 cm inside the deck edge). The stance holds with zero actions on both deck heights. From it, a foot cannot reach the floor on the stock trucks without the body dropping or rolling (the floor is 18.6 cm below the base; the leg reaches about 17 cm). On a 7 cm deck it reaches. So the lower trucks are what make pushing comfortable.
 
 ## What changed from v2
 
@@ -678,6 +685,206 @@ and not a guess. It does not train anything and changes no task.
 - [ ] **Step 5:** ruff format, ruff check, ty on the touched files; commit
   `feat: add a stance audit tool for sim2real margin checks`.
 
+### Task 20: Measured board, centred stance, two-sided pushing
+
+The team measured the board and asked for a centred stance (all four feet on
+the deck, either side may push) instead of the split stance. This task changes
+the board model, the keyframe, and both skate tasks. The numbers below come
+from prototypes that were run in simulation; use them as given.
+
+**Files:**
+- Modify: `src/mjlab/asset_zoo/robots/mini_cruiser/skateboard_constants.py`
+- Modify: `src/mjlab/asset_zoo/robots/pupper_v3/pupper_constants.py` (`SKATE_*`)
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_env_cfg.py`
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py`
+- Modify: `skateboard/tools/solve_stance.py`, `skateboard/tools/check_stance.py`
+- Test: `tests/test_pupper_skate.py`, `tests/test_pupper_skateboard.py`
+
+**Interfaces:**
+- Produces (Task 21 relies on these names): sensors `deck_feet_contact` and
+  `ground_feet_contact`, each now covering all four feet in `FOOT_SITE_NAMES`
+  order (FR, FL, BR, BL), both with `track_air_time=True`; sensor
+  `knees_on_deck`; reward terms `feet_on_deck`, `feet_on_ground`,
+  `knees_on_deck`, `tilt`, `stance_pose`, `board_alignment`, `deck_flat`,
+  `board_still` (balance only), `push_stroke` (ride only); constant
+  `DECK_HEIGHT_RANGE = (-0.035, 0.01)`.
+- Removed: `DECK_SIDE`, `GROUND_SIDE`, sensors and rewards
+  `deck_feet_on_ground` and `ground_feet_on_deck`, rewards `base_height`,
+  `push_leg_pose`, `push_stride` (function, term and test).
+
+- [ ] **Step 1: board model.** In `SkateboardParams` set the defaults to the
+  measured values and say in the comments which are measured:
+  `deck_length=0.584`, `deck_width=0.161`, `wheel_radius=0.029`,
+  `deck_top_height=0.103`, `wheelbase=0.365` (caliper too short, less
+  accurate), `track=0.104`. Leave `mass=1.8` and the truck and wheel values
+  alone, marked as guesses. Update `tests/test_pupper_skateboard.py` only where
+  it hard-codes an old number; all five board tests must still pass.
+- [ ] **Step 2: keyframe.** In `pupper_constants.py`:
+
+  ```python
+  # Centred stance: all four feet on the deck, 0.072 m either side of the
+  # centre line (the deck is 0.161 m wide) and 0.105 m below the base.
+  SKATE_POSE: tuple[float, ...] = (
+    -0.089, -0.279, 0.108,
+    0.089, 0.279, -0.108,
+    -0.094, -0.176, 0.117,
+    0.094, 0.176, -0.117,
+  )  # fmt: skip
+  SKATE_HEIGHT: float = 0.206  # base_link height once settled on a 0.103 m deck
+  SKATE_ROLL: float = 0.0  # the centred stance is level
+  SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.0)
+  ```
+
+  `SKATE_KEYFRAME` keeps its form. Fix the comments around these constants.
+- [ ] **Step 3: stance tools.** `solve_stance.py` takes `FOOT_Y DEPTH` (both
+  metres, positive) and solves all four legs to put each foot at its default
+  x, `±FOOT_Y` sideways and `DEPTH` below the base, printing the 12 angles in
+  `SKATE_POSE` order and each joint's distance to its limit.
+  `solve_stance.py 0.072 0.105` must print the pose of Step 2 to within 0.005
+  rad. `check_stance.py` keeps its arguments and gains `--deck-height METRES`
+  (default: the model's). Both `check_stance.py 0.0 0.216 <pose>` and the same
+  with `--deck-height 0.068` must end upright (|roll| and |pitch| under 0.1
+  rad after 5 s). Update both docstrings.
+- [ ] **Step 4: tests first** in `tests/test_pupper_skate.py`. Replace the
+  split-stance tests; keep every test that still applies. Required behaviour:
+  - the keyframe puts all four feet over the deck: each foot's |y| from the
+    board centre is under half the deck width minus the foot radius (0.02 m),
+    and the pose is inside the joint limits with at least 0.1 rad to spare;
+  - with zero actions for 5 s the balance env does not reset, all four
+    `deck_feet_contact` flags are on, no `ground_feet_contact` flag is on,
+    and |roll| and |pitch| stay under 0.1 rad;
+  - a foot held off the deck for longer than the grace period ends the
+    balance episode (keep the existing test's method, any one foot);
+  - `push_stroke` pays `min(last floor contact / stroke_s, 1) / step_dt` on
+    the step a foot leaves the floor, nothing on other steps, nothing below
+    the command threshold (same fake-sensor style as the old `push_stride`
+    test, which is deleted);
+  - the ride cfg has `push_stroke`, has no `board_still`, `feet_on_ground`
+    or `nudge_board`, and its `feet_off_deck` grace is 1.5 s;
+  - `DECK_HEIGHT_RANGE == (-0.035, 0.01)`.
+- [ ] **Step 5: env.** In `pupper_skate_env_cfg.py`:
+  - Sensors: `deck_feet_contact` = all four foot geoms
+    (`^leg_(front|back)_(r|l)_3_collision$`) against the deck, air time
+    tracked; `ground_feet_contact` = the same feet against the floor, air time
+    tracked; `knees_on_deck` unchanged. Delete the two wrong-surface sensors.
+  - Balance rewards: `feet_on_deck` weight 1.0 (so 4.0 when all four are
+    down); `feet_on_ground` weight -1.0 (a foot on the floor is wrong in
+    balance); `knees_on_deck` -1.0; `tilt` target `(0.0, 0.0)`, std 0.2;
+    `stance_pose` unchanged; `board_alignment` unchanged apart from the new
+    `SKATE_BOARD_OFFSET`; `deck_flat`, `board_still`, `action_rate_l2`,
+    `joint_torques_l2`, `termination` unchanged. Delete `base_height`: the
+    deck height is randomized over 4.5 cm, so a fixed world height is wrong,
+    and `stance_pose` already fixes the height above the deck.
+  - `DECK_HEIGHT_RANGE = (-0.035, 0.01)` with a comment: nominal is the
+    measured 0.103 m; the range is 6.8 to 11.3 cm, which covers the stock
+    trucks and the planned trucks that sit 2 to 3 cm lower.
+  - Terminations unchanged except `fell_over` limit 0.5 (the stance is level
+    now) and the comment above them.
+  - Ride: `feet_on_deck` weight 0.5; delete `feet_on_ground` and
+    `board_still`; `feet_off_deck` grace 1.5 s (a push takes a foot off the
+    deck for about a second); `stance_pose` on all joints with weight 0.5 and
+    std 0.6 (loose enough for one leg to stride); add
+
+    ```python
+    r["push_stroke"] = RewardTermCfg(
+      func=mdp.push_stroke,
+      weight=0.3,
+      params={
+        "sensor_name": "ground_feet_contact",
+        "stroke_s": 0.25,
+        "command_name": "twist",
+        "command_threshold": 0.1,
+      },
+    )
+    ```
+
+    Keep `track_board_velocity`, `board_yaw_rate`, `joint_vel_l2`,
+    `joint_speed_limit`, `torque_saturation` as they are.
+  - `mdp.push_stroke(env, sensor_name, stroke_s, command_name,
+    command_threshold)` in `rewards.py` replaces `push_stride`: on the step a
+    foot's `current_air_time` becomes positive (it is in `(0, step_dt + 1e-6)`),
+    score `clamp(last_contact_time / stroke_s, max=1)`; sum over feet, divide
+    by `env.step_dt`, zero when the commanded speed is at or below the
+    threshold.
+  - Rewrite the module docstring and the comments that describe the split
+    stance.
+- [ ] **Step 6: verify.**
+  `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`
+  must pass. If a `tests/test_skate_*.py` tool test breaks only because of a
+  renamed or removed name, make the smallest fix in that tool and say so in
+  the report (Task 21 does the real tool work). Also run the balance env with
+  zero actions at the two ends of the deck range (deck geom moved by -0.035
+  and +0.01) for 5 s each and put the settled roll, pitch, base height and
+  contact flags in the report. If either end falls over, stop and report
+  BLOCKED with the numbers; do not retune.
+- [ ] **Step 7:** `make check`; commit
+  `feat: centre the skate stance on the measured board`.
+
+### Task 21: Tools, notebook and docs for the centred stance
+
+Task 20 changed the stance and the reward names. This task brings the tools,
+the Colab notebook and the docs in line. Nothing here changes training.
+
+**Files:**
+- Modify: `skateboard/tools/gait_report.py`, `stance_audit.py`,
+  `run_summary.py`, `make_notebook.py`
+- Regenerate: `notebooks/CS123_Pupper_Skate.ipynb` (run `make_notebook.py`;
+  never edit the notebook by hand)
+- Modify: `skateboard/README.md`, `skateboard/SIM2REAL.md`, `README.md`
+  (the two skate task rows)
+- Test: `tests/test_skate_gait_report.py`, `tests/test_skate_stance_audit.py`,
+  `tests/test_skate_run_summary.py`, `tests/test_skate_notebook.py` if present
+
+**Interfaces:**
+- Consumes from Task 20: sensors `deck_feet_contact` and
+  `ground_feet_contact` (four feet each, order FR, FL, BR, BL); rewards
+  `feet_on_deck` (weight 1.0 balance, 0.5 ride), `feet_on_ground` (-1.0,
+  balance only), `knees_on_deck`, `tilt`, `stance_pose`, `board_alignment`,
+  `deck_flat`, `board_still` (balance only), `push_stroke` (0.3, ride only);
+  no `base_height`, `push_stride`, `push_leg_pose`, `deck_feet_on_ground`,
+  `ground_feet_on_deck`; `DECK_HEIGHT_RANGE = (-0.035, 0.01)`.
+
+- [ ] **Step 1: `run_summary.py`.** Balance passes at
+  `Episode_Reward/feet_on_deck >= 3.6` (four feet, was 1.8 for two). Ride
+  criteria unchanged. Update its test.
+- [ ] **Step 2: `gait_report.py`.** Read `deck_feet_contact` (four columns)
+  instead of `ground_feet_contact`. `min_foot_duty` becomes the smallest
+  share of time any foot spends on the deck and `max_stride_rate` the most
+  often any foot lands on the deck; limits stay 0.4 and 2.0. Add a printed
+  line (not part of the verdict) with each foot's share of time on the floor
+  from `ground_feet_contact`, so a reader sees which foot pushes. Update the
+  docstrings, the `[T, 2]` shapes and the tests.
+- [ ] **Step 3: `stance_audit.py`.** A row passes when all four feet are on
+  the deck at least 90% of the time (was the two left feet); the other pass
+  limits stay. Report the three-foot margins for all four feet (lift FR, FL,
+  BR, BL). Deck-height conditions become offsets that fit the new range:
+  -0.035, -0.02, +0.01, +0.02, +0.03. Board sideways offsets become ±0.01
+  and ±0.02 m (the feet are 1 cm inside the deck edge). Update the tests.
+- [ ] **Step 4: notebook.** In `make_notebook.py` make the reward table, the
+  `REWARD_WEIGHTS` cell and the "what to watch" text match Task 20 exactly
+  (names and weights from the Interfaces block; for anything not listed, read
+  `pupper_skate_env_cfg.py`). Describe the stance as centred. Regenerate the
+  notebook and check that every key of `REWARD_WEIGHTS` exists in the env's
+  reward dict for the matching task (add this as a test if there is not one).
+- [ ] **Step 5: docs.**
+  - `skateboard/README.md`: board table with the measured values (deck top
+    103 mm, width 161 mm, length 584 mm, wheel radius 29 mm, track 104 mm,
+    wheelbase 365 mm marked less accurate, mass 1.8 kg marked guess); stance
+    described as centred; tool usage lines that changed.
+  - `README.md`: the two skate rows say centred stance / push with one foot.
+  - `skateboard/SIM2REAL.md`: add a dated section at the top, "Update
+    2026-11-16: centred stance", saying: the stance is now centred on the
+    measured board; the results table below is for the old split stance and
+    has not been rerun; the feet sit about 1 cm inside the deck edge, so
+    sideways placement is the new thing to check; from this stance a foot
+    cannot reach the floor on the stock trucks (floor 18.6 cm below the base,
+    leg reach about 17 cm) unless the body drops or rolls, and it can on a
+    7 cm deck. Plain language, short sentences, no em dashes.
+- [ ] **Step 6:** run
+  `FORCE_CPU=1 uv run pytest tests/test_pupper_skate.py tests/test_pupper_skateboard.py tests/test_skate_*.py -q`,
+  `make check`; commit
+  `feat: update skate tools, notebook and docs for the centred stance`.
+
 ## Self-review
 
 - Coverage: stance keyframe (Task 1), modeling (Tasks 1, 3, 10), rewards and terminations (Tasks 2, 3, 5 and the Design tables), randomization (Task 3), training (Tasks 9, 11), export and deploy (Tasks 4, 12). No gaps found.
@@ -687,5 +894,5 @@ and not a guess. It does not train anything and changes no task.
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** left side on the deck; board is 0.10 m tall and 1.8 kg until measured (deck height is randomized ±3 cm to cover it); W&B project name `mjlab` as in the course notebook.
+- **Assumed:** centred stance with feet 7.2 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (deck height is randomized 6.8 to 11.3 cm to cover both); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.
