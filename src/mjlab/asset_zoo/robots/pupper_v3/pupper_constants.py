@@ -84,6 +84,26 @@ SKATE_ROLL: float = 0.0  # the centred stance is level
 # Board centre in the robot's heading frame (x forward, y left).
 SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.0)
 
+# Split stance: left feet on the measured deck (0.103 m up, 0.161 m wide), right
+# feet on the floor. The legs cannot make up the whole deck height, so the stance
+# is rolled toward the floor side. Left feet sit 0.14 m out and 0.064 m below the
+# base, right feet 0.145 m below it. Once settled, the left feet sit within 7 mm
+# of the deck's centre line (7 to 9 cm from each edge), so the robot's weight
+# does not roll the deck and steer the trucks. Reproduce with
+#   FORCE_CPU=1 uv run python skateboard/tools/solve_split_stance.py \
+#     0.14 0.064 0.145
+# and check with skateboard/tools/check_split_stance.py.
+SKATE_SPLIT_POSE: tuple[float, ...] = (
+  0.3, 0.0, -0.594,
+  0.344, -0.514, -0.393,
+  0.3, 0.0, -0.594,
+  0.282, -0.617, -0.288,
+)  # fmt: skip
+SKATE_SPLIT_HEIGHT: float = 0.154  # base_link height once settled
+SKATE_SPLIT_ROLL: float = 0.083  # settled roll [rad], floor (right) side lower
+# Board centre in the robot's heading frame (x forward, y left).
+SKATE_SPLIT_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.146)
+
 FOOT_SITE_NAMES: tuple[str, ...] = (
   "leg_front_r_3_foot_site",
   "leg_front_l_3_foot_site",
@@ -172,6 +192,17 @@ SKATE_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, SKATE_HEIGHT + 0.01),
   rot=(math.cos(SKATE_ROLL / 2), math.sin(SKATE_ROLL / 2), 0.0, 0.0),
   joint_pos={name: angle for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True)},
+  joint_vel={".*": 0.0},
+)
+
+# Spawns already rolled, so the robot settles into the split stance instead of
+# tipping.
+SKATE_SPLIT_KEYFRAME = EntityCfg.InitialStateCfg(
+  pos=(0.0, 0.0, SKATE_SPLIT_HEIGHT + 0.01),
+  rot=(math.cos(SKATE_SPLIT_ROLL / 2), math.sin(SKATE_SPLIT_ROLL / 2), 0.0, 0.0),
+  joint_pos={
+    name: angle for name, angle in zip(JOINT_NAMES, SKATE_SPLIT_POSE, strict=True)
+  },
   joint_vel={".*": 0.0},
 )
 

@@ -155,6 +155,36 @@ def torque_saturation(
   return torch.sum(torch.clamp(over, 0.0, 1.0), dim=1)
 
 
+def push_stride(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  stance_s: float,
+  air_range: tuple[float, float],
+  command_name: str,
+  command_threshold: float,
+) -> torch.Tensor:
+  """Reward slow, planted push strides, paid once per touchdown (split stance).
+
+  A stride is the stance that ended at lift-off plus the swing that just
+  landed. It scores min(stance / stance_s, 1) when the swing lasted within
+  ``air_range`` seconds, and 0 otherwise, so quick taps and feet held in the air
+  earn little. The score is divided by the step so the weight is the reward for
+  one full stride. Paid only above ``command_threshold`` m/s of commanded speed.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  data = sensor.data
+  contact_time, air_time = data.current_contact_time, data.last_air_time
+  stance_time = data.last_contact_time
+  assert contact_time is not None and air_time is not None and stance_time is not None
+  landed = (contact_time > 0.0) & (contact_time < env.step_dt + 1.0e-6)
+  swing_ok = (air_time >= air_range[0]) & (air_time <= air_range[1])
+  score = torch.clamp(stance_time / stance_s, max=1.0)
+  reward = torch.sum(score * (landed & swing_ok).float(), dim=1) / env.step_dt
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  return reward * (command[:, 0] > command_threshold).float()
+
+
 def push_stroke(
   env: ManagerBasedRlEnv,
   sensor_name: str,
