@@ -33,7 +33,7 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 - The stance moved from split (left feet on the deck, right feet on the floor) to centred on 2026-11-16. The split stance came back the same day as a second pair of tasks. The centred tasks must be trained. The saved policies in [`policies/`](policies/) were trained on the split stance.
 - Balance (split stance) was trained in sim and passes the gait check (see [`CHECKPOINT.md`](CHECKPOINT.md)).
 - Ride must be retrained. Its rewards were reshaped so the gait fits the motors (PLAN Task 16). The saved ride policy passes the curve check but fails the gait check, so it is for reference only. The retrain has not run yet.
-- Not done: retraining both tasks for the centred stance, measuring the board's mass, trucks and wheel drag, anything on the robot.
+- Not done: retraining both tasks for the centred stance, measuring the board's truck stiffness and wheel drag, anything on the robot.
 
 Four tasks are registered:
 
@@ -60,7 +60,7 @@ Replace the guesses in `SkateboardParams` when you measure them.
 | Wheel radius | 29 mm | measured | ruler (58 mm wheels) |
 | Track | 104 mm | measured | ruler, left to right wheel centre |
 | Wheelbase | 365 mm | measured, less accurate | ruler, front axle to rear axle |
-| Mass | 1.8 kg | guess | kitchen scale |
+| Mass | 1.523 kg | measured 2026-11-16 (stock trucks) | kitchen scale |
 | Roll stiffness | 30 N·m/rad | guess | put about 1.5 kg on the deck edge, measure how far the edge drops |
 | Wheel drag | 2e-3 N·m per wheel | guess | roll off a ramp of known height, measure the coast distance |
 

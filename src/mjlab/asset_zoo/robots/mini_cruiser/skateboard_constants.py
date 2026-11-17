@@ -45,8 +45,8 @@ class SkateboardParams:
   caliper reaches."""
   track: float = 0.104
   """Measured. Left wheel centre to right wheel centre."""
-  mass: float = 1.8
-  """Guess. Whole board."""
+  mass: float = 1.523
+  """Measured 2026-11-16 on the stock trucks. Whole board."""
   roll_stiffness: float = 30.0
   """Guess. Bushing spring about the roll axis, N*m/rad."""
   roll_damping: float = 0.5
