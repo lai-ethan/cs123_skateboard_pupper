@@ -25,7 +25,7 @@ b# Pupper Skateboard RL Training Implementation Plan (v4)
 - The board is measured (Alexander, 2026-11-16): deck top 103 mm off the floor, deck 161 mm wide and 23 in (584 mm) long, wheel radius 29 mm, track 104 mm, wheelbase 14 3/8 in (365 mm, less accurate). Mass is not measured yet and stays at the 1.8 kg guess.
 - The stance is now centred, as the team asked: all four feet on the deck, body level. The split stance is gone. Tasks 20 and 21 do this; where they disagree with the Design tables below, Tasks 20 and 21 win.
 - Alexander is modelling lower trucks (deck 2 to 3 cm lower). Deck height is randomized from 6.8 to 11.3 cm to cover both the stock and the lowered board.
-- What the prototypes showed: Pupper's default stance is 20 cm wide and the deck is 16.1 cm, so the feet come in to 7.2 cm each side (about 1 cm inside the deck edge). The stance holds with zero actions on both deck heights. From it, a foot cannot reach the floor on the stock trucks without the body dropping or rolling (the floor is 18.6 cm below the base; the leg reaches about 17 cm). On a 7 cm deck it reaches. So the lower trucks are what make pushing comfortable.
+- What the prototypes showed: Pupper's default stance is 20 cm wide and the deck is 16.1 cm, so the feet come in to 6.6 cm (front) and 6.0 cm (back) each side, 1.5 to 2 cm inside the deck edge. A first try at 7.2 cm fell off the edge whenever the robot spawned 3 mm off-centre. The stance holds with zero actions on both deck heights. From it, a foot cannot reach the floor on the stock trucks without the body dropping or rolling (the floor is 18.6 cm below the base; the leg reaches about 17 cm). On a 7 cm deck it reaches. So the lower trucks are what make pushing comfortable.
 
 ## What changed from v2
 
@@ -722,15 +722,20 @@ from prototypes that were run in simulation; use them as given.
 - [ ] **Step 2: keyframe.** In `pupper_constants.py`:
 
   ```python
-  # Centred stance: all four feet on the deck, 0.072 m either side of the
-  # centre line (the deck is 0.161 m wide) and 0.105 m below the base.
+  # Centred stance: all four feet on the deck and 0.115 m below the base. The
+  # front feet sit 0.066 m either side of the centre line and 0.02 m behind
+  # their default spot, the back feet 0.060 m. The deck is 0.161 m wide, so
+  # the feet have 1.5 to 2 cm to the edge. Any wider and spawn noise drops a
+  # foot off the edge.
   SKATE_POSE: tuple[float, ...] = (
-    -0.089, -0.279, 0.108,
-    0.089, 0.279, -0.108,
-    -0.094, -0.176, 0.117,
-    0.094, 0.176, -0.117,
+    -0.138, -0.299, -0.107,
+    0.138, 0.299, 0.107,
+    -0.002, -0.264, -0.045,
+    0.002, 0.264, 0.045,
   )  # fmt: skip
-  SKATE_HEIGHT: float = 0.206  # base_link height once settled on a 0.103 m deck
+  # base_link height with the feet just touching a 0.103 m deck. The legs
+  # give about 2 cm once loaded.
+  SKATE_HEIGHT: float = 0.238
   SKATE_ROLL: float = 0.0  # the centred stance is level
   SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.0)
   ```
@@ -738,21 +743,26 @@ from prototypes that were run in simulation; use them as given.
   `SKATE_KEYFRAME` keeps its form. Fix the comments around these constants.
 - [ ] **Step 3: stance tools.** `solve_stance.py` takes `FOOT_Y DEPTH` (both
   metres, positive) and solves all four legs to put each foot at its default
-  x, `±FOOT_Y` sideways and `DEPTH` below the base, printing the 12 angles in
-  `SKATE_POSE` order and each joint's distance to its limit.
-  `solve_stance.py 0.072 0.105` must print the pose of Step 2 to within 0.005
-  rad. `check_stance.py` keeps its arguments and gains `--deck-height METRES`
-  (default: the model's). Both `check_stance.py 0.0 0.216 <pose>` and the same
+  x plus a shift, `±FOOT_Y` sideways and `DEPTH` below the base, printing the
+  12 angles in `SKATE_POSE` order and each joint's distance to its limit.
+  Front and back legs may differ: options `--back-y` (default `FOOT_Y`) and
+  `--front-dx` (default 0, metres forward).
+  `solve_stance.py 0.066 0.115 --back-y 0.060 --front-dx -0.02` must print
+  the pose of Step 2 to within 0.005 rad. `check_stance.py` keeps its arguments and gains `--deck-height METRES`
+  (default: the model's). Both `check_stance.py 0.0 0.248 <pose>` and the same
   with `--deck-height 0.068` must end upright (|roll| and |pitch| under 0.1
   rad after 5 s). Update both docstrings.
 - [ ] **Step 4: tests first** in `tests/test_pupper_skate.py`. Replace the
   split-stance tests; keep every test that still applies. Required behaviour:
-  - the keyframe puts all four feet over the deck: each foot's |y| from the
-    board centre is under half the deck width minus the foot radius (0.02 m),
-    and the pose is inside the joint limits with at least 0.1 rad to spare;
-  - with zero actions for 5 s the balance env does not reset, all four
-    `deck_feet_contact` flags are on, no `ground_feet_contact` flag is on,
-    and |roll| and |pitch| stay under 0.1 rad;
+  - the keyframe puts all four feet over the deck: each foot centre's |y|
+    from the board centre is at least 0.01 m inside half the deck width, and
+    the pose is inside the joint limits with at least 0.1 rad to spare;
+  - with zero actions for 5 s and a clean spawn (no reset noise, nominal
+    deck) the balance env does not reset, all four `deck_feet_contact` flags
+    are on, no `ground_feet_contact` flag is on, and |roll| and |pitch| stay
+    under 0.1 rad;
+  - with zero actions for 5 s and the env's normal reset noise, at least 14
+    of 16 envs never reset (a prototype got 15 to 16);
   - a foot held off the deck for longer than the grace period ends the
     balance episode (keep the existing test's method, any one foot);
   - `push_stroke` pays `min(last floor contact / stroke_s, 1) / step_dt` on
@@ -816,8 +826,13 @@ from prototypes that were run in simulation; use them as given.
   zero actions at the two ends of the deck range (deck geom moved by -0.035
   and +0.01) for 5 s each and put the settled roll, pitch, base height and
   contact flags in the report. If either end falls over, stop and report
-  BLOCKED with the numbers; do not retune.
-- [ ] **Step 7:** `make check`; commit
+  BLOCKED with the numbers; do not retune. `test_leaning_right_steers_right`
+  misses its tolerance by 0.3 mm with the measured track: fix the test so it
+  still proves the steering direction and size with honest margin (for
+  example a longer roll), and say what you changed.
+- [ ] **Step 7:** ruff format, ruff check and ty on the touched files
+  (`make check` also runs pyright, which fails on `notebooks/watch_live.py`,
+  a file outside this work); commit
   `feat: centre the skate stance on the measured board`.
 
 ### Task 21: Tools, notebook and docs for the centred stance
@@ -894,5 +909,5 @@ the Colab notebook and the docs in line. Nothing here changes training.
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a right-side stance; a push/glide phase clock like HUSKY's.
-- **Assumed:** centred stance with feet 7.2 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (deck height is randomized 6.8 to 11.3 cm to cover both); W&B project name `mjlab` as in the course notebook.
+- **Assumed:** centred stance with feet 6.0 to 6.6 cm either side (v4); board mass 1.8 kg until weighed; lowered trucks put the deck 2 to 3 cm lower (deck height is randomized 6.8 to 11.3 cm to cover both); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. The ride run stopped at iteration ~1120 of 1500 (Colab GPU limit), so it has curves but no `RESULT:` verdict. Reward weights are the defaults; they passed, so they were not tuned further. `uv run play` for the skate tasks has not been watched in a viewer.
