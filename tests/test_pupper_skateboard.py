@@ -93,9 +93,34 @@ def test_leaning_right_steers_right(board) -> None:
   front = data.joint("truck_f_yaw").qpos[0]
   rear = data.joint("truck_r_yaw").qpos[0]
   assert roll > 0.01
-  # Front yaws against the lean and rear with it, by the same amount. The model
-  # reaches only about 45% of steer_gain * roll: a known shortfall of the soft
-  # joint equality, to be looked at later.
+  # Front yaws against the lean and rear with it, by the same amount: the full
+  # steer_gain * roll. (The 45% shortfall seen before was the truck yaw limit,
+  # compiled as 0.0029 rad, fighting the joint equality.)
   assert rear == pytest.approx(-front, abs=1e-4)
-  assert 0.35 * full_yaw < rear < 0.6 * full_yaw
-  assert data.qpos[1] < -0.02  # Measured -0.034.
+  assert rear == pytest.approx(full_yaw, rel=0.01)
+  assert data.qpos[1] < -0.02  # Measured -0.22.
+
+
+def test_board_joint_limits_are_in_radians() -> None:
+  p = SkateboardParams()
+  model = get_skateboard_spec().compile()
+  roll = model.joint(DECK_ROLL_JOINT_NAME).range
+  np.testing.assert_allclose(roll, (-p.roll_limit, p.roll_limit), atol=1e-6)
+  yaw = p.steer_gain * p.roll_limit
+  for name in ("truck_f_yaw", "truck_r_yaw"):
+    np.testing.assert_allclose(model.joint(name).range, (-yaw, yaw), atol=1e-6)
+
+
+def test_load_on_the_deck_edge_leans_the_deck(board) -> None:
+  model, data = board
+  deck = model.body("deck").id
+  edge = np.array([0.0, -SkateboardParams().deck_width / 2, 0.0])
+  force, torque = np.array([0.0, 0.0, -15.0]), np.zeros(3)
+  for _ in range(500):  # 2 s: 15 N straight down on the right edge.
+    data.qfrc_applied[:] = 0.0
+    point = data.body("deck").xpos + data.body("deck").xmat.reshape(3, 3) @ edge
+    mujoco.mj_applyFT(model, data, force, torque, point, deck, data.qfrc_applied)
+    mujoco.mj_step(model, data)
+  # With the limit compiled as 0.0035 rad the soft limit let this reach 0.015;
+  # now it is 0.042.
+  assert data.joint(DECK_ROLL_JOINT_NAME).qpos[0] > 0.02

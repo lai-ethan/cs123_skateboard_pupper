@@ -16,6 +16,7 @@ from rsl_rl.modules import MLP, EmpiricalNormalization
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
+  DECK_ROLL_JOINT_NAME,
   SkateboardParams,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
@@ -47,7 +48,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
-from mjlab.tasks.registry import list_tasks
+from mjlab.tasks.registry import list_tasks, load_env_cfg
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 NUM_ENVS = 4
@@ -581,6 +582,28 @@ def test_ride_env_steps_with_random_actions():
       assert isinstance(values, torch.Tensor) and torch.isfinite(values).all()
   command = env.command_manager.get_command("twist")
   assert command is not None and command[:, 0].min() >= 0.0
+  env.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+  "task", ["Mjlab-Skate-Balance-Pupper-v3", "Mjlab-SkateSplit-Balance-Pupper-v3"]
+)
+def test_board_joint_limits_survive_the_scene_compile(task):
+  # The board is attached to the scene and compiled again; its limits must stay
+  # in radians there too.
+  p = SkateboardParams()
+  cfg = load_env_cfg(task)
+  cfg.scene.num_envs = 1
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  model = env.sim.mj_model
+  roll = model.joint(f"board/{DECK_ROLL_JOINT_NAME}").range
+  np.testing.assert_allclose(roll, (-p.roll_limit, p.roll_limit), atol=1e-6)
+  yaw = p.steer_gain * p.roll_limit
+  for name in ("truck_f_yaw", "truck_r_yaw"):
+    np.testing.assert_allclose(
+      model.joint(f"board/{name}").range, (-yaw, yaw), atol=1e-6
+    )
   env.close()
 
 

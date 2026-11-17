@@ -68,6 +68,9 @@ def get_skateboard_spec(
   hinge = mujoco.mjtJoint.mjJNT_HINGE
   box = mujoco.mjtGeom.mjGEOM_BOX
   spec = mujoco.MjSpec()
+  # Every angle here is in radians. MjSpec defaults to degrees, which shrank the
+  # deck roll and truck yaw limits about 57 times so the deck could not lean.
+  spec.compiler.degree = False
 
   # Root frame sits at axle height, midway between the trucks.
   board = spec.worldbody.add_body(name="board", pos=(0, 0, p.wheel_radius))
@@ -106,7 +109,7 @@ def get_skateboard_spec(
 
   # Trucks: front yaws against the lean and rear with it, so the board carves
   # towards the low side.
-  yaw_limit = p.steer_gain * p.roll_limit + 0.05
+  yaw_limit = p.steer_gain * p.roll_limit
   for end, x, sign in (("f", p.wheelbase / 2, -1.0), ("r", -p.wheelbase / 2, 1.0)):
     truck = board.add_body(name=f"truck_{end}", pos=(x, 0, 0))
     truck.add_joint(
