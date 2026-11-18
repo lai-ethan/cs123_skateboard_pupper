@@ -547,8 +547,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # the deck. A fall costs less here, tracking the speed needs the board
   # within about 0.1 m/s of the command, and progress, reaching and pushing
   # pay more. Played open loop at 0.3 m/s on decks 9.3 to 11.3 cm with
-  # randomization on, falls included, the stroke reference earns 6.9 per
-  # second against 5.1 for holding the tripod layout still (1.34 times).
+  # randomization on, falls included, the stroke reference earns 6.6 per
+  # second against 5.1 for holding the tripod layout still (1.28 times).
   r["termination"].weight = -20.0
   # The deck pays for the three support feet, and the body may tilt and the
   # board shift a little while the push foot strokes. Tilt and board position
@@ -629,16 +629,17 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     },
   )
   # short_stride charges each push-foot landing whose last floor contact was
-  # short, 1.5 * (1 - min(contact / 0.75 s, 1)), at any command (run 9c33unfu
-  # skittered at 7 landings a second). With push_stroke, a 0.11 s tap nets
-  # 3 * 0.11 / 0.75 - 1.5 * (1 - 0.11 / 0.75) = 0.44 - 1.28 = -0.84, a full
-  # 0.75 s stroke nets +3.0, and contacts under 0.25 s lose. The stroke
+  # short, 3 * (1 - min(contact / 0.75 s, 1)), at any command (run 9c33unfu
+  # skittered at 7 landings a second, run v8 settled on 0.3 to 0.37 s strokes).
+  # With push_stroke, a 0.11 s tap nets
+  # 3 * 0.11 / 0.75 - 3 * (1 - 0.11 / 0.75) = 0.44 - 2.56 = -2.12, a full
+  # 0.75 s stroke nets +3.0, and contacts under 0.375 s lose. The stroke
   # reference's foot brushes the floor for about 0.2 s in its forward swing,
-  # which costs it about 1.1 a cycle; lifting clear avoids it. Only the push
+  # which costs it about 2.2 a cycle; lifting clear avoids it. Only the push
   # foot reaches the floor, so the floor sensor needs no foot filter.
   r["short_stride"] = RewardTermCfg(
     func=mdp.short_stride,
-    weight=-1.5,
+    weight=-3.0,
     params={"sensor_name": "ground_feet_contact", "stance_s": TRIPOD_STROKE_S},
   )
   # A push foot that lands still swinging forward brakes the board. Only the

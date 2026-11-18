@@ -371,7 +371,7 @@ CENTRED_RIDE_WEIGHTS = {
   "board_yaw_rate": -0.5,
   "foot_reach": 1.0,
   "push_stroke": 3.0,
-  "short_stride": -1.5,
+  "short_stride": -3.0,
   "feet_slide": -2.0,
   "board_progress": 4.0,
   "action_acc": -0.02,

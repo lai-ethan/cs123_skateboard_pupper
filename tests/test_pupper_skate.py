@@ -1356,7 +1356,7 @@ def test_tripod_ride_charges_push_foot_taps():
     assert r["push_stroke"].weight == 3.0
     short = r["short_stride"]
     assert short.func is mdp.short_stride
-    assert short.weight == -1.5
+    assert short.weight == -3.0
     assert short.params == {
       "sensor_name": "ground_feet_contact",
       "stance_s": TRIPOD_STROKE_S,
@@ -1426,19 +1426,20 @@ def _push_foot_pay(contact: list[bool], step_dt: float = 0.01) -> dict[str, floa
 def test_push_foot_taps_lose_and_a_full_stroke_pays():
   # Run 9c33unfu's skitter: 0.11 s on the floor, 0.03 s up, 7 taps a second,
   # for 2 s. Each tap earns 3 * 0.11 / 0.75 = 0.44 and the landing after it
-  # costs 1.5 * (1 - 0.11 / 0.75) = 1.28; the first landing has no stance
+  # costs 3 * (1 - 0.11 / 0.75) = 2.56; the first landing has no stance
   # before it and costs nothing.
   tap = [True] * 10 + [False] * 4
   pay = _push_foot_pay([False] * 3 + tap * 14)
   assert pay["push_stroke"] == pytest.approx(14 * 0.44, rel=1e-3)
   net = pay["push_stroke"] + pay["short_stride"]
-  assert net == pytest.approx(14 * 0.44 - 13 * 1.28, rel=1e-2)
+  assert net == pytest.approx(14 * 0.44 - 13 * 2.56, rel=1e-2)
   assert net < -10.0
   # One stroke of stroke_s, a 0.3 s swing and the next landing: +3.
   stroke = [False] * 3 + [True] * 74 + [False] * 30 + [True] * 5
   pay = _push_foot_pay(stroke)
   assert pay["push_stroke"] == pytest.approx(3.0, rel=1e-3)
-  assert pay["short_stride"] == pytest.approx(0.0, abs=1e-6)
+  # Float32 residue in the 0.75 s contact clock, times the weight.
+  assert pay["short_stride"] == pytest.approx(0.0, abs=1e-5)
 
 
 @pytest.mark.parametrize(
@@ -1665,14 +1666,15 @@ def test_push_reference_strokes_earn_full_pay(push_reference_pay):
 def test_push_reference_charges_only_its_swing_brush(push_reference_pay):
   # A landing after a planted stroke costs nothing. The charge comes from the
   # foot brushing the floor for 0.14 to 0.24 s in the forward swing (the 4 cm
-  # lift does not clear it), about 1.1 a cycle, and the short first stroke,
-  # about 0.4. Measured: 31% of the stroke pay at 103 mm, 32% at 93 mm and 34%
-  # at 113 mm. The policy is expected to lift clear instead.
+  # lift does not clear it), about 2.2 a cycle, and the short first stroke,
+  # about 0.8. Measured: 61% of the stroke pay at 103 mm, 64% at 93 mm and 68%
+  # at 113 mm (bound set to the 103 mm figure rounded up to the next 5%). The
+  # policy is expected to lift clear instead.
   result = push_reference_pay
   after_stroke = [c for t, c in result["landings"] if t >= TRIPOD_STROKE_S]
   assert len(after_stroke) >= 2 * 2, result
   assert all(c == 0.0 for c in after_stroke), result
-  assert -result["short_charge"] <= 0.40 * result["stroke_pay"], result
+  assert -result["short_charge"] <= 0.65 * result["stroke_pay"], result
 
 
 @pytest.mark.slow
