@@ -29,8 +29,15 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp import dr
 from mjlab.managers.scene_entity_config import SceneEntityCfg
-from mjlab.tasks.pupper_gait.export import export_pupper_gait_policy_from_env
-from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
+from mjlab.tasks.pupper_gait.export import (
+  export_pupper_gait_policy_from_env,
+  heading_hold_metadata,
+)
+from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import (
+  GAIT_HEADING_HOLD_CLIP,
+  GAIT_HEADING_HOLD_KP,
+  pupper_velocity_fs_env_cfg,
+)
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.mdp.rewards import stance_target
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
@@ -47,6 +54,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   pupper_skate_split_steer_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks, load_env_cfg
+from mjlab.tasks.velocity.mdp.velocity_command import UniformVelocityCommand
 from mjlab.utils.lab_api.math import (
   euler_xyz_from_quat,
   quat_from_euler_xyz,
@@ -607,7 +615,7 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   assert alignment.params == {
     "target_offset": SKATE_SPLIT_BOARD_OFFSET,
     "std_pos": 0.03,
-    "std_yaw": 0.3,
+    "std_yaw": 0.1,
   }
   drifted = cfg.terminations["board_drifted"]
   assert drifted.func is mdp.board_drifted
@@ -1090,11 +1098,12 @@ def test_steer_is_the_split_ride_plus_a_yaw_command():
     assert STEER_YAW_RATE_RANGE == (-0.15, 0.15)
     assert twist.ranges.ang_vel_z == STEER_YAW_RATE_RANGE
     assert (twist.rel_straight_envs, twist.yaw_min_speed) == (0.3, 0.1)
-    # Every other command field is the split ride's.
+    # Every other stock command field is the split ride's (the heading hold
+    # is the ride's alone, checked below).
     ride_twist = ride.commands["twist"]
     assert isinstance(ride_twist, mdp.PupperVelocityCommandCfg)
-    for field in dataclasses.fields(ride_twist):
-      if field.name != "ranges":
+    for field in dataclasses.fields(mdp.PupperVelocityCommandCfg):
+      if field.name not in ("ranges", "heading_hold_kp"):
         expected = getattr(ride_twist, field.name)
         assert getattr(twist, field.name) == expected, field.name
     assert twist.ranges == dataclasses.replace(
@@ -1118,11 +1127,15 @@ def test_existing_skate_tasks_keep_a_zero_yaw_command(make_cfg):
   for play in (False, True):
     cfg = make_cfg(play=play)
     twist = cfg.commands["twist"]
-    # The stock command class: the steer task's sampling rules are not in it.
-    assert type(twist) is mdp.PupperVelocityCommandCfg
+    # The stock command class (the split ride's adds only the board heading
+    # hold): the steer task's sampling rules are not in it.
+    stock = (mdp.PupperVelocityCommandCfg, mdp.BoardHeadingHoldCommandCfg)
+    assert type(twist) in stock
     assert twist.ranges.ang_vel_z == (0.0, 0.0)
     assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
-    assert twist.heading_hold_kp is None
+    # Heading hold only in the split ride (its own tests below).
+    if make_cfg is not pupper_skate_split_ride_env_cfg:
+      assert twist.heading_hold_kp is None
     assert "track_board_yaw_rate" not in cfg.rewards
 
 
@@ -1186,6 +1199,103 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
     "walk_threshold": 0.05,
   }
   assert "gait_reference" in policy
+
+
+##
+# Split ride heading hold: the yaw command holds the board's line.
+##
+
+
+def test_split_ride_holds_heading_with_gait_gains():
+  for play in (False, True):
+    ride = pupper_skate_split_ride_env_cfg(play=play).commands["twist"]
+    assert isinstance(ride, mdp.BoardHeadingHoldCommandCfg)
+    assert ride.board_name == "board"
+    assert ride.heading_hold_kp == GAIT_HEADING_HOLD_KP
+    assert ride.heading_hold_clip == GAIT_HEADING_HOLD_CLIP
+    balance = pupper_skate_split_balance_env_cfg(play=play).commands["twist"]
+    assert isinstance(balance, mdp.PupperVelocityCommandCfg)
+    assert balance.heading_hold_kp is None
+    steer = pupper_skate_split_steer_env_cfg(play=play).commands["twist"]
+    assert type(steer) is mdp.SteerVelocityCommandCfg
+    assert steer.heading_hold_kp is None
+
+
+def test_split_ride_alignment_yaw_width():
+  ride = pupper_skate_split_ride_env_cfg().rewards["board_alignment"]
+  balance = pupper_skate_split_balance_env_cfg().rewards["board_alignment"]
+  assert ride.params["std_yaw"] == 0.1
+  assert balance.params["std_yaw"] == 0.3
+
+
+def test_split_heading_hold_exports_the_gait_gains_only_on_the_ride():
+  ride = SimpleNamespace(cfg=pupper_skate_split_ride_env_cfg(play=True))
+  balance = SimpleNamespace(cfg=pupper_skate_split_balance_env_cfg(play=True))
+  ride_block = heading_hold_metadata(ride)
+  balance_block = heading_hold_metadata(balance)
+  assert ride_block is not None and balance_block is not None
+  assert ride_block["kp"] == GAIT_HEADING_HOLD_KP
+  assert ride_block["clip"] == GAIT_HEADING_HOLD_CLIP
+  assert balance_block["kp"] == 0.0
+
+
+@pytest.fixture(scope="module")
+def hold_env():
+  """The split ride in play, two envs, a fixed walking command and no noise."""
+  cfg = pupper_skate_split_ride_env_cfg(play=True)
+  cfg.scene.num_envs = 2
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (0.0, 0.0)
+  cfg.events.pop("push_robot", None)
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (0.3, 0.3)
+  twist.rel_standing_envs = 0.0
+  twist.resampling_time_range = (1e6, 1e6)
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  yield env
+  env.close()
+
+
+@pytest.mark.slow
+def test_split_ride_yaw_command_points_at_board_heading(hold_env):
+  env = hold_env
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  assert isinstance(term, mdp.BoardHeadingHoldCommand)
+  board = env.scene["board"]
+  # The board yawed +0.1 rad from the robot in env 0 and -0.1 rad in env 1.
+  pose = board.data.root_link_pose_w.clone()
+  zeros = torch.zeros(2, device=env.device)
+  yaw = torch.tensor([0.1, -0.1], device=env.device)
+  pose[:, 3:7] = quat_mul(pose[:, 3:7], quat_from_euler_xyz(zeros, zeros, yaw))
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  # Re-arm the hold (reset already captured the board's old heading), so it
+  # captures on the next step as at a fresh walk command.
+  term._hh_prev_active[:] = False
+  env.step(torch.zeros(2, 12, device=env.device))
+  command = env.command_manager.get_command("twist")
+  assert command is not None
+  expected = GAIT_HEADING_HOLD_KP * yaw
+  torch.testing.assert_close(command[:, 2], expected, atol=0.02, rtol=0)
+  torch.testing.assert_close(command[:, 0], term.vel_command_b[:, 0])
+  torch.testing.assert_close(command[:, 0], torch.full_like(zeros, 0.3))
+
+
+@pytest.mark.slow
+def test_heading_hold_reference_defaults_to_robot_heading(hold_env):
+  term = hold_env.command_manager.get_term("twist")
+  assert isinstance(term, UniformVelocityCommand)
+  robot = hold_env.scene["robot"]
+  board = hold_env.scene["board"]
+  base = UniformVelocityCommand._heading_hold_reference(term)
+  torch.testing.assert_close(base, robot.data.heading_w)
+  # The ride's own hook reads the board.
+  torch.testing.assert_close(term._heading_hold_reference(), board.data.heading_w)
 
 
 ##

@@ -46,7 +46,11 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
+from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import (
+  GAIT_HEADING_HOLD_CLIP,
+  GAIT_HEADING_HOLD_KP,
+  pupper_velocity_fs_env_cfg,
+)
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
@@ -411,12 +415,25 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   # Hand placement: the board can start 2 cm to either side and 0.15 rad off
   # the robot's heading. No term reads the board's heading from world x (see
-  # the steer docstring), so nothing else changes with it.
+  # the steer docstring); the heading hold below reads it relative to the
+  # robot's, so the placement error is what the hold corrects.
   cfg.events["reset_board"].params["pose_range"] = {
     "x": (-0.03, 0.03),
     "y": (-0.02, 0.02),
     "yaw": (-0.15, 0.15),
   }
+  # Heading hold against the board's line: run cfcrepfu yawed 0.1 rad off the
+  # board in the first 0.5 s and the feet crept off the deck at 1 cm/s, with a
+  # yaw command that was always 0. Walking, the hold captures the board's
+  # heading and the emitted yaw command is the clipped P-correction of the
+  # robot's yaw error against it. On the robot the same loop captures the IMU
+  # yaw with the robot placed parallel to the board, so the gains are the gait
+  # tasks' (the robot-side controller's).
+  fields = {f.name: getattr(twist, f.name) for f in dataclasses.fields(twist)}
+  hold = mdp.BoardHeadingHoldCommandCfg(**fields)
+  hold.heading_hold_kp = GAIT_HEADING_HOLD_KP
+  hold.heading_hold_clip = GAIT_HEADING_HOLD_CLIP
+  cfg.commands["twist"] = hold
   if not play:
     cfg.events["push_robot"].params["velocity_range"] = {
       "x": (-0.35, 0.35),
@@ -490,6 +507,8 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # board 3 cm out of place already costs most of the term.
   r["board_alignment"].weight = 2.0
   r["board_alignment"].params["std_pos"] = 0.03
+  # And pointing along the robot: a 0.1 rad yaw error costs most of the term.
+  r["board_alignment"].params["std_yaw"] = 0.1
   r["feet_on_ground"].weight = 0.1
   # Hold the keyframe firmly on the deck-side legs and loosely on the pushing
   # legs, so they stride around the stance instead of flailing.
@@ -580,11 +599,13 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   # 0.3 m/s, so it stays at the ride's 0), and speed commands under
   # STEER_YAW_MIN_SPEED get no yaw. The standing share is drawn on its own and
   # zeroes everything. rel_turn_envs stays 0: it would zero the speed and ask
-  # for 0.5 rad/s, outside this range. Heading hold stays off (set in the
-  # balance config), as in the other skate tasks.
+  # for 0.5 rad/s, outside this range. Heading hold is off here (the ride
+  # turns it on), and the command is the steer class, not the ride's board
+  # heading-hold class: only the stock command's fields carry over.
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  fields = {f.name: getattr(twist, f.name) for f in dataclasses.fields(twist)}
+  stock = dataclasses.fields(mdp.PupperVelocityCommandCfg)
+  fields = {f.name: getattr(twist, f.name) for f in stock}
   steer = mdp.SteerVelocityCommandCfg(
     **fields,
     rel_straight_envs=STEER_STRAIGHT_SHARE,

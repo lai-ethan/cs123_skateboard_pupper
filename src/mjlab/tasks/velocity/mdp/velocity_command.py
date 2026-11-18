@@ -238,13 +238,22 @@ class UniformVelocityCommand(CommandTerm):
         torch.norm(raw[:, :2], dim=1) > self.cfg.heading_hold_walk_threshold
       )
       capture = active & ~self._hh_prev_active
-      self._hh_target = torch.where(capture, heading, self._hh_target)
+      reference = self._heading_hold_reference()
+      self._hh_target = torch.where(capture, reference, self._hh_target)
       self._hh_prev_active = active
       err = wrap_to_pi(self._hh_target - heading)
       clip = self.cfg.heading_hold_clip
       corr = torch.clamp(self.cfg.heading_hold_kp * err, -clip, clip)
       self._hh_cmd_b[:] = raw
       self._hh_cmd_b[:, 2] = torch.where(active, corr, raw[:, 2])
+
+  def _heading_hold_reference(self) -> torch.Tensor:
+    """The heading [num_envs] the hold captures at its activation edge.
+
+    The robot's own heading, as on the robot (IMU yaw). Subclasses can hold a
+    different line; the error is still measured from the robot's heading.
+    """
+    return self.robot.data.heading_w
 
   # Visualization.
 

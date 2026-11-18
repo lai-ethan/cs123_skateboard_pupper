@@ -311,9 +311,11 @@ def heading_hold_metadata(env) -> dict[str, float] | None:
   correction off its IMU yaw, so the numbers ship with the export rather than
   being kept in sync by hand.
 
-  The skate tasks (the only scenes with a ``board``) train without the hold,
-  but the robot turns it on for any policy with a ``gait_reference`` block
-  unless the JSON says otherwise. Their block carries kp 0, which turns it off.
+  The split ride trains with the hold (its sim target is the board's heading;
+  the robot's is the IMU yaw with the robot placed parallel to the board). The
+  other skate tasks (the only scenes with a ``board``) train without it, but the
+  robot turns it on for any policy with a ``gait_reference`` block unless the
+  JSON says otherwise. Their block carries kp 0, which turns it off.
   """
   twist = env.cfg.commands.get("twist")
   kp = getattr(twist, "heading_hold_kp", None)

@@ -244,6 +244,103 @@ inherits them; no other task changes):**
    read-only, update `SIM2REAL.md`, `HARDWARE_TEST.md`, `CHECKPOINT.md`,
    `README.md`. Commit and push.
 
+### Task 44: Split ride holds the board's line (heading hold)
+
+**Why (measured on run `cfcrepfu`, the Task 42 config retrained 3000 iterations).**
+The policy fails `gait_report` on resets and all 16 `ride_audit` rows, every reset
+a `board_drifted`. With that termination removed, the deck feet creep across the
+deck at about 1 cm/s until they leave it. The board keeps its heading (it changes
+under 0.02 rad in 3 s). The robot does not: in every env it yaws about 0.1 rad to
+its right in the first 0.5 s and stays there, whatever the board's heading is.
+Two bodies moving at 0.3 m/s along headings 0.1 rad apart separate at 3 cm/s, and
+no foot friction (tested to 2.5) or solver setting (tested 20 iterations) stops
+it. The policy cannot fix this as trained: its yaw command is always 0, it has no
+heading reference, and the creep moves body and feet together so the joints do
+not show it.
+
+**Fix.** Turn on the heading hold the gait tasks and the robot already have
+(`UniformVelocityCommandCfg.heading_hold_kp`): the emitted yaw command becomes
+`clip(kp * (target - heading), +-clip)`. On the robot the target is the IMU yaw
+captured when the walk command starts, with the robot placed parallel to the
+board. In sim the split ride captures the BOARD's heading at that same edge, so
+the command the actor sees is the robot's yaw error against the board's line.
+The reward side is the existing `board_alignment` yaw term, tightened.
+
+**Files:**
+- Modify: `src/mjlab/tasks/velocity/mdp/velocity_command.py` (heading-hold block
+  in `compute`, around lines 229-247)
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/commands.py`
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py` (ride
+  section, after the `reset_board` pose range; `board_alignment` overrides near
+  line 491)
+- Modify: `src/mjlab/tasks/pupper_gait/export.py` only if the docstring of
+  `heading_hold_metadata` is now wrong (it says the skate tasks train without
+  the hold)
+- Test: `tests/test_pupper_skate_split.py`
+
+**Interfaces:**
+- Produces: `UniformVelocityCommand._heading_hold_reference(self) -> torch.Tensor`
+  (shape `[num_envs]`, the heading the hold captures at its activation edge;
+  the base returns `self.robot.data.heading_w`, so every existing task behaves
+  exactly as before). The error is still measured from the robot's heading.
+- Produces: `BoardHeadingHoldCommand(PupperVelocityCommand)` and
+  `BoardHeadingHoldCommandCfg(PupperVelocityCommandCfg)` in
+  `pupper_skate/mdp/commands.py`, exported the same way `SteerVelocityCommandCfg`
+  is. The cfg has one new field `board_name: str = "board"`; the command
+  overrides `_heading_hold_reference` to return that entity's `data.heading_w`.
+- Split ride (`Mjlab-SkateSplit-Ride-Pupper-v3`, train and play) uses
+  `BoardHeadingHoldCommandCfg` built from the existing twist cfg's fields (the
+  steer config a few lines below shows the pattern, `dataclasses.fields`), with
+  `heading_hold_kp = GAIT_HEADING_HOLD_KP` and
+  `heading_hold_clip = GAIT_HEADING_HOLD_CLIP` imported from
+  `mjlab.tasks.pupper_gait.pupper_gait_env_cfg` (1.0 and 0.3; these must equal
+  the robot-side controller's, do not retype the numbers). If that import
+  makes a cycle, move nothing: import inside the function and say so in the
+  report.
+- Split ride `board_alignment` `std_yaw`: 0.3 -> 0.1.
+- Unchanged: split balance (its command is zero, the hold never activates;
+  leave `heading_hold_kp = None` there), split steer (keeps its own
+  `heading_hold_kp = None` and its own command class), centred tasks, the
+  `board_drifted` termination and its 0.06, the reset ranges, every other
+  reward weight, `gait_report.py`, `ride_audit.py`.
+
+**Steps:**
+
+- [ ] **Step 1: Write the failing tests** in `tests/test_pupper_skate_split.py`,
+  in the style of the tests already there (plain functions, the file's own
+  helpers for building a small CPU env):
+  1. `test_split_ride_holds_heading_with_gait_gains`: the ride cfg's twist is a
+     `BoardHeadingHoldCommandCfg` with `heading_hold_kp == GAIT_HEADING_HOLD_KP`
+     and `heading_hold_clip == GAIT_HEADING_HOLD_CLIP`; the balance cfg's twist
+     has `heading_hold_kp is None`; the steer cfg's twist has
+     `heading_hold_kp is None`.
+  2. `test_split_ride_yaw_command_points_at_board_heading`: build the ride env
+     (2 envs, play), reset, write a board root pose yawed +0.1 rad from the
+     robot in env 0 and -0.1 rad in env 1 (the file already has tests that
+     write root states; reuse that helper), step once with zero actions, then
+     read the twist command: yaw is `kp * 0.1` within 0.02 in env 0, the
+     negative in env 1, and the x command is unchanged from the raw command.
+  3. `test_split_ride_alignment_yaw_width`: ride `board_alignment` params
+     `std_yaw == 0.1`; balance still 0.3.
+  4. `test_heading_hold_reference_defaults_to_robot_heading`: on the ride env,
+     `UniformVelocityCommand._heading_hold_reference(term)` equals
+     `robot.data.heading_w` (the base behaviour other tasks keep).
+  5. Export contract: `heading_hold_metadata(env)` for the ride env returns
+     `kp == GAIT_HEADING_HOLD_KP`; for the balance env `kp == 0.0`.
+- [ ] **Step 2: Run them, see them fail**:
+  `FORCE_CPU=1 uv run pytest tests/test_pupper_skate_split.py -q`
+- [ ] **Step 3: Implement** the hook, the command class and the cfg change.
+  Update the comment above the split ride's reset ranges ("No term reads the
+  board's heading...") so it stays true.
+- [ ] **Step 4: Run** `FORCE_CPU=1 uv run pytest tests/test_pupper_skate_split.py
+  tests/test_pupper_skate.py tests/test_skate_ride_audit.py
+  tests/test_skate_policy_loader.py -q`, then `uv run ruff format`,
+  `uv run ruff check`, `uv run pyright` on the touched files.
+- [ ] **Step 5: Smoke** (one command, about 2 min, no policy needed):
+  `FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py` if it covers the
+  split ride, otherwise skip and say so.
+- [ ] **Step 6: Commit** `feat: split ride holds heading against the board`.
+
 ## Self-review
 
 - Staying on while moving: Tasks 41 (measure), 42 (train for it), 43 (prove).

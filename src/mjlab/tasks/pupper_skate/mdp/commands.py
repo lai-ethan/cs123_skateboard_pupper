@@ -1,4 +1,4 @@
-"""The steer task's command: the Pupper twist plus straight and slow-speed rules."""
+"""The skate tasks' commands: the Pupper twist with board-specific rules."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import torch
 
+from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.pupper.mdp.velocity_command import (
   PupperVelocityCommand,
@@ -51,3 +52,31 @@ class SteerVelocityCommandCfg(PupperVelocityCommandCfg):
 
   def build(self, env: ManagerBasedRlEnv) -> SteerVelocityCommand:
     return SteerVelocityCommand(self, env)
+
+
+class BoardHeadingHoldCommand(PupperVelocityCommand):
+  """``PupperVelocityCommand`` whose heading hold captures the board's heading.
+
+  At the hold's activation edge the target is the board's heading, not the
+  robot's, so the emitted yaw command is a clipped P-correction of the robot's
+  yaw error against the board's line. On the robot the same loop captures the
+  IMU yaw with the robot placed parallel to the board.
+  """
+
+  cfg: "BoardHeadingHoldCommandCfg"  # pyright: ignore[reportIncompatibleVariableOverride]
+
+  def __init__(self, cfg: "BoardHeadingHoldCommandCfg", env: ManagerBasedRlEnv):
+    super().__init__(cfg, env)
+    self.board: Entity = env.scene[cfg.board_name]
+
+  def _heading_hold_reference(self) -> torch.Tensor:
+    return self.board.data.heading_w
+
+
+@dataclass
+class BoardHeadingHoldCommandCfg(PupperVelocityCommandCfg):
+  board_name: str = "board"
+  """Scene entity whose heading the heading hold captures."""
+
+  def build(self, env: ManagerBasedRlEnv) -> BoardHeadingHoldCommand:
+    return BoardHeadingHoldCommand(self, env)
