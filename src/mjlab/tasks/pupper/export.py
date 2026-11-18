@@ -204,13 +204,20 @@ def command_clip_from_env(env) -> dict[str, tuple[float, float]] | None:
   override with a tighter clip (e.g. capping a mixed-gaits policy to its trot
   band for the student default), but a wider one just re-introduces the
   out-of-distribution commands the clip exists to prevent.
+
+  A strictly positive vx range with standing envs (the tripod ride, 0.1 to 0.3)
+  ships with a 0.0 lower bound: the policy trained on the zero command too, and
+  clamping a released stick up to 0.1 would stop the robot ever standing.
   """
   twist = env.cfg.commands.get("twist")
   if twist is None:
     return None
   ranges = twist.ranges
+  vx_lo, vx_hi = float(ranges.lin_vel_x[0]), float(ranges.lin_vel_x[1])
+  if twist.rel_standing_envs > 0.0 and vx_lo > 0.0:
+    vx_lo = 0.0
   return {
-    "vx": (float(ranges.lin_vel_x[0]), float(ranges.lin_vel_x[1])),
+    "vx": (vx_lo, vx_hi),
     "vy": (float(ranges.lin_vel_y[0]), float(ranges.lin_vel_y[1])),
     "wz": (float(ranges.ang_vel_z[0]), float(ranges.ang_vel_z[1])),
   }

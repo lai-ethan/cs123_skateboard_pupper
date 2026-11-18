@@ -147,7 +147,7 @@ print("logger:", LOGGER)
 """
 
 REWARD_CELL = """\
-RIDE = "-Ride-" in TASK
+RIDE = "-Ride-" in TASK or "-Steer-" in TASK
 SPLIT = "SkateSplit" in TASK
 
 # These are the shipped defaults. Change a number, then rerun from here.
@@ -204,7 +204,7 @@ else:
       "reference_tracking": 1.0,
       "foot_reach": 1.0,
       "push_stroke": 3.0,
-      "short_stride": -1.5,
+      "short_stride": -3.0,
       "feet_slide": -2.0,
       "action_acc": -0.02,
       "joint_acc": -1e-6,
@@ -274,7 +274,9 @@ out = [
     "| `Mjlab-SkateSplit-Balance-Pupper-v3` | Hold the split stance (left feet"
     " on the deck, right feet on the floor) on a board that is free to roll. |\n"
     "| `Mjlab-SkateSplit-Ride-Pupper-v3` | Push with the right legs so the board"
-    " rolls at the commanded speed (0 to 0.5 m/s). |\n\n"
+    " rolls at the commanded speed (0 to 0.5 m/s). |\n"
+    "| `Mjlab-SkateSplit-Steer-Pupper-v3` | The split ride plus a commanded board"
+    " yaw rate, so the board steers as well as rolls. |\n\n"
     "Train a stance's balance task before its ride task.\n"
   ),
   code(
@@ -283,6 +285,8 @@ out = [
     "#   Mjlab-Skate-Ride-Pupper-v3          centred: tripod, stroke the BR foot\n"
     "#   Mjlab-SkateSplit-Balance-Pupper-v3  split: hold the stance, right feet down\n"
     "#   Mjlab-SkateSplit-Ride-Pupper-v3     split: push with the right legs to ride\n"
+    "#   Mjlab-SkateSplit-Steer-Pupper-v3    split: ride plus a commanded board"
+    " yaw rate\n"
     'TASK = "Mjlab-Skate-Balance-Pupper-v3"\n'
     "NUM_ENVS = 4096  # halve it if you hit GPU OOM\n"
     "ITERATIONS = 1500\n"
@@ -323,7 +327,7 @@ out = [
     " as the board speeds up, gone at 0.8 of the command |\n"
     "| `push_stroke` | n/a | 3.0 | the push foot pushes against the floor; paid"
     " once as it lifts, in full for a 0.75 s stroke |\n"
-    "| `short_stride` | n/a | -1.5 | the push foot lands after less than 0.75 s"
+    "| `short_stride` | n/a | -3.0 | the push foot lands after less than 0.75 s"
     " on the floor; a tap costs about the full weight, so taps lose more than"
     " they earn |\n"
     "| `feet_slide` | n/a | -2.0 | the push foot moving while on the floor:"

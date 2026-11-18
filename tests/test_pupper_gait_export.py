@@ -301,8 +301,16 @@ def test_skate_exports_clip_yaw_to_the_trained_range(task):
   assert clip is not None
   assert clip["wz"] == pytest.approx(wz)
   assert clip["vy"] == (0.0, 0.0)
-  # The tripod ride trains on 0.1 to 0.3 m/s (plus standing envs).
-  assert clip["vx"][0] == (0.1 if task == "Mjlab-Skate-Ride-Pupper-v3" else 0.0)
+  # The tripod ride trains on 0.1 to 0.3 m/s plus standing envs, so its clip
+  # keeps zero: a released stick must still send the standing command.
+  assert clip["vx"][0] == 0.0
+
+
+def test_tripod_ride_export_clip_vx_keeps_zero_to_the_trained_top():
+  env = SimpleNamespace(cfg=load_env_cfg("Mjlab-Skate-Ride-Pupper-v3", play=True))
+  clip = command_clip_from_env(env)
+  assert clip is not None
+  assert clip["vx"] == (0.0, 0.3)
 
 
 @pytest.mark.parametrize(

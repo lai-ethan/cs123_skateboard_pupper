@@ -869,7 +869,8 @@ def test_ride_exports_the_push_table_and_matches_the_robot_math(ride_env):
   assert (block["frequency"], block["blend_speed"]) == (0.8, 0.05)
   assert block["gallop_speed"] > max(CENTRED_RIDE_SPEED_RANGE)
   assert policy["heading_hold"]["kp"] == 0.0
-  assert policy["command_clip"]["vx"] == [0.1, 0.3]
+  # Trained on 0.1 to 0.3 plus standing envs; the clip keeps the zero command.
+  assert policy["command_clip"]["vx"] == [0.0, 0.3]
   # The tripod layout's holding targets ship as the default pose.
   np.testing.assert_allclose(policy["default_joint_pos"], SKATE_TRIPOD_TARGETS)
   # The deploy mirror, fed the exported block, reproduces the offset in the
