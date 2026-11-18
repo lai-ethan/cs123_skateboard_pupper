@@ -36,10 +36,12 @@ def test_fix_yaw_rate_pins_the_yaw_command_on_the_steer_task():
   cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
   twist = cfg.commands["twist"]
   assert isinstance(twist, PupperVelocityCommandCfg)
-  assert twist.rel_forward_envs > 0.0
-  pl.fix_yaw_rate(cfg, 0.2)
-  assert twist.ranges.ang_vel_z == (0.2, 0.2)
+  assert isinstance(twist, pl.SteerVelocityCommandCfg)
+  assert twist.rel_straight_envs > 0.0
+  pl.fix_yaw_rate(cfg, 0.1)
+  assert twist.ranges.ang_vel_z == (0.1, 0.1)
   assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
+  assert twist.rel_straight_envs == 0.0
 
 
 def test_zero_yaw_rate_leaves_the_other_skate_commands_alone():

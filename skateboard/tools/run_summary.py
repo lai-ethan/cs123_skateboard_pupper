@@ -44,6 +44,8 @@ PASS_CRITERIA: dict[str, dict[str, float]] = {
     **_BALANCE_TORQUE,
   },
   "Mjlab-SkateSplit-Ride-Pupper-v3": dict(_RIDE_CRITERIA),
+  # The split ride's criteria; the yaw tracking is not judged yet.
+  "Mjlab-SkateSplit-Steer-Pupper-v3": dict(_RIDE_CRITERIA),
 }
 SHOWN_PREFIXES = ("Train/", "Episode_Reward/", "Episode_Termination/")
 

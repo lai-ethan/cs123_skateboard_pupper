@@ -296,7 +296,7 @@ def test_skate_exports_clip_yaw_to_the_trained_range(task):
   # Only the steer task trains on a yaw-rate command; the other four clip the
   # robot's yaw command to zero, as before it existed.
   env = SimpleNamespace(cfg=load_env_cfg(task, play=True))
-  wz = (-0.3, 0.3) if "Steer" in task else (0.0, 0.0)
+  wz = (-0.15, 0.15) if "Steer" in task else (0.0, 0.0)
   clip = command_clip_from_env(env)
   assert clip is not None
   assert clip["wz"] == pytest.approx(wz)

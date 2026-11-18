@@ -14,7 +14,10 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import MjlabOnPolicyRunner, RslRlVecEnvWrapper
 from mjlab.tasks.pupper.export import json_forward, to_robot_order
-from mjlab.tasks.pupper_skate.mdp import PupperVelocityCommandCfg
+from mjlab.tasks.pupper_skate.mdp import (
+  PupperVelocityCommandCfg,
+  SteerVelocityCommandCfg,
+)
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
 
@@ -34,8 +37,10 @@ def fix_speed(env_cfg: Any, speed: float) -> None:
 def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
   """Command a fixed board yaw rate in rad/s in every env.
 
-  Also turns off the forward-only and turn-only command shares, which would
-  zero or replace the yaw rate (and lift or zero the speed) in some envs. On
+  Also turns off the forward-only, turn-only and straight (steer task)
+  command shares, which would zero or replace the yaw rate (and lift or zero
+  the speed) in some envs. The steer task still gives no yaw to speed
+  commands under its `yaw_min_speed`. On
   the tasks with no yaw command (all but the steer task) a yaw rate of 0 is
   the trained range already, and both shares are already 0, so nothing
   changes.
@@ -45,6 +50,8 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
   twist.ranges.ang_vel_z = (yaw_rate, yaw_rate)
   twist.rel_forward_envs = 0.0
   twist.rel_turn_envs = 0.0
+  if isinstance(twist, SteerVelocityCommandCfg):
+    twist.rel_straight_envs = 0.0
 
 
 def load_policy(

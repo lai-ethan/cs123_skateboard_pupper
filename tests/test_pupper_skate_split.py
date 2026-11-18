@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import re
 from types import SimpleNamespace
@@ -789,13 +790,22 @@ def test_steer_is_the_split_ride_plus_a_yaw_command():
       ride.observations["critic"].terms.keys()
     )
     twist = steer.commands["twist"]
-    assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-    assert STEER_YAW_RATE_RANGE == (-0.3, 0.3)
+    assert isinstance(twist, mdp.SteerVelocityCommandCfg)
+    assert STEER_YAW_RATE_RANGE == (-0.15, 0.15)
     assert twist.ranges.ang_vel_z == STEER_YAW_RATE_RANGE
+    assert (twist.rel_straight_envs, twist.yaw_min_speed) == (0.3, 0.1)
+    # Every other command field is the split ride's.
+    ride_twist = ride.commands["twist"]
+    assert isinstance(ride_twist, mdp.PupperVelocityCommandCfg)
+    for field in dataclasses.fields(ride_twist):
+      if field.name != "ranges":
+        expected = getattr(ride_twist, field.name)
+        assert getattr(twist, field.name) == expected, field.name
+    assert twist.ranges == dataclasses.replace(
+      ride_twist.ranges, ang_vel_z=STEER_YAW_RATE_RANGE
+    )
     assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
-    assert twist.ranges.lin_vel_y == (0.0, 0.0)
-    assert twist.rel_forward_envs == 0.3 and twist.rel_turn_envs == 0.0
-    assert twist.rel_standing_envs == 0.1
+    assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
     assert twist.heading_hold_kp is None
 
 
@@ -812,7 +822,8 @@ def test_existing_skate_tasks_keep_a_zero_yaw_command(make_cfg):
   for play in (False, True):
     cfg = make_cfg(play=play)
     twist = cfg.commands["twist"]
-    assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+    # The stock command class: the steer task's sampling rules are not in it.
+    assert type(twist) is mdp.PupperVelocityCommandCfg
     assert twist.ranges.ang_vel_z == (0.0, 0.0)
     assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
     assert twist.heading_hold_kp is None
@@ -870,7 +881,7 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
   assert policy["command_clip"] == {
     "vx": list(RIDE_SPEED_RANGE),
     "vy": [0.0, 0.0],
-    "wz": [-0.3, 0.3],
+    "wz": [-0.15, 0.15],
   }
   assert policy["heading_hold"] == {
     "kp": 0.0,
@@ -879,3 +890,89 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
     "walk_threshold": 0.05,
   }
   assert "gait_reference" in policy
+
+
+##
+# Steer command sampling, on a bare command term (no simulator).
+##
+
+
+def _bare_command(cls, cfg, num_envs: int):
+  """A command term with just the buffers ``_resample_command`` touches."""
+  term = object.__new__(cls)
+  term.cfg = cfg
+  term._env = SimpleNamespace(num_envs=num_envs, device="cpu")
+  term.vel_command_b = torch.zeros(num_envs, 3)
+  term.vel_command_w = torch.zeros(num_envs, 3)
+  flags = torch.zeros(num_envs, dtype=torch.bool)
+  for name in (
+    "is_heading_env",
+    "is_standing_env",
+    "is_world_env",
+    "is_forward_env",
+    "is_turn_env",
+    "is_straight_env",
+    "_capture_heading",
+  ):
+    setattr(term, name, flags.clone())
+  return term
+
+
+def _sample_steer(num_envs: int = 20000, seed: int = 0) -> torch.Tensor:
+  cfg = pupper_skate_split_steer_env_cfg().commands["twist"]
+  term = _bare_command(mdp.SteerVelocityCommand, cfg, num_envs)
+  torch.manual_seed(seed)
+  term._resample_command(torch.arange(num_envs))
+  # Standing envs are zeroed on update, not at sampling: drop them here.
+  return term.vel_command_b[~term.is_standing_env]
+
+
+def test_steer_rides_straight_in_30_percent_across_the_speed_range():
+  command = _sample_steer()
+  vx, wz = command[:, 0], command[:, 2]
+  lo, hi = STEER_YAW_RATE_RANGE
+  assert torch.all((wz >= lo) & (wz <= hi))
+  rolling = vx >= 0.1
+  straight = rolling & (wz == 0.0)
+  share = straight.sum() / rolling.sum()
+  assert share.item() == pytest.approx(0.3, abs=0.02)
+  # Their speeds fill the rolling range, not pinned at 0.3 m/s.
+  speeds = vx[straight]
+  assert speeds.min() < 0.11 and speeds.max() > 0.49
+  assert (speeds == 0.3).float().mean() < 0.01
+  for band in ((0.1, 0.2), (0.2, 0.3), (0.3, 0.4), (0.4, 0.5)):
+    in_band = ((speeds >= band[0]) & (speeds < band[1])).float().mean()
+    assert in_band.item() == pytest.approx(0.25, abs=0.04), band
+
+
+def test_steer_gives_no_yaw_below_0_1_m_s():
+  command = _sample_steer()
+  slow = command[:, 0] < 0.1
+  assert slow.any()
+  assert torch.all(command[slow, 2] == 0.0)
+  assert torch.any(command[~slow, 2] != 0.0)
+
+
+def test_steer_command_with_its_rules_off_samples_like_the_stock_command():
+  # The four existing tasks use the stock class; this checks the subclass adds
+  # nothing (and draws nothing extra) with both rules off.
+  cfg = pupper_skate_split_steer_env_cfg().commands["twist"]
+  assert isinstance(cfg, mdp.SteerVelocityCommandCfg)
+  cfg.rel_straight_envs = 0.0
+  cfg.yaw_min_speed = 0.0
+  stock_cfg = mdp.PupperVelocityCommandCfg(
+    **{
+      f.name: getattr(cfg, f.name)
+      for f in dataclasses.fields(mdp.PupperVelocityCommandCfg)
+    }
+  )
+  commands = []
+  for cls, c in (
+    (mdp.SteerVelocityCommand, cfg),
+    (mdp.PupperVelocityCommand, stock_cfg),
+  ):
+    term = _bare_command(cls, c, 1000)
+    torch.manual_seed(3)
+    term._resample_command(torch.arange(1000))
+    commands.append(term.vel_command_b)
+  torch.testing.assert_close(commands[0], commands[1])

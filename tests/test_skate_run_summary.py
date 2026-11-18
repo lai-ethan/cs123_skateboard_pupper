@@ -114,6 +114,11 @@ def test_split_ride_criteria_match_centred_ride():
   assert rs.PASS_CRITERIA[SPLIT_RIDE] == rs.PASS_CRITERIA[RIDE]
 
 
+def test_steer_reuses_the_split_ride_criteria():
+  steer = "Mjlab-SkateSplit-Steer-Pupper-v3"
+  assert rs.PASS_CRITERIA[steer] == rs.PASS_CRITERIA[SPLIT_RIDE]
+
+
 def test_cli_accepts_all_four_tasks(tmp_path, capsys):
   run_dir = tmp_path / "exp" / "run1"
   run_dir.mkdir(parents=True)

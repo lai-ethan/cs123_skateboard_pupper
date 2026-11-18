@@ -68,8 +68,15 @@ _GROUND_FOOT_SITES = tuple(
 )
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
-# Steer task: board yaw-rate command range [rad/s].
-STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.3, 0.3)
+# Steer task: board yaw-rate command range [rad/s]. The sim trucks turn 0.577
+# rad per rad of deck tilt on a 0.364 m wheelbase, so 0.3 rad/s at 0.3 m/s
+# would need about 18 degrees of tilt, past the board_tipped limit (0.3 rad);
+# 0.15 rad/s needs about 8 degrees at 0.3 m/s.
+STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.15, 0.15)
+# Share of envs told to ride straight (yaw 0, sampled speed kept), and the
+# speed command under which yaw is 0: a board that is not rolling cannot carve.
+STEER_STRAIGHT_SHARE = 0.3
+STEER_YAW_MIN_SPEED = 0.1
 
 
 def _contact(
@@ -270,7 +277,9 @@ def pupper_skate_split_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvC
   ##
   # Shoves (training only). The stock base kick is off for Pupper; this one is
   # linear and small. Both add to the root velocity, so the deck roll joint is
-  # untouched. Board yaw stays within +-0.05 rad, so world x is its heading.
+  # untouched. In balance and ride the board yaw stays within +-0.05 rad, so
+  # world x is its heading; the steer task turns it, but the robot kick is the
+  # same in x and y, so it does not depend on the heading.
   ##
   if not play:
     cfg.events["push_robot"] = EventTermCfg(
@@ -485,17 +494,25 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 
-  # About 30% of moving envs ride straight. rel_forward_envs zeroes their yaw
-  # (and lifts their speed to at least 0.3 m/s); the standing share is drawn
-  # on its own and overrides it. rel_turn_envs stays 0: it would zero the
-  # speed and ask for 0.5 rad/s, outside this range. Heading hold stays off
-  # (set in the balance config), as in the other skate tasks.
+  # The ride's command with a yaw rate. STEER_STRAIGHT_SHARE of envs ride
+  # straight at their sampled speed (rel_forward_envs would also lift it to
+  # 0.3 m/s, so it stays at the ride's 0), and speed commands under
+  # STEER_YAW_MIN_SPEED get no yaw. The standing share is drawn on its own and
+  # zeroes everything. rel_turn_envs stays 0: it would zero the speed and ask
+  # for 0.5 rad/s, outside this range. Heading hold stays off (set in the
+  # balance config), as in the other skate tasks.
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  twist.ranges.ang_vel_z = STEER_YAW_RATE_RANGE
-  twist.rel_forward_envs = 0.3
-  twist.rel_turn_envs = 0.0
-  twist.heading_hold_kp = None
+  fields = {f.name: getattr(twist, f.name) for f in dataclasses.fields(twist)}
+  steer = mdp.SteerVelocityCommandCfg(
+    **fields,
+    rel_straight_envs=STEER_STRAIGHT_SHARE,
+    yaw_min_speed=STEER_YAW_MIN_SPEED,
+  )
+  steer.ranges = dataclasses.replace(twist.ranges, ang_vel_z=STEER_YAW_RATE_RANGE)
+  steer.rel_turn_envs = 0.0
+  steer.heading_hold_kp = None
+  cfg.commands["twist"] = steer
 
   r = cfg.rewards
   del r["board_yaw_rate"]
