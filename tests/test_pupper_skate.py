@@ -732,11 +732,11 @@ def test_ride_task_rewards_reaching_for_the_floor():
   cfg = pupper_skate_ride_env_cfg()
   reach = cfg.rewards["foot_reach"]
   assert reach.func is mdp.foot_reach
-  assert reach.weight == 0.5
+  assert reach.weight == 1.0
   params = dict(reach.params)
   foot_cfg = params.pop("foot_cfg")
   assert params == {
-    "std": 0.03,
+    "std": 0.08,
     "foot_radius": 0.02,
     "command_name": "twist",
     "command_threshold": 0.1,
@@ -746,7 +746,7 @@ def test_ride_task_rewards_reaching_for_the_floor():
   assert foot_cfg.name == "robot"
   assert tuple(foot_cfg.site_names) == FOOT_SITE_NAMES
   stroke = cfg.rewards["push_stroke"]
-  assert stroke.weight == 1.0
+  assert stroke.weight == 3.0
   assert stroke.params["speed_fraction"] == 1.0
   # Centred ride trains on the stock trucks only; balance keeps both.
   assert cfg.events["deck_height"].params["ranges"] == RIDE_DECK_HEIGHT_RANGE
@@ -772,13 +772,15 @@ def test_ride_task_pays_for_a_push():
   assert (feet_off["min_lost"], feet_off["grace_s"]) == (2, 1.5)
   assert r["tilt"].params["std"] == 0.5
   assert r["board_alignment"].params["std_pos"] == 0.08
-  assert (r["foot_reach"].weight, r["push_stroke"].weight) == (0.5, 1.0)
+  assert (r["foot_reach"].weight, r["push_stroke"].weight) == (1.0, 3.0)
   progress = r["board_progress"]
   assert progress.func is mdp.board_progress
-  assert progress.weight == 1.0
+  assert progress.weight == 4.0
   assert progress.params == {"command_name": "twist", "command_threshold": 0.1}
   track = r["track_board_velocity"]
-  assert (track.weight, track.params["std"]) == (3.0, 0.15)
+  assert (track.weight, track.params["std"]) == (3.0, 0.10)
+  # A fall costs less than in balance, so a push is worth trying.
+  assert r["termination"].weight == -20.0
   # The balance task keeps the strict stance.
   balance = pupper_skate_balance_env_cfg()
   assert "max_count" not in balance.rewards["feet_on_deck"].params
@@ -786,6 +788,7 @@ def test_ride_task_pays_for_a_push():
   assert balance.rewards["board_alignment"].params["std_pos"] == 0.05
   feet_off = balance.terminations["feet_off_deck"].params
   assert feet_off.get("min_lost", 1) == 1 and feet_off["grace_s"] == 0.5
+  assert balance.rewards["termination"].weight == -100.0
 
 
 def test_split_ride_has_no_board_progress():
@@ -905,11 +908,15 @@ def test_ride_foot_reach_is_small_with_all_feet_on_the_deck():
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
   env.reset()
   reach = env.reward_manager.get_term_cfg("foot_reach")
+  deck_top = SkateboardParams().deck_top_height + low
+  on_deck_cap = math.exp(-(deck_top - 0.015) / reach.params["std"])
   actions = torch.zeros(1, 12, device=env.device)
   for _ in range(50):  # 1 s.
     _, _, terminated, truncated, _ = env.step(actions)
     assert not (terminated | truncated).any()
-    assert reach.func(env, **reach.params).max() < 0.2
+    # exp(-clearance / std): a foot on the deck is at least the deck height
+    # less 1.5 cm of contact sink up; a foot on the floor pays 1.
+    assert reach.func(env, **reach.params).max() < on_deck_cap
   assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
   env.close()
 

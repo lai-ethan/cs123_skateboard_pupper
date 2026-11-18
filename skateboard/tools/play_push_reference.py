@@ -13,7 +13,8 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
 Builds `Mjlab-Skate-Ride-Pupper-v3` in play mode with the deck top pinned at
 `--deck-height` and the command fixed at `--speed`, and prints: episode resets
 and what ended them, the board's mean and final forward speed, the push foot's
-(back right) share of time on the floor, the largest joint speed, the share of
+(back right) share of time on the floor and the board's speed and
+acceleration while it is down, the largest joint speed, the share of
 steps with a motor at its torque limit, and the smallest margin of body tilt to
 the `fell_over` limit. `--zero-action` holds the default pose instead
 (standing still), for comparison. `--rewards` also prints each reward term's
@@ -160,6 +161,16 @@ def main(argv: list[str] | None = None) -> int:
     f"board speed: mean {speed_a.mean():.3f} m/s, final {speed_a[-1].mean():.3f} m/s"
   )
   print(f"push foot (BR) on the floor: {np.mean(push_floor):.3f} of the time")
+  # Thrust: how the board speed changes while the push foot is down. Steps
+  # across a reset are left out.
+  floor_a = np.stack(push_floor)
+  accel = np.diff(speed_a, axis=0) / env.step_dt
+  pushing = floor_a[1:] & floor_a[:-1]
+  if pushing.any():
+    print(
+      f"while the push foot is down: board speed {speed_a[floor_a].mean():.3f} m/s,"
+      f" acceleration {accel[pushing].mean():+.3f} m/s^2"
+    )
   print(f"peak joint speed: {np.max(joint_speed):.2f} rad/s")
   print(f"saturated fraction: {np.mean(saturated):.3f}")
   margin = fell_limit - float(np.max(tilt))

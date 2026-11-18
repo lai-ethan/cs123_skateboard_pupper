@@ -194,17 +194,17 @@ else:
     "deck_flat": -5.0,
     "action_rate_l2": -0.05 if RIDE else -0.01,
     "joint_torques_l2": -0.0002,
-    "termination": -100.0,
+    "termination": -20.0 if RIDE else -100.0,
     "torque_saturation": -0.5 if RIDE else -1.0,
   }
   if RIDE:
     REWARD_WEIGHTS.update({
       "track_board_velocity": 3.0,
-      "board_progress": 1.0,
+      "board_progress": 4.0,
       "board_yaw_rate": -0.5,
       "reference_tracking": 1.0,
-      "foot_reach": 0.5,
-      "push_stroke": 1.0,
+      "foot_reach": 1.0,
+      "push_stroke": 3.0,
       "action_acc": -0.02,
       "joint_acc": -1e-6,
       "joint_vel_l2": -0.001,
@@ -305,13 +305,14 @@ out = [
     " the robot (ride: looser) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
-    "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
-    "| `board_progress` | n/a | 1.0 | the share of the commanded speed the board"
+    "| `track_board_velocity` | n/a | 3.0 | board speed matches the command"
+    " (ride: within about 0.1 m/s) |\n"
+    "| `board_progress` | n/a | 4.0 | the share of the commanded speed the board"
     " reaches, so a first slow push pays |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `foot_reach` | n/a | 0.5 | the lowest foot gets close to the floor; fades"
+    "| `foot_reach` | n/a | 1.0 | the lowest foot gets close to the floor; fades"
     " as the board speeds up, gone at 0.8 of the command |\n"
-    "| `push_stroke` | n/a | 1.0 | a foot pushes against the floor; paid once as"
+    "| `push_stroke` | n/a | 3.0 | a foot pushes against the floor; paid once as"
     " it lifts, in full for a 0.25 s stroke |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
     "| `joint_speed_limit` | n/a | -0.1 | joint speed above 6 rad/s |\n"
@@ -321,8 +322,8 @@ out = [
     "| `action_acc` | n/a | -0.02 | action acceleration |\n"
     "| `joint_acc` | n/a | -1e-6 | joint acceleration |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
-    "| `termination` | -100 | -100 | falling, leaving the deck (ride: two feet"
-    " off), tipping the board |\n"
+    "| `termination` | -100 | -20 | falling, leaving the deck (ride: two feet"
+    " off), tipping the board (ride: cheaper, so a push is worth trying) |\n"
     "\n**Split** (`Mjlab-SkateSplit-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
     "| `feet_on_deck` | 1.0 | 1.0 | +1 per left foot touching the deck |\n"

@@ -412,6 +412,13 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   del r["feet_on_ground"]
   # The reference sets the pose now, push and glide alike.
   del r["stance_pose"]
+  # Standing still must not out-earn a push that sometimes falls: a ride run
+  # trained with balance's -100 and these weights at 1.0 learned to stand on
+  # the deck. A fall costs less here, tracking the speed needs the board
+  # within about 0.1 m/s of the command, and progress, reaching and pushing
+  # pay more. Played open loop at 0.3 m/s on the stock deck, falls included,
+  # the push reference earns about 1.3 times what standing still earns.
+  r["termination"].weight = -20.0
   # Standing on four feet must not out-earn pushing with one: the deck pays for
   # three feet at most, and the body may tilt and the board shift a little
   # while a leg reaches the floor.
@@ -434,13 +441,13 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["track_board_velocity"] = RewardTermCfg(
     func=mdp.track_board_velocity,
     weight=3.0,
-    params={"command_name": "twist", "std": 0.15},
+    params={"command_name": "twist", "std": 0.10},
   )
   # track_board_velocity pays little until the board is near the command;
   # board_progress pays the share of it reached, so a first slow push pays too.
   r["board_progress"] = RewardTermCfg(
     func=mdp.board_progress,
-    weight=1.0,
+    weight=4.0,
     params={"command_name": "twist", "command_threshold": 0.1},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
@@ -455,9 +462,9 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # floor, in full for a stroke of 0.25 s or more.
   r["foot_reach"] = RewardTermCfg(
     func=mdp.foot_reach,
-    weight=0.5,
+    weight=1.0,
     params={
-      "std": 0.03,
+      "std": 0.08,
       "foot_radius": 0.02,
       "command_name": "twist",
       "command_threshold": 0.1,
@@ -468,7 +475,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   r["push_stroke"] = RewardTermCfg(
     func=mdp.push_stroke,
-    weight=1.0,
+    weight=3.0,
     params={
       "sensor_name": "ground_feet_contact",
       "stroke_s": 0.25,
