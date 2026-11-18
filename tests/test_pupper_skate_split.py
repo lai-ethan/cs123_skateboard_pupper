@@ -27,6 +27,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   get_spec,
 )
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.envs.mdp import dr
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.export import export_pupper_gait_policy_from_env
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
@@ -46,7 +47,11 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   pupper_skate_split_steer_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks, load_env_cfg
-from mjlab.utils.lab_api.math import euler_xyz_from_quat
+from mjlab.utils.lab_api.math import (
+  euler_xyz_from_quat,
+  quat_from_euler_xyz,
+  quat_mul,
+)
 
 NUM_ENVS = 4
 SPLIT_TASKS = ("Mjlab-SkateSplit-Balance-Pupper-v3", "Mjlab-SkateSplit-Ride-Pupper-v3")
@@ -295,11 +300,55 @@ def test_feet_slide_charges_a_planted_foot_moving_over_the_floor():
   assert slide([0.0, 1.0]) == 0.0
 
 
+def _fake_deck_slide_env(found: list[float], foot_vel: list[list[float]]) -> Any:
+  """Two deck feet on a deck rolling at 0.3 m/s and turning at 0.5 rad/s.
+
+  The deck link is at the origin; foot 0 sits 0.1 m ahead of it, foot 1
+  0.1 m behind, so the deck carries them at (0.3, 0.05) and (0.3, -0.05).
+  """
+  robot = SimpleNamespace(
+    site_pos_w=torch.tensor([[[0.1, 0.0, 0.05], [-0.1, 0.0, 0.05]]]),
+    site_lin_vel_w=torch.tensor([foot_vel]),
+  )
+  board = SimpleNamespace(
+    body_link_pos_w=torch.zeros(1, 1, 3),
+    body_link_lin_vel_w=torch.tensor([[[0.3, 0.0, 0.0]]]),
+    body_link_ang_vel_w=torch.tensor([[[0.0, 0.0, 0.5]]]),
+  )
+  return SimpleNamespace(
+    scene={
+      "deck_feet": SimpleNamespace(data=SimpleNamespace(found=torch.tensor([found]))),
+      "robot": SimpleNamespace(data=robot),
+      "board": SimpleNamespace(data=board),
+    },
+    device="cpu",
+  )
+
+
+def test_deck_feet_slide_charges_slip_relative_to_the_deck():
+  def slide(found: list[float], foot_vel: list[list[float]]) -> float:
+    env = _fake_deck_slide_env(found, foot_vel)
+    return mdp.deck_feet_slide(
+      env, "deck_feet", SceneEntityCfg("robot"), SceneEntityCfg("board")
+    ).item()
+
+  carried = [[0.3, 0.05, 0.0], [0.3, -0.05, 0.0]]
+  # Riding along with the rolling, turning deck: no slip, though the feet move
+  # at 0.3 m/s over the floor.
+  assert slide([1.0, 1.0], carried) == pytest.approx(0.0, abs=1e-9)
+  # Foot 1 creeps sideways 0.1 m/s over the deck: 0.01. Height changes do not
+  # count.
+  creep = [[0.3, 0.05, 0.2], [0.3, 0.05, 0.0]]
+  assert slide([1.0, 1.0], creep) == pytest.approx(0.01)
+  # The same creep with foot 1 off the deck costs nothing.
+  assert slide([1.0, 0.0], creep) == pytest.approx(0.0, abs=1e-9)
+
+
 ##
 # Rewards: the a110b84 split configs, name for name and weight for weight, plus
 # the balance torque penalty (Task 25), the ride shuffle fix (Task 29), the
-# ride motor limits and idle-foot charge (Task 30) and the smoother push
-# (Task 31).
+# ride motor limits and idle-foot charge (Task 30), the smoother push
+# (Task 31) and the deck-foot slip and firmer board alignment (Task 42).
 ##
 
 SPLIT_BALANCE_WEIGHTS = {
@@ -328,6 +377,8 @@ SPLIT_RIDE_WEIGHTS = {
   "push_stride": 0.5,
   "short_stride": -0.3,
   "feet_slide": -2.0,
+  "deck_feet_slide": -2.0,
+  "board_alignment": 2.0,
   "push_leg_pose": 0.3,
   "joint_vel_l2": -1e-3,
   "joint_speed_limit": -0.3,
@@ -488,6 +539,121 @@ def test_split_terminations_match_a110b84():
   assert terms["board_tipped"].params["limit_angle"] == 0.3
   ride = pupper_skate_split_ride_env_cfg().terminations
   assert ride["feet_off_deck"].params["grace_s"] == 0.5
+
+
+_DECK_FEET_GEOMS = ("leg_front_l_3_collision", "leg_back_l_3_collision")
+_FLOOR_FEET_GEOMS = ("leg_front_r_3_collision", "leg_back_r_3_collision")
+
+
+def _matched_geoms(term) -> set[str]:
+  pattern = term.params["asset_cfg"].geom_names
+  patterns = [pattern] if isinstance(pattern, str) else list(pattern)
+  feet = _DECK_FEET_GEOMS + _FLOOR_FEET_GEOMS
+  return {g for g in feet if any(re.fullmatch(p, g) for p in patterns)}
+
+
+@pytest.mark.parametrize("play", [False, True])
+def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
+  cfg = pupper_skate_split_ride_env_cfg(play=play)
+  # 20 s episodes in training; play keeps the base config's unlimited ones.
+  if play:
+    assert cfg.episode_length_s >= 20.0
+  else:
+    assert cfg.episode_length_s == 20.0
+  events = cfg.events
+  # Grip per side: two draws that split the four feet between them.
+  assert "foot_friction" not in events and "deck_friction" not in events
+  deck, floor = events["deck_foot_friction"], events["floor_foot_friction"]
+  for term in (deck, floor):
+    assert term.func is dr.geom_friction
+    assert term.mode == "startup"
+    assert term.params["operation"] == "abs"
+    assert term.params["shared_random"] is True
+  assert deck.params["ranges"] == (0.5, 1.4)
+  assert floor.params["ranges"] == (0.5, 1.2)
+  assert _matched_geoms(deck) == set(_DECK_FEET_GEOMS)
+  assert _matched_geoms(floor) == set(_FLOOR_FEET_GEOMS)
+  # Wheel drag: one factor per env for all four wheels' bearings.
+  drag = events["wheel_drag"]
+  assert drag.func is mdp.scale_joint_drag and drag.mode == "startup"
+  assert drag.params["scale_range"] == (0.5, 3.0)
+  assert drag.params["asset_cfg"].name == "board"
+  assert drag.params["asset_cfg"].joint_names == (r"wheel_.*_spin",)
+  # Placement and shoves.
+  assert events["reset_board"].params["pose_range"] == {
+    "x": (-0.03, 0.03),
+    "y": (-0.02, 0.02),
+    "yaw": (-0.15, 0.15),
+  }
+  if play:
+    assert "push_robot" not in events
+  else:
+    assert events["push_robot"].params["velocity_range"] == {
+      "x": (-0.35, 0.35),
+      "y": (-0.35, 0.35),
+    }
+  # Deck feet must not slide on the deck, at the floor feet's weight.
+  slide = cfg.rewards["deck_feet_slide"]
+  assert slide.func is mdp.deck_feet_slide
+  assert slide.weight == cfg.rewards["feet_slide"].weight == -2.0
+  assert slide.params["sensor_name"] == "deck_feet_contact"
+  assert slide.params["asset_cfg"].site_names == (
+    "leg_front_l_3_foot_site",
+    "leg_back_l_3_foot_site",
+  )
+  assert slide.params["deck_cfg"].body_names == ("deck",)
+  alignment = cfg.rewards["board_alignment"]
+  assert alignment.weight == 2.0
+  assert alignment.params == {
+    "target_offset": SKATE_SPLIT_BOARD_OFFSET,
+    "std_pos": 0.03,
+    "std_yaw": 0.3,
+  }
+  drifted = cfg.terminations["board_drifted"]
+  assert drifted.func is mdp.board_drifted
+  assert drifted.params == {"max_drift": 0.06}
+  assert not drifted.time_out
+  # The termination penalty stays where it was.
+  assert cfg.rewards["termination"].weight == -100.0
+
+
+PROTECTED_TASKS = (
+  pupper_skate_balance_env_cfg,
+  pupper_skate_ride_env_cfg,
+  pupper_skate_split_balance_env_cfg,
+)
+
+
+@pytest.mark.parametrize("make_cfg", PROTECTED_TASKS)
+def test_other_skate_tasks_have_none_of_the_long_ride_changes(make_cfg):
+  for play in (False, True):
+    cfg = make_cfg(play=play)
+    assert "deck_feet_slide" not in cfg.rewards
+    assert "board_drifted" not in cfg.terminations
+    for name in ("wheel_drag", "deck_foot_friction", "floor_foot_friction"):
+      assert name not in cfg.events, name
+    events = cfg.events
+    assert events["foot_friction"].params["ranges"] == (0.6, 1.4)
+    assert _matched_geoms(events["foot_friction"]) == set(
+      _DECK_FEET_GEOMS + _FLOOR_FEET_GEOMS
+    )
+    assert events["deck_friction"].params["ranges"] == (0.6, 1.2)
+    assert events["reset_board"].params["pose_range"] == {
+      "x": (-0.03, 0.03),
+      "yaw": (-0.05, 0.05),
+    }
+    if play:
+      assert cfg.episode_length_s == int(1e9)
+    else:
+      assert cfg.episode_length_s == 10.0
+      assert events["push_robot"].params["velocity_range"] == {
+        "x": (-0.2, 0.2),
+        "y": (-0.2, 0.2),
+      }
+    alignment = cfg.rewards["board_alignment"]
+    assert alignment.weight == 1.0
+    expected_std = 0.08 if make_cfg is pupper_skate_ride_env_cfg else 0.05
+    assert alignment.params["std_pos"] == expected_std
 
 
 @pytest.mark.parametrize(
@@ -747,6 +913,130 @@ def test_leaving_the_deck_ends_the_split_episode(split_env):
     env.step(actions)
     fired |= env.termination_manager.get_term("feet_off_deck")
   assert fired.all()
+
+
+##
+# The split ride env: long rides, grip per side, wheel drag, board drift.
+##
+
+
+def _calm_ride_cfg(num_envs: int, deck_offset: float = 0.0):
+  """The split ride with no shoves, no spawn noise and a fixed deck height."""
+  cfg = pupper_skate_split_ride_env_cfg()
+  cfg.scene.num_envs = num_envs
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (deck_offset, deck_offset)
+  del cfg.events["push_robot"]
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  return cfg
+
+
+@pytest.fixture(scope="module")
+def ride_env():
+  cfg = pupper_skate_split_ride_env_cfg()
+  cfg.scene.num_envs = 8
+  cfg.seed = 0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  yield env
+  env.close()
+
+
+@pytest.mark.slow
+def test_split_ride_observations_and_actions_keep_their_size(ride_env):
+  obs = ride_env.observation_manager.compute()
+  # The stock 48-dim actor frame with 20 steps of history, and the critic as
+  # it was before Task 42 (no new observation terms).
+  assert obs["actor"].shape == (8, 48 * 20)
+  assert obs["critic"].shape == (8, 91)
+  assert ride_env.action_manager.total_action_dim == 12
+
+
+@pytest.mark.slow
+def test_wheel_drag_shares_one_factor_per_env(ride_env):
+  board = ride_env.scene["board"]
+  model = ride_env.sim.model
+  spin = [i for i, n in enumerate(board.joint_names) if n.endswith("_spin")]
+  assert len(spin) == 4
+  dofs = board.indexing.joint_v_adr[spin]
+  params = SkateboardParams()
+  damping = model.dof_damping[:, dofs] / params.wheel_damping
+  friction = model.dof_frictionloss[:, dofs] / params.wheel_frictionloss
+  # All four wheels and both fields share each env's factor.
+  torch.testing.assert_close(damping, damping[:, :1].expand_as(damping))
+  torch.testing.assert_close(friction, damping)
+  factor = damping[:, 0]
+  assert torch.all((factor >= 0.5) & (factor <= 3.0))
+  assert factor.max() - factor.min() > 0.1
+
+
+@pytest.mark.slow
+def test_split_ride_draws_grip_per_side(ride_env):
+  robot = ride_env.scene["robot"]
+  mu = ride_env.sim.model.geom_friction[:, :, 0]
+
+  def side(names: tuple[str, ...]) -> torch.Tensor:
+    ids = [robot.indexing.geom_ids[robot.geom_names.index(n)].item() for n in names]
+    return mu[:, ids]
+
+  deck, floor = side(_DECK_FEET_GEOMS), side(_FLOOR_FEET_GEOMS)
+  # One draw per side and env, each in its own range.
+  torch.testing.assert_close(deck[:, 1], deck[:, 0])
+  torch.testing.assert_close(floor[:, 1], floor[:, 0])
+  assert torch.all((deck >= 0.5) & (deck <= 1.4))
+  assert torch.all((floor >= 0.5) & (floor <= 1.2))
+  assert not torch.allclose(deck[:, 0], floor[:, 0])
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("deck_offset", DECK_HEIGHT_RANGE)
+def test_board_drifted_allows_placement_noise_and_ends_a_7_cm_drift(deck_offset):
+  env = ManagerBasedRlEnv(cfg=_calm_ride_cfg(5, deck_offset), device=get_test_device())
+  env.reset()
+  actions = torch.zeros(5, 12, device=env.device)
+  # The keyframe, held with zero actions for 1 s, never counts as drifted.
+  for _ in range(50):
+    env.step(actions)
+    assert not env.termination_manager.get_term("board_drifted").any()
+  env.reset()
+  # Envs: keyframe; the two corners of the board's reset range (2 cm aside,
+  # 0.15 rad and 3 cm along); the board 7 cm to either side.
+  board = env.scene["board"]
+  pose = board.data.root_link_pose_w.clone()
+  zeros = torch.zeros(5, device=env.device)
+  shift = torch.tensor(
+    [[0.0, 0.0], [0.03, 0.02], [-0.03, -0.02], [0.0, 0.07], [0.0, -0.07]],
+    device=env.device,
+  )
+  yaw = torch.tensor([0.0, 0.15, -0.15, 0.0, 0.0], device=env.device)
+  pose[:, :2] += shift
+  pose[:, 3:7] = quat_mul(pose[:, 3:7], quat_from_euler_xyz(zeros, zeros, yaw))
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  assert mdp.board_drifted(env, max_drift=0.06).tolist() == [
+    False,
+    False,
+    False,
+    True,
+    True,
+  ]
+  # And through the termination manager, on the next step.
+  env.step(actions)
+  fired = env.termination_manager.get_term("board_drifted")
+  assert fired.tolist() == [False, False, False, True, True]
+  env.close()
+
+
+def test_board_lateral_offset_is_in_the_board_heading_frame():
+  # Board 0.146 m to the robot's left; turning the board 0.5 rad about its own
+  # centre moves the offset along the board's left axis only by the cosine.
+  board_pos = torch.tensor([[0.0, 0.146, 0.0], [0.0, 0.146, 0.0]])
+  robot_pos = torch.zeros(2, 3)
+  zeros = torch.zeros(2)
+  quat = quat_from_euler_xyz(zeros, zeros, torch.tensor([0.0, 0.5]))
+  lateral = mdp.board_lateral_offset(board_pos, quat, robot_pos)
+  assert lateral.tolist() == pytest.approx([0.146, 0.146 * math.cos(0.5)])
 
 
 ##

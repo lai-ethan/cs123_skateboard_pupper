@@ -3,7 +3,7 @@
 from mjlab.tasks.pupper_gait.mdp import *  # noqa: F401, F403
 
 from .commands import SteerVelocityCommand, SteerVelocityCommandCfg  # noqa: F401
-from .events import reset_tripod_layout  # noqa: F401
+from .events import reset_tripod_layout, scale_joint_drag  # noqa: F401
 from .observations import (  # noqa: F401
   board_pose_in_robot_frame,
   contact_flags,
@@ -16,6 +16,7 @@ from .rewards import (  # noqa: F401
   board_speed_l2,
   board_yaw_rate_l2,
   contact_count,
+  deck_feet_slide,
   deck_roll_l2,
   feet_slide,
   foot_height_over,
@@ -33,6 +34,8 @@ from .rewards import (  # noqa: F401
 )
 from .terminations import (  # noqa: F401
   base_near_deck,
+  board_drifted,
+  board_lateral_offset,
   contact_held,
   contact_lost,
 )

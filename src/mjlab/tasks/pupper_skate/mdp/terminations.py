@@ -10,11 +10,13 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardP
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
+from mjlab.utils.lab_api.math import quat_apply_inverse, yaw_quat
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
 
 _ROBOT = SceneEntityCfg("robot")
+_BOARD = SceneEntityCfg("board")
 
 
 def contact_lost(
@@ -80,3 +82,42 @@ def base_near_deck(
   deck_z = board.data.geom_pos_w[:, deck_cfg.geom_ids, 2]
   deck_top = deck_z.reshape(deck_z.shape[0], -1)[:, 0] + deck_half_thickness
   return robot.data.root_link_pos_w[:, 2] - deck_top < minimum_height
+
+
+def board_lateral_offset(
+  board_pos: torch.Tensor, board_quat: torch.Tensor, robot_pos: torch.Tensor
+) -> torch.Tensor:
+  """The board centre's sideways offset from the robot base [m], shape ``[B]``.
+
+  Board position minus robot position, along the board's own left axis (its
+  heading frame), so the value does not change as the board turns.
+  """
+  rel = board_pos - robot_pos
+  return quat_apply_inverse(yaw_quat(board_quat), rel)[:, 1]
+
+
+def board_drifted(
+  env: ManagerBasedRlEnv,
+  max_drift: float,
+  robot_cfg: SceneEntityCfg = _ROBOT,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Terminate when the board has slid sideways under the robot.
+
+  Fires when ``board_lateral_offset`` is more than ``max_drift`` [m] from its
+  nominal value. The nominal is the same offset between the two entities'
+  default root states, the keyframe the scene spawns, so it follows the
+  stance instead of a typed number.
+  """
+  robot: Entity = env.scene[robot_cfg.name]
+  board: Entity = env.scene[board_cfg.name]
+  lateral = board_lateral_offset(
+    board.data.root_link_pos_w,
+    board.data.root_link_quat_w,
+    robot.data.root_link_pos_w,
+  )
+  board_default = board.data.default_root_state
+  nominal = board_lateral_offset(
+    board_default[:, :3], board_default[:, 3:7], robot.data.default_root_state[:, :3]
+  )
+  return torch.abs(lateral - nominal) > max_drift

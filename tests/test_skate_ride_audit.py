@@ -119,10 +119,11 @@ def test_every_row_configures_the_split_and_tripod_rides():
       if row.kind == "deck_grip":
         grip = cfg.events["audit_deck_grip"].params
         assert grip["ranges"] == (0.4, 0.4), (task, name)
-        # Runs after the task's own foot friction draw.
-        assert list(cfg.events).index("audit_deck_grip") > list(cfg.events).index(
-          "foot_friction"
-        )
+        # Runs after the task's own foot friction draws (the split ride draws
+        # each side on its own).
+        events = list(cfg.events)
+        draws = [i for i, n in enumerate(events) if n.endswith("foot_friction")]
+        assert draws and events.index("audit_deck_grip") > max(draws)
 
 
 def test_board_yaw_adds_to_the_task_noise():

@@ -1,4 +1,4 @@
-"""Reset events for the Pupper skateboard tasks."""
+"""Reset and randomization events for the Pupper skateboard tasks."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import torch
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardParams
 from mjlab.entity import Entity
 from mjlab.envs.mdp.events import resolve_env_ids
+from mjlab.managers.event_manager import requires_model_fields
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import (
   quat_apply,
@@ -91,3 +92,26 @@ def reset_tripod_layout(
   robot.write_root_link_velocity_to_sim(vel, env_ids=env_ids)
   robot.write_joint_state_to_sim(joints, torch.zeros_like(joints), env_ids=env_ids)
   board.write_root_link_velocity_to_sim(vel, env_ids=env_ids)
+
+
+@requires_model_fields("dof_damping", "dof_frictionloss")
+def scale_joint_drag(
+  env: ManagerBasedRlEnv,
+  env_ids: torch.Tensor | None,
+  scale_range: tuple[float, float],
+  asset_cfg: SceneEntityCfg,
+) -> None:
+  """Scale the joints' damping and frictionloss by one factor per env.
+
+  The factor is drawn uniformly from ``scale_range`` and applies to every joint
+  of ``asset_cfg`` and to both fields, so a board's wheels all roll as freely
+  as each other. It multiplies the model's compiled values, so the event can
+  run again without compounding.
+  """
+  env_ids = resolve_env_ids(env, env_ids)
+  asset: Entity = env.scene[asset_cfg.name]
+  dofs = asset.indexing.joint_v_adr[asset_cfg.joint_ids]
+  scale = sample_uniform(*scale_range, (len(env_ids), 1), env.device)
+  for field in ("dof_damping", "dof_frictionloss"):
+    default = env.sim.get_default_field(field)[dofs]
+    getattr(env.sim.model, field)[env_ids[:, None], dofs[None, :]] = default * scale

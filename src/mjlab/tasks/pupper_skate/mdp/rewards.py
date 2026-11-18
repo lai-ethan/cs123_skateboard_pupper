@@ -359,6 +359,40 @@ def feet_slide(
   return torch.sum(torch.sum(torch.square(foot_vel_xy), dim=-1) * in_contact, dim=1)
 
 
+def deck_feet_slide(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  asset_cfg: SceneEntityCfg,
+  deck_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """Penalize feet sliding over the deck: sum of foot xy slip speed squared.
+
+  The slip is the foot site's velocity minus the deck's own velocity at that
+  point (the deck link's velocity plus its spin crossed with the lever from
+  the link to the foot), so a foot carried along by a rolling, turning or
+  leaning deck costs nothing. Only feet in contact on ``sensor_name`` count.
+  ``asset_cfg`` names the foot sites in the sensor's order; ``deck_cfg`` names
+  the deck body (the first of its bodies is used). Same units as
+  ``feet_slide``.
+  """
+  robot: Entity = env.scene[asset_cfg.name]
+  board: Entity = env.scene[deck_cfg.name]
+  sensor: ContactSensor = env.scene[sensor_name]
+  found = sensor.data.found
+  assert found is not None
+  in_contact = (found > 0).float()
+  foot_pos = robot.data.site_pos_w[:, asset_cfg.site_ids]
+  foot_vel = robot.data.site_lin_vel_w[:, asset_cfg.site_ids]
+  deck_pos = board.data.body_link_pos_w[:, deck_cfg.body_ids][:, :1]
+  deck_vel = board.data.body_link_lin_vel_w[:, deck_cfg.body_ids][:, :1]
+  deck_spin = board.data.body_link_ang_vel_w[:, deck_cfg.body_ids][:, :1]
+  carried = deck_vel + torch.linalg.cross(
+    deck_spin.expand_as(foot_pos), foot_pos - deck_pos, dim=-1
+  )
+  slip_xy = (foot_vel - carried)[..., :2]
+  return torch.sum(torch.sum(torch.square(slip_xy), dim=-1) * in_contact, dim=1)
+
+
 def push_stroke(
   env: ManagerBasedRlEnv,
   sensor_name: str,

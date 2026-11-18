@@ -62,7 +62,10 @@ GROUND_SIDE = "r"
 
 _DECK_FEET = rf"^leg_(front|back)_{DECK_SIDE}_3_collision$"
 _GROUND_FEET = rf"^leg_(front|back)_{GROUND_SIDE}_3_collision$"
-# The foot sites of the _GROUND_FEET geoms, in the sensor's order.
+# The foot sites of the _DECK_FEET and _GROUND_FEET geoms, in the sensors' order.
+_DECK_FOOT_SITES = tuple(
+  f"leg_{end}_{DECK_SIDE}_3_foot_site" for end in ("front", "back")
+)
 _GROUND_FOOT_SITES = tuple(
   f"leg_{end}_{GROUND_SIDE}_3_foot_site" for end in ("front", "back")
 )
@@ -277,9 +280,10 @@ def pupper_skate_split_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvC
   ##
   # Shoves (training only). The stock base kick is off for Pupper; this one is
   # linear and small. Both add to the root velocity, so the deck roll joint is
-  # untouched. In balance and ride the board yaw stays within +-0.05 rad, so
-  # world x is its heading; the steer task turns it, but the robot kick is the
-  # same in x and y, so it does not depend on the heading.
+  # untouched. In balance the board yaw stays within +-0.05 rad, so world x is
+  # its heading for the board nudge. The ride drops the nudge and places the
+  # board at up to +-0.15 rad, and the steer task turns it, but the robot kick
+  # is the same in x and y, so it does not depend on the heading.
   ##
   if not play:
     cfg.events["push_robot"] = EventTermCfg(
@@ -369,6 +373,56 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
 
+  # Long rides: the 10 s policy lost the deck in a third of envs by 30 s, as
+  # the board walked sideways under the feet. Play keeps its unlimited
+  # episodes (the base play config), so play tools can ride past 20 s.
+  if not play:
+    cfg.episode_length_s = 20.0
+
+  # Grip per side. Feet have geom priority 1, so a foot contact always takes
+  # the foot's own friction: the deck feet's draw is the grip tape, the floor
+  # feet's the floor. Each side shares one draw. The deck geom's own friction
+  # then reaches only contacts that end the episode or are charged anyway
+  # (knees, body), so its event is dropped.
+  feet = cfg.events.pop("foot_friction")
+  for name, pattern, ranges in (
+    ("deck_foot_friction", _DECK_FEET, (0.5, 1.4)),
+    ("floor_foot_friction", _GROUND_FEET, (0.5, 1.2)),
+  ):
+    cfg.events[name] = dataclasses.replace(
+      feet,
+      params={
+        **feet.params,
+        "asset_cfg": SceneEntityCfg("robot", geom_names=pattern),
+        "ranges": ranges,
+      },
+    )
+  cfg.events.pop("deck_friction", None)
+  # Wheel bearing drag: damping and frictionloss of all four wheels scaled by
+  # one factor per env. The nominal values are guesses, and drag x2 already
+  # cost the 10 s policy a fifth of its speed.
+  cfg.events["wheel_drag"] = EventTermCfg(
+    mode="startup",
+    func=mdp.scale_joint_drag,
+    params={
+      "scale_range": (0.5, 3.0),
+      "asset_cfg": SceneEntityCfg("board", joint_names=(r"wheel_.*_spin",)),
+    },
+  )
+  # Hand placement: the board can start 2 cm to either side and 0.15 rad off
+  # the robot's heading. No term reads the board's heading from world x (see
+  # the steer docstring), so nothing else changes with it.
+  cfg.events["reset_board"].params["pose_range"] = {
+    "x": (-0.03, 0.03),
+    "y": (-0.02, 0.02),
+    "yaw": (-0.15, 0.15),
+  }
+  if not play:
+    cfg.events["push_robot"].params["velocity_range"] = {
+      "x": (-0.35, 0.35),
+      "y": (-0.35, 0.35),
+    }
+
   r = cfg.rewards
   del r["board_still"]
   r["track_board_velocity"] = RewardTermCfg(
@@ -418,6 +472,24 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       ),
     },
   )
+  # The deck feet ride the deck: charge their slip relative to the deck (not
+  # the world, the deck moves), at the floor feet's weight. A deck foot that
+  # creeps lets the board walk out from under the robot.
+  r["deck_feet_slide"] = RewardTermCfg(
+    func=mdp.deck_feet_slide,
+    weight=-2.0,
+    params={
+      "sensor_name": "deck_feet_contact",
+      "asset_cfg": SceneEntityCfg(
+        "robot", site_names=_DECK_FOOT_SITES, preserve_order=True
+      ),
+      "deck_cfg": SceneEntityCfg("board", body_names=("deck",)),
+    },
+  )
+  # Board under the feet: twice the balance weight and a 3 cm width, so a
+  # board 3 cm out of place already costs most of the term.
+  r["board_alignment"].weight = 2.0
+  r["board_alignment"].params["std_pos"] = 0.03
   r["feet_on_ground"].weight = 0.1
   # Hold the keyframe firmly on the deck-side legs and loosely on the pushing
   # legs, so they stride around the stance instead of flailing.
@@ -480,6 +552,14 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-1.5, params={"limit": PUPPER_EFFORT_LIMIT}
   )
+
+  # The board slid out from under the feet: its sideways offset from the robot,
+  # in the board's heading frame, is more than 6 cm from the keyframe's. The
+  # deck feet stand on the deck's centre line, 8 cm from either edge, so this
+  # ends the ride before they slip off. Ends the episode in play too.
+  cfg.terminations["board_drifted"] = TerminationTermCfg(
+    func=mdp.board_drifted, params={"max_drift": 0.06}
+  )
   return cfg
 
 
@@ -489,8 +569,9 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   Only the yaw rate is rewarded, not how it is made (angled pushes, the deck
   feet on the deck edge, leaning). Every other term is the ride's: none of them
   reads a world-frame heading (forward speed is along the board's own axis,
-  board alignment is in the robot's heading frame, foot slide and the shoves
-  are the same in every direction), so they hold once the board has turned.
+  board alignment is in the robot's heading frame, board drift in the board's,
+  foot slide and the shoves are the same in every direction), so they hold
+  once the board has turned.
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 

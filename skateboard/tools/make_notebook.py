@@ -88,6 +88,14 @@ train = train.rstrip("\n")[: -len(LAUNCH)] + (
   "else:\n"
   f"  {LAUNCH}\n"
 )
+# The split ride draws the deck feet's and the floor feet's grip on their own
+# and has no single foot_friction event; FRICTION_RANGE skips it.
+FRICTION = 'env_cfg.events["foot_friction"].params["ranges"] = FRICTION_RANGE\n'
+assert FRICTION in train
+train = train.replace(
+  FRICTION,
+  'if "foot_friction" in env_cfg.events:  # split ride: grip per side\n  ' + FRICTION,
+)
 dr_md = text(11)
 assert dr_md.startswith("## 6. Domain randomization")
 dr_md = dr_md.replace("## 6.", "## 5.", 1)
@@ -161,7 +169,7 @@ if SPLIT:
     "tilt": 1.0,
     "base_height": 1.0,
     "stance_pose": 1.0,
-    "board_alignment": 1.0,
+    "board_alignment": 2.0 if RIDE else 1.0,
     "deck_flat": -5.0,
     "action_rate_l2": -0.05 if RIDE else -0.01,
     "joint_torques_l2": -0.0002,
@@ -175,6 +183,7 @@ if SPLIT:
       "push_stride": 0.5,
       "short_stride": -0.3,
       "feet_slide": -2.0,
+      "deck_feet_slide": -2.0,
       "push_leg_pose": 0.3,
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.3,
@@ -354,8 +363,8 @@ out = [
     "| `base_height` | 1.0 | 1.0 | hold 0.154 m |\n"
     "| `stance_pose` | 1.0 | 1.0 | joints near the keyframe (ride: left legs"
     " only) |\n"
-    "| `board_alignment` | 1.0 | 1.0 | board under the left feet, parallel to"
-    " the robot |\n"
+    "| `board_alignment` | 1.0 | 2.0 | board under the left feet, parallel to"
+    " the robot (ride: tighter, about 3 cm) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
@@ -366,6 +375,8 @@ out = [
     "| `short_stride` | n/a | -0.3 | a right foot lands after a shorter stance"
     " than `push_stride` asks for; a tap with no stance costs the full weight |\n"
     "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
+    "| `deck_feet_slide` | n/a | -2.0 | a left foot slides over the deck (measured"
+    " against the deck, which moves) |\n"
     "| `push_foot_idle` | n/a | -0.5 | a right foot held in the air for more than"
     " 0.5 s |\n"
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"
@@ -379,7 +390,8 @@ out = [
     "| `swing_height` | n/a | -5.0 | a right foot in the air lifted more than 3 cm"
     " (per metre over) |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
-    "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board |\n"
+    "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board"
+    " (ride: also the board 6 cm sideways out of place) |\n"
   ),
   code(REWARD_CELL),
   md(dr_md),
