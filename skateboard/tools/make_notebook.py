@@ -227,8 +227,9 @@ assert runs, "No runs yet -- train first."
 ckpts = sorted(runs[-1].glob("model_*.pt"), key=lambda p: int(p.stem.split("_")[1]))
 ckpt = ckpts[-1]
 print("Gait check on:", ckpt)
-# Ride is checked at 0.4 m/s; balance has no speed command.
-SPEED_FLAG = "--speed 0.4" if RIDE else ""
+# Ride is checked at 0.4 m/s, the centred (tripod) ride at its top command,
+# 0.3 m/s; balance has no speed command.
+SPEED_FLAG = ("--speed 0.4" if SPLIT else "--speed 0.3") if RIDE else ""
 !python skateboard/tools/gait_report.py {TASK} {ckpt} {SPEED_FLAG}
 """
 
@@ -278,7 +279,7 @@ out = [
   code(
     "# Pick one:\n"
     "#   Mjlab-Skate-Balance-Pupper-v3       centred: hold the stance on a free board\n"
-    "#   Mjlab-Skate-Ride-Pupper-v3          centred: tripod, stroke the back right foot\n"
+    "#   Mjlab-Skate-Ride-Pupper-v3          centred: tripod, stroke the BR foot\n"
     "#   Mjlab-SkateSplit-Balance-Pupper-v3  split: hold the stance, right feet down\n"
     "#   Mjlab-SkateSplit-Ride-Pupper-v3     split: push with the right legs to ride\n"
     'TASK = "Mjlab-Skate-Balance-Pupper-v3"\n'
@@ -417,7 +418,8 @@ out = [
     "seed, so a rerun gives the same answer) and checks joint speed, torque,\n"
     "that each foot touches the deck or floor most of the time and how often a\n"
     "foot lands on the floor. Each limit is judged on the worst board.\n"
-    "Ride runs at 0.4 m/s and also checks that the board rolls at 0.5 to 1.5\n"
+    "Ride runs at 0.4 m/s (centred ride: 0.3 m/s) and also checks that the\n"
+    "board rolls at 0.5 to 1.5\n"
     "times the command; balance has no speed command, so it skips that check.\n"
     "In the split stance only the two right (pushing) feet are counted.\n"
     "It also prints each foot's time on the floor, so you can see which foot\n"

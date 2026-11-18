@@ -40,6 +40,8 @@ def reset_tripod_layout(
   joint_poses: tuple[tuple[float, ...], ...],
   speed_range: tuple[float, float],
   deck_cfg: SceneEntityCfg,
+  xy_noise: float = 0.0,
+  yaw_noise: float = 0.0,
   deck_half_thickness: float = SkateboardParams().deck_thickness / 2,
   asset_cfg: SceneEntityCfg = _ROBOT,
 ) -> None:
@@ -51,7 +53,9 @@ def reset_tripod_layout(
   interpolated linearly on that env's deck top (the deck geom's height, which
   the deck height event moves per env) between the ``deck_tops`` they were
   solved at. The board and the robot then roll forward together at a speed
-  drawn from ``speed_range`` [m/s].
+  drawn from ``speed_range`` [m/s]. The base is shifted by up to ``xy_noise``
+  [m] along each board axis and turned by up to ``yaw_noise`` [rad] from the
+  board's heading, uniformly; the joints are placed exactly.
   """
   env_ids = resolve_env_ids(env, env_ids)
   robot: Entity = env.scene[asset_cfg.name]
@@ -67,11 +71,15 @@ def reset_tripod_layout(
 
   heading = yaw_quat(board.data.root_link_quat_w[env_ids])
   offset = torch.zeros(len(env_ids), 3, device=dev)
-  offset[:, :2] = base[:, :2]
+  offset[:, :2] = base[:, :2] + sample_uniform(
+    -xy_noise, xy_noise, (len(env_ids), 2), dev
+  )
   pos = board.data.root_link_pos_w[env_ids] + quat_apply(heading, offset)
   pos[:, 2] = deck_top + base[:, 2]
   zeros = torch.zeros(len(env_ids), device=dev)
-  quat = quat_mul(heading, quat_from_euler_xyz(base[:, 3], base[:, 4], zeros))
+  yaw = sample_uniform(-yaw_noise, yaw_noise, (len(env_ids),), dev)
+  turned = quat_mul(heading, quat_from_euler_xyz(zeros, zeros, yaw))
+  quat = quat_mul(turned, quat_from_euler_xyz(base[:, 3], base[:, 4], zeros))
 
   speed = sample_uniform(*speed_range, (len(env_ids),), dev)
   forward = torch.zeros(len(env_ids), 3, device=dev)

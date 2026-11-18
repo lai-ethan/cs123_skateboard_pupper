@@ -96,7 +96,10 @@ def test_gait_cell_runs_for_all_four_tasks(task):
   exec("\n".join(line for line in lines if line.startswith("SPEED_FLAG = ")), scope)
   command = commands[0].format(ckpt="model_1499.pt", **scope)
   assert command.split()[2] == task
-  if "-Ride-" in task:
+  if task == "Mjlab-Skate-Ride-Pupper-v3":
+    # The tripod ride's top command.
+    assert command.endswith(" --speed 0.3")
+  elif "-Ride-" in task:
     assert command.endswith(" --speed 0.4")
   else:
     assert "--speed" not in command

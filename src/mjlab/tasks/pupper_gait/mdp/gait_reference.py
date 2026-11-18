@@ -286,11 +286,13 @@ def _spider_table(n_samples: int) -> np.ndarray:
 # for (deck feet fixed, body free, CoM 3 cm inside the deck feet's triangle,
 # 103 mm deck) plus the feed-forward offset that holds the layout under the PD.
 # `fwd` and `back` put the push foot on the floor 5 cm ahead of and 4.5 cm behind
-# its spot in the layout (a 9.5 cm stroke); `fwd_air` and `back_air` lift it
-# 7 cm straight up from there with the push leg alone. Played open loop at
-# 0.3 m/s on a 103 mm deck with randomization on, it rolls the board at a mean
-# 0.06 m/s (0.17 m/s at the 90th percentile) and pays push_stroke about once a
-# cycle; the push leg's swing peaks well over 6 rad/s.
+# its spot in the layout (a 9.5 cm stroke). `fwd_air` and `back_air` lift it
+# 4 cm with the push leg alone, by the smallest joint change that does it (the
+# foot also moves 3 cm fore-aft and 3 cm out from the deck side; it stays 1 cm
+# clear of the deck and wheels). Segment lengths keep every joint of the table
+# under 5.2 rad/s at SKATE_PUSH_FREQUENCY. A 5 or 7 cm lift, or a 1.0 Hz clock
+# with a 0.3 s sweep, tipped the nominal robot over within three cycles open
+# loop: the board outran the sweep and the planted foot pulled the body back.
 _TRIPOD_FWD: tuple[float, ...] = (
   -0.77, -0.324, -0.112,
   -0.102, 0.345, 0.115,
@@ -305,25 +307,25 @@ _TRIPOD_BACK: tuple[float, ...] = (
 )  # fmt: skip
 # The two air poses differ from fwd and back in the push leg only.
 _TRIPOD_FWD_AIR: tuple[float, ...] = (
-  *_TRIPOD_FWD[:6], 0.206, 0.724, -0.09, *_TRIPOD_FWD[9:],
+  *_TRIPOD_FWD[:6], 1.243, 0.977, -1.135, *_TRIPOD_FWD[9:],
 )  # fmt: skip
 _TRIPOD_BACK_AIR: tuple[float, ...] = (
-  *_TRIPOD_BACK[:6], -0.852, 0.559, -0.093, *_TRIPOD_BACK[9:],
+  *_TRIPOD_BACK[:6], 0.419, 1.279, -1.54, *_TRIPOD_BACK[9:],
 )  # fmt: skip
-# (phase, keyframe) in cycle order: sweep back on the floor (0.4 s), lift
-# (0.1 s), swing forward in the air (0.25 s), wait over the touchdown spot
+# (phase, keyframe) in cycle order at 0.8 Hz: sweep back on the floor (0.45 s),
+# lift (0.17 s), swing forward in the air (0.3 s), wait over the touchdown spot
 # (0.1 s) so the foot is not still moving forward when it lands, set down
-# (0.15 s). The last row closes the cycle.
+# (0.23 s). The last row closes the cycle.
 SKATE_PUSH_KEYFRAMES: tuple[tuple[float, str], ...] = (
   (0.0, "fwd"),
-  (0.4, "back"),
-  (0.5, "back_air"),
-  (0.75, "fwd_air"),
-  (0.85, "fwd_air"),
+  (0.36, "back"),
+  (0.496, "back_air"),
+  (0.736, "fwd_air"),
+  (0.816, "fwd_air"),
   (1.0, "fwd"),
 )
-# Phase clock [Hz]: one stroke a second.
-SKATE_PUSH_FREQUENCY: float = 1.0
+# Phase clock [Hz]: one stroke every 1.25 s.
+SKATE_PUSH_FREQUENCY: float = 0.8
 # Command speed [m/s] at and above which the push plays in full. Below it the
 # reference blends linearly toward the default pose (the held layout), which
 # it is at zero.

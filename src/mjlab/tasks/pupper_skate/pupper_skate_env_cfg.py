@@ -69,12 +69,18 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 
 # Forward speed range for the centred ride [m/s]. The scripted tripod stroke
-# reaches 0.17 m/s at the 90th percentile; 0.3 leaves the policy room to beat it.
+# rolls the board at about 0.09 m/s; 0.3 leaves the policy room to beat it.
 CENTRED_RIDE_SPEED_RANGE: tuple[float, float] = (0.1, 0.3)
 
 # Centred ride: forward speed [m/s] the board and robot roll at on reset, so
 # episodes also start mid-ride.
 TRIPOD_RESET_SPEED_RANGE: tuple[float, float] = (0.0, 0.2)
+# Centred ride: placement noise of the tripod reset relative to the board,
+# base x and y [m] and yaw [rad], uniform +-. The stance tasks' spawn uses the
+# same sizes. The joints are placed exactly, as the inherited joint reset does
+# (its position range is zero).
+TRIPOD_RESET_XY_NOISE: float = 0.01
+TRIPOD_RESET_YAW_NOISE: float = 0.05
 
 # Joint speed limit [rad/s] the gait check enforces. The GIM4305 spec gives
 # about 30 rad/s, and the deployed walking references ask for 15 rad/s and
@@ -437,6 +443,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "joint_poses": SKATE_TRIPOD_POSES,
       "speed_range": TRIPOD_RESET_SPEED_RANGE,
       "deck_cfg": SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,)),
+      "xy_noise": TRIPOD_RESET_XY_NOISE,
+      "yaw_noise": TRIPOD_RESET_YAW_NOISE,
     },
   )
   # The push foot lives on the floor. Any of the other three off the deck for
@@ -532,8 +540,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # the deck. A fall costs less here, tracking the speed needs the board
   # within about 0.1 m/s of the command, and progress, reaching and pushing
   # pay more. Played open loop at 0.3 m/s on decks 9.3 to 11.3 cm with
-  # randomization on, falls included, the stroke reference earns 7.7 per
-  # second against 4.9 for holding the tripod layout still (1.56 times).
+  # randomization on, falls included, the stroke reference earns 8.0 per
+  # second against 5.2 for holding the tripod layout still (1.54 times).
   r["termination"].weight = -20.0
   # The deck pays for the three support feet, and the body may tilt and the
   # board shift a little while the push foot strokes. Tilt and board position
