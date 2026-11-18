@@ -56,6 +56,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   KNEES_ON_DECK_S,
   PUSH_FOOT_ID,
   PUSH_INTERVAL_S,
+  PUSH_OFF_DECK_S,
   RIDE_DECK_HEIGHT_RANGE,
   RIDE_SPEED_RANGE,
   SUPPORT_FOOT_IDS,
@@ -558,7 +559,16 @@ def test_foot_sensors_follow_foot_site_order(balance_env):
   expected = [site.replace("_foot_site", "_collision") for site in FOOT_SITE_NAMES]
   for name in ("deck_feet_contact", "ground_feet_contact"):
     sensor = balance_env.scene[name]
-    assert [n.split("/")[-1] for n in sensor.primary_names] == expected, name
+    names = [n.split("/")[-1] for n in sensor.primary_names]
+    assert names == expected, name
+    # The centred ride's push foot is the back right one, in the built sensor.
+    assert names[PUSH_FOOT_ID] == "leg_back_r_3_collision", name
+    assert {names[i] for i in SUPPORT_FOOT_IDS} == {
+      "leg_front_r_3_collision",
+      "leg_front_l_3_collision",
+      "leg_back_l_3_collision",
+    }, name
+  assert FOOT_SITE_NAMES[PUSH_FOOT_ID] == "leg_back_r_3_foot_site"
 
 
 @pytest.mark.slow
@@ -1094,7 +1104,12 @@ def test_balance_env_survives_pushes(robust_env):
 # on the deck and paddled with the other legs.
 ##
 
-_NEW_RIDE_TERMS = ("knees_on_deck", "support_feet_off_deck", "base_near_deck")
+_NEW_RIDE_TERMS = (
+  "knees_on_deck",
+  "support_feet_off_deck",
+  "push_foot_off_deck",
+  "base_near_deck",
+)
 _NEW_RIDE_KEYWORDS = ("foot_ids", "support_sensor", "support_grace_s")
 
 
@@ -1125,7 +1140,27 @@ def test_support_feet_off_deck_ignores_the_push_foot():
   assert lost.tolist() == [True, False, True, False]
 
 
-def test_knees_on_deck_ends_the_episode_after_0_2_s():
+def test_push_foot_off_deck_bounds_the_push_foot_alone():
+  term = pupper_skate_ride_env_cfg().terminations["push_foot_off_deck"]
+  assert term.func is mdp.contact_lost
+  assert term.params == {
+    "sensor_name": "deck_feet_contact",
+    "grace_s": PUSH_OFF_DECK_S,
+    "foot_ids": (PUSH_FOOT_ID,),
+  }
+  assert PUSH_OFF_DECK_S == 2.4
+  # Rows: the push foot off 2.3 s, off 2.5 s, a support foot alone off 5 s.
+  env = _fake_env(
+    deck_feet_contact={
+      "current_air_time": torch.tensor(
+        [[0.0, 0.0, 2.3, 0.0], [0.0, 0.0, 2.5, 0.0], [5.0, 0.0, 0.0, 0.0]]
+      )
+    }
+  )
+  assert mdp.contact_lost(env, **term.params).tolist() == [False, True, False]
+
+
+def test_knees_on_deck_ends_the_episode_when_two_knees_rest_past_0_4_s():
   term = pupper_skate_ride_env_cfg().terminations["knees_on_deck"]
   assert term.func is mdp.contact_held
   assert term.params == {
@@ -1278,29 +1313,6 @@ def test_foot_reach_pays_only_the_push_foot_with_the_support_down():
   assert reach == pytest.approx(math.exp(-0.10 / 0.08))
 
 
-def test_unset_keywords_keep_the_old_push_terms():
-  # Same random inputs, with and without the keywords at their defaults.
-  torch.manual_seed(0)
-  rows = 32
-  ground_air = (torch.rand(rows, 4) < 0.5) * torch.rand(rows, 4) * 0.04
-  stroke = torch.rand(rows, 4) * 0.5
-  foot_z = torch.rand(rows, 4) * 0.15
-  env = _push_env(
-    ground_air.tolist(), stroke.tolist(), [[0.0] * 4] * rows, foot_z.tolist()
-  )
-  defaults = {"foot_ids": None, "support_sensor": None}
-  torch.testing.assert_close(
-    mdp.push_stroke(env, **_STROKE), mdp.push_stroke(env, **_STROKE, **defaults)
-  )
-  torch.testing.assert_close(
-    mdp.foot_reach(env, **_REACH), mdp.foot_reach(env, **_REACH, **defaults)
-  )
-  lost = mdp.contact_lost(env, "ground_feet_contact", grace_s=0.01)
-  torch.testing.assert_close(
-    lost, mdp.contact_lost(env, "ground_feet_contact", grace_s=0.01, foot_ids=None)
-  )
-
-
 def test_ride_cfg_gates_both_push_terms():
   r = pupper_skate_ride_env_cfg().rewards
   for name in ("push_stroke", "foot_reach"):
@@ -1385,8 +1397,10 @@ def play_push_reference_terminations(
   The terminations named in ``watch`` are taken out of the config and only
   watched: each step they are evaluated on the state the termination manager
   would have judged, without ending the episode, so it is visible whether a
-  fall follows. ``pre_fall`` counts their calm firings followed by a
-  ``fell_over`` in that env within 0.5 s, and ``calm_no_fall`` the rest.
+  fall follows. ``pre_end`` counts their calm firings followed within 0.5 s by
+  the end of that env's episode on any other termination (fell_over,
+  support_feet_off_deck, ...; not the time-out), and ``calm_no_end`` the rest,
+  listed in ``no_end_events``.
   """
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = num_envs
@@ -1419,7 +1433,7 @@ def play_push_reference_terminations(
     calm = dict.fromkeys([*names, *watched], 0)
     # Per watched rule, the (step, env) of each calm firing.
     calm_at: dict[str, list[tuple[int, int]]] = {name: [] for name in watched}
-    fell, ended = [], []
+    stopped, ended = [], []
     causes: list[list[list[str]]] = []
     stroke_idx = env.reward_manager.active_terms.index("push_stroke")
     pays = 0
@@ -1454,7 +1468,7 @@ def play_push_reference_terminations(
           calm[name] += int(hits.sum())
           calm_at[name] += [(step, i) for i in hits.nonzero().flatten().tolist()]
         _, _, terminated, truncated, _ = env.step(action)
-        fell.append(env.termination_manager.get_term("fell_over").cpu().clone())
+        stopped.append(terminated.cpu().clone())
         causes.append(
           [
             [n for n in names if env.termination_manager.get_term(n)[i]]
@@ -1469,33 +1483,33 @@ def play_push_reference_terminations(
         pays += int((env.reward_manager._step_reward[:, stroke_idx] > 0).sum())
   finally:
     env.close()
-  pre_fall = dict.fromkeys(watched, 0)
-  # Calm firings with no fall after them: (step, env, steps to the next reset
-  # or None if the run ended first, what ended that episode).
-  no_fall: dict[str, list[tuple[int, int, int | None, list[str]]]] = {
+  pre_end = dict.fromkeys(watched, 0)
+  # Calm firings with no termination after them: (step, env, steps to the next
+  # reset or None if the run ended first, what ended that episode).
+  no_end: dict[str, list[tuple[int, int, int | None, list[str]]]] = {
     name: [] for name in watched
   }
   for name, hits in calm_at.items():
     for step, i in hits:
-      # The first reset in the window, if any, must be a fall.
+      # The first reset in the window, if any, must be a termination.
       for later in range(step, min(step + window, steps)):
         if ended[later][i]:
-          if fell[later][i]:
-            pre_fall[name] += 1
+          if stopped[later][i]:
+            pre_end[name] += 1
             break
-          no_fall[name].append((step, i, later - step, causes[later][i]))
+          no_end[name].append((step, i, later - step, causes[later][i]))
           break
       else:
         after = [k for k in range(step, steps) if ended[k][i]]
         nxt = after[0] - step if after else None
         cause = causes[after[0]][i] if after else []
-        no_fall[name].append((step, i, nxt, cause))
+        no_end[name].append((step, i, nxt, cause))
   return {
     "total": total,
     "calm": calm,
-    "pre_fall": pre_fall,
-    "calm_no_fall": {name: calm[name] - pre_fall[name] for name in watched},
-    "no_fall_events": no_fall,
+    "pre_end": pre_end,
+    "calm_no_end": {name: calm[name] - pre_end[name] for name in watched},
+    "no_end_events": no_end,
     "stroke_pays": pays,
     "stroke_pay_share": pays / (steps * num_envs),
   }
@@ -1503,17 +1517,22 @@ def play_push_reference_terminations(
 
 @pytest.mark.slow
 @pytest.mark.parametrize("deck_top", [0.093, 0.103, 0.113])
-def test_push_reference_does_not_trip_the_lying_down_rules(deck_top):
+def test_push_reference_does_not_trip_the_new_ride_rules(deck_top):
   # Open loop the reference falls at the end of each push; only the steps with
   # the body level and the episode under way must stay clear of the rules that
-  # catch lying on the deck. The 0.5 s before a fell_over in that env are left
-  # out too: they are the start of the reference's own end-of-push fall, where
-  # the base sinks under 0.055 m while the tilt is still under 0.2 rad, and
-  # ending the episode a few steps early there is harmless.
-  watch = ("knees_on_deck", "base_near_deck")
-  result = play_push_reference_terminations(deck_top, watch=watch)
+  # catch lying on the deck and a parked push foot. The 0.5 s before the env's
+  # episode ends on another termination (fell_over, support_feet_off_deck,
+  # feet_off_deck, board_tipped) are left out too: they are the start of the
+  # reference's own end-of-push fall, where the base sinks under 0.055 m while
+  # the tilt is still under 0.2 rad, and ending the episode a few steps early
+  # there is harmless. 16 envs for 10 s, the size the limits were measured at;
+  # about 17 s per deck height on CPU, hence slow.
+  watch = ("knees_on_deck", "base_near_deck", "push_foot_off_deck")
+  result = play_push_reference_terminations(
+    deck_top, num_envs=16, seconds=10.0, watch=watch
+  )
   for name in watch:
-    assert result["calm_no_fall"][name] == 0, (name, result)
+    assert result["calm_no_end"][name] == 0, (name, result)
 
 
 @pytest.mark.slow

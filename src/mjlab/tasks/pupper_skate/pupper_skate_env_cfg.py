@@ -106,6 +106,14 @@ BASE_NEAR_DECK_MIN: float = 0.055
 KNEES_ON_DECK_S: float = 0.4
 SUPPORT_OFF_DECK_S: float = 0.5
 
+# Centred ride: seconds the push foot may be off the deck, 1.5 times its
+# longest stretch off it in the skate_push reference. The table has the foot
+# off the deck on rows 4 to 67 of 100 (more than 2 mm off the deck top, with
+# the three deck feet on it), 0.64 of a 2.5 s cycle: 1.6 s. Played open loop
+# at 0.3 m/s on decks 9.3 to 11.3 cm, the measured stretches top out at
+# 1.62 s. 1.5 x 1.6 = 2.4 s.
+PUSH_OFF_DECK_S: float = 2.4
+
 
 # The balance tasks penalize motors above this share of their torque limit
 # (1.5 N*m). Standing with zero actions peaks near 0.5 N*m; run k4kci0oj instead
@@ -390,12 +398,21 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
   cfg.events["deck_height"].params["ranges"] = RIDE_DECK_HEIGHT_RANGE
-  # A push takes the back right foot off the deck for about a second. Only that
+  # A push takes the back right foot off the deck for about 1.6 s. Only that
   # foot may leave: any of the other three off the deck for more than 0.5 s
-  # ends the episode. feet_off_deck still ends it once two feet have been off
-  # past 1.5 s, which bounds how long the push foot stays away.
+  # ends the episode, and so does the push foot off it for more than 2.4 s
+  # (PUSH_OFF_DECK_S), so it cannot be parked on the floor while foot_reach
+  # pays. feet_off_deck (two feet off past 1.5 s) stays as before.
   cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
   cfg.terminations["feet_off_deck"].params["min_lost"] = 2
+  cfg.terminations["push_foot_off_deck"] = TerminationTermCfg(
+    func=mdp.contact_lost,
+    params={
+      "sensor_name": "deck_feet_contact",
+      "grace_s": PUSH_OFF_DECK_S,
+      "foot_ids": (PUSH_FOOT_ID,),
+    },
+  )
   cfg.terminations["support_feet_off_deck"] = TerminationTermCfg(
     func=mdp.contact_lost,
     params={
@@ -408,10 +425,11 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # episode. Lying down rests several knees on the deck at once, so two or more
   # knees on it together for more than 0.4 s end the episode. The push
   # reference touches one knee at a time (the push knee at the deck edge, the
-  # front left under the lean), which this allows. The knee sensor is rebuilt here to time its contacts; the reward
-  # that counts knees reads it as before. base_near_deck is the backstop for a
-  # body low over the deck with the knees off it. base_too_low (0.08 m above
-  # the floor) is under the deck top, so it cannot catch either.
+  # front left under the lean), which this allows. The knee sensor is rebuilt
+  # here to time its contacts; the reward that counts knees reads it as before.
+  # base_near_deck is the backstop for a body low over the deck with the knees
+  # off it. base_too_low (0.08 m above the floor) is under the deck top, so it
+  # cannot catch either.
   cfg.scene.sensors = tuple(
     _contact("knees_on_deck", _KNEES, on_deck=True, track_air_time=True)
     if sensor.name == "knees_on_deck"
