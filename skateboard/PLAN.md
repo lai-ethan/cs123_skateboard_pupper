@@ -1826,5 +1826,5 @@ Do not run `make check`.
 ## Accounting
 
 - **Skipped:** code listings for Tasks 1 to 6 (the code is in the repo and tested); a push/glide phase clock like HUSKY's; a stance audit for ride policies.
-- **Assumed:** truck roll stiffness 30 N·m/rad and wheel drag (not measured); lowered trucks put the deck 2 to 3 cm lower (balance and split ride randomize deck height 6.8 to 11.3 cm to cover both; centred ride trains on 6.8 to 8.3 cm only); 12 rad/s joint speed limit for brief peaks (from the motor spec, not measured on the robot); W&B project name `mjlab` as in the course notebook.
+- **Assumed:** truck roll stiffness 30 N·m/rad and wheel drag (not measured); lowered trucks put the deck 2 to 3 cm lower (balance and split ride randomize deck height 6.8 to 11.3 cm to cover both; centred ride trains on 9.3 to 11.3 cm only, the stock trucks, since Task 32); 12 rad/s joint speed limit for brief peaks (from the motor spec, not measured on the robot); W&B project name `mjlab` as in the course notebook.
 - **Issues:** nothing has run on the real robot. No ride policy passes the gait check (split ride `ffcxbwup` fails it; the centred ride run crashed on a diverged env; Task 30 addresses both). Centred balance `zdctdcyf` fails 7 of 21 audit rows for lack of sideways room on the deck.

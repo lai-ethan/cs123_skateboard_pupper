@@ -60,6 +60,10 @@ def main(argv: list[str] | None = None) -> int:
     SKATE_PUSH_FREQUENCY,
     build_joint_reference_table,
   )
+  from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import (
+    GAIT_GALLOP_SPEED,
+    GAIT_N_SAMPLES,
+  )
   from mjlab.tasks.registry import load_env_cfg
 
   cfg = load_env_cfg(TASK, play=True)
@@ -83,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
   env = ManagerBasedRlEnv(cfg=cfg, device=device, render_mode=render_mode)
 
   table = torch.tensor(
-    build_joint_reference_table(100, "skate_push"),
+    build_joint_reference_table(GAIT_N_SAMPLES, "skate_push"),
     dtype=torch.float32,
     device=env.device,
   )
@@ -121,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
           default,
           frequency=SKATE_PUSH_FREQUENCY,
           blend_speed=SKATE_PUSH_BLEND_SPEED,
-          gallop_speed=float("inf"),
+          gallop_speed=GAIT_GALLOP_SPEED,
           gallop_freq_mult=1.0,
         )
         action = (reference - action_term.offset) / action_term.scale

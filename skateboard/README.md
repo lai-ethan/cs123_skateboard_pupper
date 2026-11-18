@@ -76,8 +76,9 @@ Deck height matters most. The stance is solved for 103 mm. Balance training
 randomizes the deck from 6.8 to 11.3 cm, which covers the stock trucks and the
 lower trucks we plan to fit. Centred ride trains on 9.3 to 11.3 cm only (the
 stock trucks): its push reference is solved for the 103 mm deck, where a
-crouch and a 17 degree lean put a foot on the floor. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
-placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
+crouch and a 17 degree lean put a foot on the floor. The feet sit only 1.5 to
+2 cm inside the deck edge, so sideways placement on the board matters too
+(see [`SIM2REAL.md`](SIM2REAL.md)).
 
 With no policy, the centred stance holds on a stiff truck (2 to 7 of 64 noisy
 spawns fall at 180 N·m/rad) but tips in about half of them at the guessed 30

@@ -883,15 +883,18 @@ def test_ride_exports_the_push_table_and_matches_the_robot_math(ride_env):
   assert checked == 10
   # Zero command is the still stance; 0.03 m/s plays 60% of the push.
   assert np.allclose(expected[0], 0.0)
+  np.testing.assert_allclose(expected[1], 0.6 * expected[2], atol=1e-6)
 
 
 @pytest.mark.slow
 def test_ride_foot_reach_is_small_with_all_feet_on_the_deck():
-  # The lowest deck the ride task trains on, a clean spawn, a speed command and
-  # zero actions: the feet stay on the deck, so reaching pays little.
+  # The lowest deck the centred ride trains on (the stock trucks), a clean
+  # spawn, a speed command and zero actions: the feet stay on the deck, so
+  # reaching pays little.
   cfg = pupper_skate_ride_env_cfg()
   cfg.scene.num_envs = 1
-  cfg.events["deck_height"].params["ranges"] = (-0.035, -0.035)
+  low = RIDE_DECK_HEIGHT_RANGE[0]
+  cfg.events["deck_height"].params["ranges"] = (low, low)
   del cfg.events["push_robot"]
   for name in ("reset_base", "reset_board"):
     cfg.events[name].params["pose_range"] = {}
