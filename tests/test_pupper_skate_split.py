@@ -356,8 +356,8 @@ CENTRED_BALANCE_WEIGHTS = {
   "torque_saturation": -1.0,
 }
 
-# The tripod ride (task 38) dropped knees_on_deck and added feet_slide; task 39
-# charges push-foot taps and doubles the torque penalty.
+# The tripod ride (task 38) dropped knees_on_deck and added feet_slide, and
+# charges push-foot taps.
 CENTRED_RIDE_WEIGHTS = {
   "feet_on_deck": 0.5,
   "tilt": 1.0,

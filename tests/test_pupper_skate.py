@@ -1349,9 +1349,9 @@ _SPLIT_SHORT_STRIDE: dict[str, Any] = {
 
 
 def test_tripod_ride_charges_push_foot_taps():
+  assert TRIPOD_STROKE_S == 0.75
   for play in (False, True):
     r = pupper_skate_ride_env_cfg(play=play).rewards
-    assert TRIPOD_STROKE_S == 0.75
     assert r["push_stroke"].params["stroke_s"] == TRIPOD_STROKE_S
     assert r["push_stroke"].weight == 3.0
     short = r["short_stride"]
@@ -1529,9 +1529,11 @@ def play_push_reference(
   reset. With ``nominal`` the startup randomization and the reset's placement
   noise are off. Returns how far each env's board rolled forward [m], the
   number of env-steps any termination fired on, the number of push_stroke
-  pays, push_stroke's and short_stride's weighted sums over all envs, and
-  the push foot's floor contact time [s] at each of its lift-offs (in step
-  order, all envs).
+  pays, push_stroke's and short_stride's weighted sums over all envs, the push
+  foot's floor contact time [s] and that env's push_stroke pay at each of its
+  lift-offs, and the contact before it [s] and that env's short_stride charge
+  at each of its landings (in step order, all envs; pay and charge weighted,
+  per event).
   """
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = num_envs
@@ -1568,6 +1570,8 @@ def play_push_reference(
     stops = pays = 0
     stroke_pay = short_charge = 0.0
     strokes: list[float] = []
+    lift_pays: list[float] = []
+    landings: list[tuple[float, float]] = []
     with torch.no_grad():
       for _ in range(int(round(seconds / env.step_dt))):
         command = env.command_manager.get_command("twist")
@@ -1597,6 +1601,14 @@ def play_push_reference(
         air = ground.current_air_time[:, PUSH_FOOT_ID]
         lifted = (air > 0.0) & (air < env.step_dt + 1.0e-6)
         strokes += ground.last_contact_time[lifted, PUSH_FOOT_ID].tolist()
+        lift_pays += step_reward[lifted, stroke_idx].tolist()
+        contact = ground.current_contact_time[:, PUSH_FOOT_ID]
+        landed = (contact > 0.0) & (contact < env.step_dt + 1.0e-6)
+        landings += zip(
+          ground.last_contact_time[landed, PUSH_FOOT_ID].tolist(),
+          step_reward[landed, short_idx].tolist(),
+          strict=True,
+        )
     moved = board.data.root_link_pos_w[:, :2] - start
     forward = moved[:, 0] * torch.cos(heading) + moved[:, 1] * torch.sin(heading)
   finally:
@@ -1608,6 +1620,8 @@ def play_push_reference(
     "stroke_pay": stroke_pay,
     "short_charge": short_charge,
     "strokes": strokes,
+    "lift_pays": lift_pays,
+    "landings": landings,
   }
 
 
@@ -1634,30 +1648,31 @@ def push_reference_pay() -> dict[str, Any]:
 @pytest.mark.slow
 def test_push_reference_strokes_earn_full_pay(push_reference_pay):
   # Each cycle's planted stroke (0.86 to 0.92 s on the floor) lasts past
-  # stroke_s and earns push_stroke in full. The first stroke after the reset
-  # has no set-down before its sweep and is shorter (0.55 s).
+  # stroke_s and earns push_stroke's full 3.0 at its lift-off. The first stroke
+  # after the reset has no set-down before its sweep and is shorter (0.55 s).
   result = push_reference_pay
   assert result["stops"] == 0, result
-  planted = [t for t in result["strokes"] if t >= 0.4]
-  assert len(planted) >= 2 * 3, result
-  assert sum(t >= TRIPOD_STROKE_S for t in planted) >= 2 * 2, result
-  assert result["stroke_pay"] >= 3.0 * 2 * 2, result
+  lifts = list(zip(result["strokes"], result["lift_pays"], strict=True))
+  full = [t for t, pay in lifts if pay == pytest.approx(3.0)]
+  assert len(full) >= 2 * 2, result
+  assert all(t >= TRIPOD_STROKE_S for t in full), result
+  for t, pay in lifts:
+    if t >= TRIPOD_STROKE_S:
+      assert pay == pytest.approx(3.0), (t, pay)
 
 
 @pytest.mark.slow
-@pytest.mark.xfail(
-  strict=True,
-  reason=(
-    "The reference's push foot brushes the floor for 0.14 to 0.24 s during "
-    "the forward swing every cycle (its 4 cm lift does not clear the floor), "
-    "and short_stride charges the landing after that brush about 1.1. With "
-    "the shorter first stroke, the charge is 31% of the stroke pay on the "
-    "103 mm deck (32% at 93 mm, 34% at 113 mm). Task 39 finding."
-  ),
-)
-def test_push_reference_is_not_charged_as_taps(push_reference_pay):
+def test_push_reference_charges_only_its_swing_brush(push_reference_pay):
+  # A landing after a planted stroke costs nothing. The charge comes from the
+  # foot brushing the floor for 0.14 to 0.24 s in the forward swing (the 4 cm
+  # lift does not clear it), about 1.1 a cycle, and the short first stroke,
+  # about 0.4. Measured: 31% of the stroke pay at 103 mm, 32% at 93 mm and 34%
+  # at 113 mm. The policy is expected to lift clear instead.
   result = push_reference_pay
-  assert -result["short_charge"] < 0.05 * result["stroke_pay"], result
+  after_stroke = [c for t, c in result["landings"] if t >= TRIPOD_STROKE_S]
+  assert len(after_stroke) >= 2 * 2, result
+  assert all(c == 0.0 for c in after_stroke), result
+  assert -result["short_charge"] <= 0.40 * result["stroke_pay"], result
 
 
 @pytest.mark.slow

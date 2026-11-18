@@ -596,8 +596,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # speed earns less than rolling at the command.
   # push_stroke pays the push itself: once per stroke as the push foot leaves
   # the floor, in full for a stroke of 0.75 s or more and in proportion below.
-  # The stroke reference keeps the push foot on the floor longer than that
-  # (TRIPOD_STROKE_S), so it is paid in full.
+  # On the nominal robot the stroke reference keeps the push foot on the floor
+  # longer than that (TRIPOD_STROKE_S), so it is paid in full there.
   r["foot_reach"] = RewardTermCfg(
     func=mdp.foot_reach,
     weight=1.0,
