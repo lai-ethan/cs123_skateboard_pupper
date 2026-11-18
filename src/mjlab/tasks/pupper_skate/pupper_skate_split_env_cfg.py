@@ -448,6 +448,14 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"command_name": "twist", "std": 0.15},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
+  # Follow the heading hold's yaw command: the policy observed it but no term
+  # paid for it, and error_vel_yaw stayed near 0.6 for 1500 iterations. sigma
+  # 0.05 divides the squared error, so a 0.22 rad/s error keeps 37% of the term.
+  r["track_yaw_rate"] = RewardTermCfg(
+    func=mdp.track_yaw_velocity,
+    weight=1.0,
+    params={"sigma": 0.05, "command_name": "twist"},
+  )
   # Pushing: pay once per stride for a planted stance followed by a swing of
   # 0.2 to 0.5 s (only when a speed is commanded). The stance target is the
   # time a 10 cm stroke takes at the commanded speed, 0.25 to 0.5 s; the back
@@ -586,11 +594,12 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   """The split ride plus a commanded board yaw rate: push and turn the board.
 
   Only the yaw rate is rewarded, not how it is made (angled pushes, the deck
-  feet on the deck edge, leaning). Every other term is the ride's: none of them
-  reads a world-frame heading (forward speed is along the board's own axis,
-  board alignment is in the robot's heading frame, board drift in the board's,
-  foot slide and the shoves are the same in every direction), so they hold
-  once the board has turned.
+  feet on the deck edge, leaning), and it replaces the ride's robot yaw-rate
+  tracking. Every other term is the ride's: none of them reads a world-frame
+  heading (forward speed is along the board's own axis, board alignment is in
+  the robot's heading frame, board drift in the board's, foot slide and the
+  shoves are the same in every direction), so they hold once the board has
+  turned.
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 
@@ -618,6 +627,8 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
 
   r = cfg.rewards
   del r["board_yaw_rate"]
+  # The board's yaw rate is paid against the command here, not the robot's.
+  del r["track_yaw_rate"]
   r["track_board_yaw_rate"] = RewardTermCfg(
     func=mdp.track_board_yaw_rate,
     weight=2.0,

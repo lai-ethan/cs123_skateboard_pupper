@@ -382,6 +382,7 @@ SPLIT_RIDE_WEIGHTS = {
   "feet_on_ground": 0.1,
   "track_board_velocity": 3.0,
   "board_yaw_rate": -0.5,
+  "track_yaw_rate": 1.0,
   "push_stride": 0.5,
   "short_stride": -0.3,
   "feet_slide": -2.0,
@@ -1079,13 +1080,14 @@ def test_steer_is_the_split_ride_plus_a_yaw_command():
     steer = pupper_skate_split_steer_env_cfg(play=play)
     expected = _weights(ride)
     del expected["board_yaw_rate"]
+    del expected["track_yaw_rate"]
     expected["track_board_yaw_rate"] = 2.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
     assert term.params == {"command_name": "twist", "std": 0.15}
     for name in ride.rewards:
-      if name != "board_yaw_rate":
+      if name not in ("board_yaw_rate", "track_yaw_rate"):
         assert steer.rewards[name].func is ride.rewards[name].func, name
         assert steer.rewards[name].params == ride.rewards[name].params, name
     assert steer.terminations.keys() == ride.terminations.keys()
@@ -1219,6 +1221,41 @@ def test_split_ride_holds_heading_with_gait_gains():
     steer = pupper_skate_split_steer_env_cfg(play=play).commands["twist"]
     assert type(steer) is mdp.SteerVelocityCommandCfg
     assert steer.heading_hold_kp is None
+
+
+def test_split_ride_pays_for_following_the_hold_yaw_command():
+  for play in (False, True):
+    term = pupper_skate_split_ride_env_cfg(play=play).rewards["track_yaw_rate"]
+    assert term.func is mdp.track_yaw_velocity
+    assert term.weight == 1.0
+    assert term.params == {"sigma": 0.05, "command_name": "twist"}
+    # The steer task pays the board's yaw rate against that field instead.
+    assert "track_yaw_rate" not in pupper_skate_split_steer_env_cfg(play=play).rewards
+
+
+@pytest.mark.slow
+def test_track_yaw_rate_peaks_at_the_commanded_yaw_rate(ride_env):
+  env = ride_env
+  env.reset()
+  robot = env.scene["robot"]
+  # Spin the base about world z, then command its own body-frame yaw rate in
+  # the first half of the envs and 0.3 rad/s more in the second half.
+  vel = torch.zeros(env.num_envs, 6, device=env.device)
+  vel[:, 5] = 0.2
+  robot.write_root_link_velocity_to_sim(vel)
+  env.sim.forward()
+  yaw_rate = robot.data.root_link_ang_vel_b[:, 2]
+  assert torch.all(yaw_rate.abs() > 0.1)
+  half = env.num_envs // 2
+  command = env.command_manager.get_command("twist")
+  assert command is not None
+  command[:half, 2] = yaw_rate[:half]
+  command[half:, 2] = yaw_rate[half:] + 0.3
+  term = env.reward_manager.get_term_cfg("track_yaw_rate")
+  reward = term.func(env, **term.params)
+  torch.testing.assert_close(reward[:half], torch.ones_like(reward[:half]))
+  expected = torch.full_like(reward[half:], math.exp(-0.09 / 0.05))
+  torch.testing.assert_close(reward[half:], expected)
 
 
 def test_split_ride_alignment_yaw_width():
