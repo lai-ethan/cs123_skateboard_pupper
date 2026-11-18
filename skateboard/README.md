@@ -9,7 +9,7 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 
 | Stance | What stands where | Task ids | Lowered trucks to ride? |
 | --- | --- | --- | --- |
-| Centred | All four feet on the deck. To ride, Pupper steps one foot off either side, pushes against the floor and steps back on. | `Mjlab-Skate-Balance-Pupper-v3`, `Mjlab-Skate-Ride-Pupper-v3` | Yes. On the stock deck a foot cannot reach the floor. |
+| Centred | All four feet on the deck. To ride, Pupper steps the back right foot off the deck, pushes against the floor and steps back on, then glides on four feet. | `Mjlab-Skate-Balance-Pupper-v3`, `Mjlab-Skate-Ride-Pupper-v3` | No. The ride reference is solved for the stock 103 mm deck. |
 | Split | Left feet on the deck, right feet on the floor. To ride, the right legs push. | `Mjlab-SkateSplit-Balance-Pupper-v3`, `Mjlab-SkateSplit-Ride-Pupper-v3` | No. The right feet are already on the floor. |
 
 ## Where things are
@@ -40,14 +40,14 @@ As of 2026-11-17. Nothing has run on the robot.
 
 - Done: board model on the measured board, both stances, four tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
-- Ride is not ready in either stance. Split ride `3qmtsv4o` (PLAN Task 30 rewards) rides at the commanded speed with no falls and fails one gait line: peak joint speed 9.2 rad/s against a guessed limit of 8. The centred ride policy falls onto the deck and the board barely moves; it is parked until the lowered trucks exist.
+- Ride is not ready in either stance. Split ride `3qmtsv4o` (PLAN Task 30 rewards) rides at the commanded speed with no falls and fails one gait line: peak joint speed 9.2 rad/s against a guessed limit of 8. The centred ride policy falls onto the deck and the board barely moves. The centred ride task now targets the stock deck with a clocked push reference (PLAN Task 32) and has not been trained since.
 - Not done: a ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md).
 
 Four tasks are registered:
 
 - `Mjlab-Skate-Balance-Pupper-v3`: hold the centred stance on a board that is free to roll.
   - Both balance tasks penalize any motor above half its torque limit (`torque_saturation`). The first centred balance run, `k4kci0oj`, passed the curve check while it held its legs on the joint stops at full torque, which a real motor cannot keep up.
-- `Mjlab-Skate-Ride-Pupper-v3`: push with one foot off either side so the board rolls at a commanded speed (0 to 0.5 m/s). Two rewards teach the push while the board is too slow: `foot_reach` pays more the closer the lowest foot gets to the floor, and `push_stroke` pays once for each planted stroke as the foot lifts off the floor. `board_progress` pays the share of the commanded speed the board reaches, so a first slow push pays too. Standing on four feet must not out-earn a push on three: the deck pays for three feet at most, one foot may stay off it (two off past 1.5 s ends the episode), and `tilt` and `board_alignment` are looser than in balance (PLAN Task 28).
+- `Mjlab-Skate-Ride-Pupper-v3`: push with the back right foot so the board rolls at a commanded speed (0 to 0.4 m/s), on the stock deck (9.3 to 11.3 cm). The actor's reference slot plays `skate_push` from `gait_reference.py`, a 2.5 s cycle (0.4 Hz): the foot steps out over the deck edge, down to the floor ahead of its stance spot, sweeps 10 cm back, steps back on, and all four feet glide for the last 29% of the cycle. The full cycle plays at 0.05 m/s or more and fades to the still stance at zero command. The reference is solved for the 103 mm deck; the lowered trucks would need a new table. `reference_tracking` (weight 1.0, std 0.3) replaces `stance_pose`; the critic also sees the reference and the clock phase. `foot_reach` (0.5) and `push_stroke` (1.0) still pay for reaching and pushing while the board is too slow, and `board_progress` pays the share of the commanded speed reached. The deck pays for three feet at most, one foot may stay off it (two off past 1.5 s ends the episode), `tilt` is looser (std 0.5), the fall limit is 0.6 rad, and action rate (-0.05), action and joint acceleration (-0.02, -1e-6) and joint speed over 6 rad/s (-0.1) keep the motion smooth (PLAN Task 32). Played open loop, the reference pushes the board but the robot falls at the end of each push, so the policy has to supply the balance.
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
 - `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet, each stance as long as a 10 cm stroke takes at the command (0.25 to 0.5 s). `action_rate_l2`, `action_acc`, `joint_acc` and `swing_height` charge for snaps at lift-off and touchdown and for swings higher than 3 cm, and the joint speed penalty starts at 5 rad/s (PLAN Task 31).
 
@@ -74,9 +74,9 @@ Replace the guesses in `SkateboardParams` when you measure them.
 
 Deck height matters most. The stance is solved for 103 mm. Balance training
 randomizes the deck from 6.8 to 11.3 cm, which covers the stock trucks and the
-lower trucks we plan to fit. Ride trains on 6.8 to 8.3 cm only (the lowered
-trucks): on the stock deck a foot cannot reach the floor from the centred
-stance. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
+lower trucks we plan to fit. Centred ride trains on 9.3 to 11.3 cm only (the
+stock trucks): its push reference is solved for the 103 mm deck, where a
+crouch and a 17 degree lean put a foot on the floor. The feet sit only 1.5 to 2 cm inside the deck edge, so sideways
 placement on the board matters too (see [`SIM2REAL.md`](SIM2REAL.md)).
 
 With no policy, the centred stance holds on a stiff truck (2 to 7 of 64 noisy
@@ -182,11 +182,8 @@ the front right foot on the floor only 27% of the time). The board still rolled
 fast enough. Those numbers came from one unseeded env, before the check moved
 to 16 seeded envs, so they may not repeat.
 
-A clocked push-and-glide reference for the centred ride on the stock deck,
-`skate_push` in `gait_reference.py`, is not wired into any task yet. In one
-2.5 s cycle the back right foot steps off the deck, sweeps 10 cm back along the
-floor and steps back on, then all four feet glide. Played open loop it pushes
-the board but the robot falls at the end of each push. To play it:
+To play the centred ride's push reference open loop (no policy: the reference
+is the action), with each reward term's mean per step:
 
 ```bash
 FORCE_CPU=1 uv run python skateboard/tools/play_push_reference.py --rewards \

@@ -4,12 +4,14 @@ The robot stands centred on the deck, all four feet on it. Two tasks share one
 scene:
 
 * balance -- hold the stance on a board that is free to roll.
-* ride    -- step a foot off either side, push against the floor and step back
-             on, so the board rolls at a commanded forward speed.
+* ride    -- step the back right foot off the deck, push against the floor and
+             step back on, so the board rolls at a commanded forward speed.
 
-The actor is the stock 48-dim zero-reference frame (IMU, joints, command, last
-action), so policies export and deploy like any gait policy. Everything about
-the board goes to the critic only: the robot has no board sensor.
+The actor is the stock 48-dim gait frame (IMU, joints, command, last action,
+reference offset), so policies export and deploy like any gait policy. Balance
+leaves the reference at zero; ride fills it with a clocked push and glide.
+Everything about the board goes to the critic only: the robot has no board
+sensor.
 
 The board model follows the structure of HUSKY (Han et al., arXiv:2602.03205).
 """
@@ -41,15 +43,28 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
+from mjlab.tasks.pupper_gait.mdp.gait_reference import (
+  SKATE_PUSH_BLEND_SPEED,
+  SKATE_PUSH_FREQUENCY,
+)
+from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import (
+  GAIT_GALLOP_SPEED,
+  GAIT_N_SAMPLES,
+  pupper_velocity_fs_env_cfg,
+)
 from mjlab.tasks.pupper_skate import mdp
 
 # All four feet, matched in FOOT_SITE_NAMES order (FR, FL, BR, BL).
 _FEET = r"^leg_(front|back)_(r|l)_3_collision$"
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
-# Forward speed range for the ride task [m/s].
+# Forward speed range for the ride task [m/s]. Split ride uses it; centred ride
+# uses CENTRED_RIDE_SPEED_RANGE below.
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
+
+# Forward speed range for the centred ride [m/s]. One push every 2.5 s does not
+# reach much more than this.
+CENTRED_RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.4)
 
 # Joint speed limit [rad/s] the gait check enforces. The GIM4305 spec gives
 # about 30 rad/s, and the deployed walking references ask for 15 rad/s and
@@ -66,10 +81,11 @@ JOINT_SPEED_LIMIT: float = 12.0
 DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 
-# Ride trains on the lowered trucks only (deck top 6.8 to 8.3 cm). The leg
-# reaches 19.3 cm below the base; on the stock 10.3 cm deck the floor is
-# 22 cm below it, so a push from the centred stance is out of reach there.
-RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, -0.02)
+# Centred ride trains on the stock trucks (deck top 9.3 to 11.3 cm): its push
+# reference is solved for the 10.3 cm deck. A crouch and a 17 degree lean put
+# a foot on the floor from there; the lowered trucks would need a new table.
+RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.01, 0.01)
+
 
 # The balance tasks penalize motors above this share of their torque limit
 # (1.5 N*m). Standing with zero actions peaks near 0.5 N*m; run k4kci0oj instead
@@ -338,12 +354,17 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Push off either side so the board rolls at the commanded speed."""
+  """Push with the back right foot so the board rolls at the commanded speed.
+
+  The actor's reference slot plays a clocked push and glide (``skate_push`` in
+  ``gait_reference``) on the stock deck: step out, reach the floor ahead of the
+  stance spot, sweep back, step back on, then glide on four feet.
+  """
   cfg = pupper_skate_balance_env_cfg(play=play)
 
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  twist.ranges.lin_vel_x = RIDE_SPEED_RANGE
+  twist.ranges.lin_vel_x = CENTRED_RIDE_SPEED_RANGE
   twist.rel_standing_envs = 0.1
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
@@ -352,17 +373,64 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # for good: the episode ends only when two have been off past the grace.
   cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
   cfg.terminations["feet_off_deck"].params["min_lost"] = 2
+  # The push leans the body 17 degrees; 0.6 rad (34) leaves room to recover.
+  cfg.terminations["fell_over"].params["limit_angle"] = 0.6
+
+  ##
+  # The push reference. Same 48-dim frame as balance, with the reference slot
+  # filled; the gallop branch is never selected. The critic also sees the
+  # reference and the clock phase.
+  ##
+  gait_params = {
+    "command_name": "twist",
+    "frequency": SKATE_PUSH_FREQUENCY,
+    "blend_speed": SKATE_PUSH_BLEND_SPEED,
+    "n_samples": GAIT_N_SAMPLES,
+    "gallop_speed": GAIT_GALLOP_SPEED,
+    "gallop_freq_mult": 1.0,
+    "gait": "skate_push",
+  }
+  actor = cfg.observations["actor"]
+  actor.terms["policy"] = ObservationTermCfg(
+    func=mdp.pupper_gait_actor_obs,
+    params={
+      "add_noise": True,
+      "imu_latency_distribution": mdp.PUPPER_IMU_LATENCY_DIST,
+      **gait_params,
+    },
+  )
+  critic = cfg.observations["critic"]
+  critic.terms["gait_reference"] = ObservationTermCfg(
+    func=mdp.gait_reference_obs, params=dict(gait_params)
+  )
+  critic.terms["cycle_phase"] = ObservationTermCfg(
+    func=mdp.cycle_phase, params={"frequency": SKATE_PUSH_FREQUENCY}
+  )
 
   r = cfg.rewards
   del r["board_still"]
   del r["feet_on_ground"]
+  # The reference sets the pose now, push and glide alike.
+  del r["stance_pose"]
   # Standing on four feet must not out-earn pushing with one: the deck pays for
   # three feet at most, and the body may tilt and the board shift a little
   # while a leg reaches the floor.
   r["feet_on_deck"].weight = 0.5
   r["feet_on_deck"].params["max_count"] = 3.0
-  r["tilt"].params["std"] = 0.35
+  r["tilt"].params["std"] = 0.5
   r["board_alignment"].params["std_pos"] = 0.08
+  # Track the reference the actor sees: the default pose plus the blended
+  # offset, so the still stance at zero command.
+  r["reference_tracking"] = RewardTermCfg(
+    func=mdp.gait_tracking,
+    weight=1.0,
+    params={
+      "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+      "std": {".*": 0.3},
+      "phase_lead_steps": 0.0,
+      **gait_params,
+    },
+  )
   r["track_board_velocity"] = RewardTermCfg(
     func=mdp.track_board_velocity,
     weight=3.0,
@@ -376,7 +444,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"command_name": "twist", "command_threshold": 0.1},
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
-  # Pushing, in two steps. Either side may push, and both pay only while a
+  # Pushing, in two steps, on top of the reference. Both pay only while a
   # speed is commanded and the board is too slow.
   # foot_reach leads a foot to the floor: it pays more the closer the lowest
   # foot gets to the floor. A foot on the deck stays a deck height up and earns
@@ -387,7 +455,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # floor, in full for a stroke of 0.25 s or more.
   r["foot_reach"] = RewardTermCfg(
     func=mdp.foot_reach,
-    weight=1.5,
+    weight=0.5,
     params={
       "std": 0.03,
       "foot_radius": 0.02,
@@ -409,18 +477,22 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "speed_fraction": 1.0,
     },
   )
-  # Hold the keyframe loosely on every leg, so one leg can stride off the deck
-  # while the others stay put.
-  r["stance_pose"].weight = 0.5
-  r["stance_pose"].params["std"] = 0.6
   # Keep the motion inside what the motors can do. The sim actuator limits
   # torque but not speed, so speed is limited here. The penalty starts at
-  # 6 rad/s, half the gait check's 12, so the best-paid gait stays well inside
-  # the check.
+  # 6 rad/s, half the gait check's 12; the reference itself peaks under 6.
+  # Action rate is five times the balance weight, and action and joint
+  # acceleration are charged as in the split ride, for smooth step-offs.
+  r["action_rate_l2"].weight = -0.05
+  r["action_acc"] = RewardTermCfg(func=mdp.action_acc_l2, weight=-0.02)
+  r["joint_acc"] = RewardTermCfg(
+    func=mdp.joint_acc_l2,
+    weight=-1e-6,
+    params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+  )
   r["joint_vel_l2"] = RewardTermCfg(func=mdp.joint_vel_l2, weight=-1e-3)
   r["joint_speed_limit"] = RewardTermCfg(
     func=mdp.joint_speed_over_limit,
-    weight=-0.02,
+    weight=-0.1,
     params={"limit": 6.0},
   )
   r["torque_saturation"] = RewardTermCfg(

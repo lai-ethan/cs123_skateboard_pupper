@@ -354,19 +354,21 @@ CENTRED_RIDE_WEIGHTS = {
   "feet_on_deck": 0.5,
   "knees_on_deck": -1.0,
   "tilt": 1.0,
-  "stance_pose": 0.5,
   "board_alignment": 1.0,
   "deck_flat": -5.0,
-  "action_rate_l2": -0.01,
+  "action_rate_l2": -0.05,
   "joint_torques_l2": -2e-4,
   "termination": -100.0,
+  "reference_tracking": 1.0,
   "track_board_velocity": 3.0,
   "board_yaw_rate": -0.5,
-  "foot_reach": 1.5,
+  "foot_reach": 0.5,
   "push_stroke": 1.0,
   "board_progress": 1.0,
+  "action_acc": -0.02,
+  "joint_acc": -1e-6,
   "joint_vel_l2": -1e-3,
-  "joint_speed_limit": -0.02,
+  "joint_speed_limit": -0.1,
   "torque_saturation": -0.5,
 }
 
@@ -526,17 +528,21 @@ def test_only_split_ride_charges_taps_sliding_and_idle_feet(make_cfg):
 
 @pytest.mark.parametrize(
   "make_cfg",
-  [
-    pupper_skate_split_balance_env_cfg,
-    pupper_skate_balance_env_cfg,
-    pupper_skate_ride_env_cfg,
-  ],
+  [pupper_skate_split_balance_env_cfg, pupper_skate_balance_env_cfg],
 )
-def test_only_split_ride_has_the_smoothing_terms(make_cfg):
+def test_balance_has_no_smoothing_terms(make_cfg):
   rewards = make_cfg().rewards
   for name in ("action_acc", "joint_acc", "swing_height"):
     assert name not in rewards, name
   assert rewards["action_rate_l2"].weight == -0.01
+
+
+def test_both_rides_share_the_smoothing_terms():
+  centred, split = pupper_skate_ride_env_cfg(), pupper_skate_split_ride_env_cfg()
+  for name in ("action_rate_l2", "action_acc", "joint_acc"):
+    assert centred.rewards[name].func is split.rewards[name].func, name
+    assert centred.rewards[name].weight == split.rewards[name].weight, name
+  assert "swing_height" not in centred.rewards
 
 
 def test_split_ride_charges_an_idle_push_foot():

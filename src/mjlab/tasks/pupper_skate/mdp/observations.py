@@ -1,4 +1,4 @@
-"""Critic-only observations of the board. The robot cannot sense any of these."""
+"""Critic-only observations: the board, which the robot cannot sense, and the clock."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
+from mjlab.tasks.pupper_gait.mdp.gait import gait_phase
 from mjlab.utils.lab_api.math import quat_apply_inverse, quat_conjugate, quat_mul
 
 if TYPE_CHECKING:
@@ -49,3 +50,14 @@ def contact_flags(env: ManagerBasedRlEnv, sensor_name: str) -> torch.Tensor:
   found = sensor.data.found
   assert found is not None
   return (found > 0).float()
+
+
+def cycle_phase(env: ManagerBasedRlEnv, frequency: float) -> torch.Tensor:
+  """The reference clock's phase as ``(sin, cos)``, shape [B, 2].
+
+  The same episode clock the gait reference plays on. The actor sees only the
+  reference offset, which is constant through the glide; this tells the critic
+  how long until the next push.
+  """
+  angle = 2.0 * torch.pi * gait_phase(env, frequency)
+  return torch.stack([torch.sin(angle), torch.cos(angle)], dim=1)

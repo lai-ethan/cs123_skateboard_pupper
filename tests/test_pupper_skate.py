@@ -36,12 +36,14 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.export import (
   export_pupper_gait_policy_from_env,
   gait_frame_kind,
+  reference_offset_numpy,
 )
 from mjlab.tasks.pupper_gait.mdp import gait_reference as gr
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
+  CENTRED_RIDE_SPEED_RANGE,
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
   PUSH_INTERVAL_S,
@@ -51,6 +53,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks, load_env_cfg
@@ -681,9 +684,12 @@ def test_ride_task_commands_forward_speed_only():
   cfg = pupper_skate_ride_env_cfg()
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
+  assert twist.ranges.lin_vel_x == CENTRED_RIDE_SPEED_RANGE == (0.0, 0.4)
+  assert RIDE_SPEED_RANGE == (0.0, 0.5)  # Split ride's, unchanged.
+  assert twist.rel_standing_envs == 0.1
   assert twist.ranges.lin_vel_y == (0.0, 0.0) and twist.ranges.ang_vel_z == (0.0, 0.0)
-  for name in ("board_still", "feet_on_ground", "push_stride", "push_leg_pose"):
+  names = ("board_still", "feet_on_ground", "push_stride", "push_leg_pose")
+  for name in (*names, "stance_pose"):
     assert name not in cfg.rewards
   assert "nudge_board" not in cfg.events
   new_terms = (
@@ -697,17 +703,23 @@ def test_ride_task_commands_forward_speed_only():
   assert cfg.rewards["push_stroke"].params["sensor_name"] == "ground_feet_contact"
   assert cfg.rewards["joint_speed_limit"].params == {"limit": 6.0}
   assert cfg.rewards["joint_speed_limit"].params["limit"] < JOINT_SPEED_LIMIT
+  assert cfg.rewards["joint_speed_limit"].weight == -0.1
   # A push takes a foot off the deck for about a second.
   assert cfg.terminations["feet_off_deck"].params["grace_s"] == 1.5
   assert cfg.rewards["feet_on_deck"].weight == 0.5
-
-  # Either side may push, so the whole stance is held loosely.
-  pose = cfg.rewards["stance_pose"]
-  patterns = pose.params["asset_cfg"].joint_names
+  assert cfg.terminations["fell_over"].params["limit_angle"] == 0.6
+  # The reference sets the pose: tracked on every joint instead of stance_pose.
+  track = cfg.rewards["reference_tracking"]
+  assert track.func is mdp.gait_tracking and track.weight == 1.0
+  assert track.params["std"] == {".*": 0.3}
+  assert track.params["phase_lead_steps"] == 0.0
+  patterns = track.params["asset_cfg"].joint_names
   assert {j for j in JOINT_NAMES if any(re.fullmatch(p, j) for p in patterns)} == set(
     JOINT_NAMES
   )
-  assert (pose.weight, pose.params["std"]) == (0.5, 0.6)
+  actor = cfg.observations["actor"].terms["policy"].params
+  for key in ("gait", "frequency", "blend_speed", "gallop_speed", "n_samples"):
+    assert track.params[key] == actor[key], key
   # The balance task is untouched by building the ride task.
   balance = pupper_skate_balance_env_cfg()
   assert "board_still" in balance.rewards and "feet_on_ground" in balance.rewards
@@ -720,7 +732,7 @@ def test_ride_task_rewards_reaching_for_the_floor():
   cfg = pupper_skate_ride_env_cfg()
   reach = cfg.rewards["foot_reach"]
   assert reach.func is mdp.foot_reach
-  assert reach.weight == 1.5
+  assert reach.weight == 0.5
   params = dict(reach.params)
   foot_cfg = params.pop("foot_cfg")
   assert params == {
@@ -736,8 +748,9 @@ def test_ride_task_rewards_reaching_for_the_floor():
   stroke = cfg.rewards["push_stroke"]
   assert stroke.weight == 1.0
   assert stroke.params["speed_fraction"] == 1.0
-  # Ride trains on the lowered trucks only; balance keeps both.
+  # Centred ride trains on the stock trucks only; balance keeps both.
   assert cfg.events["deck_height"].params["ranges"] == RIDE_DECK_HEIGHT_RANGE
+  assert RIDE_DECK_HEIGHT_RANGE == (-0.01, 0.01)
   balance = pupper_skate_balance_env_cfg()
   assert balance.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
   assert "foot_reach" not in balance.rewards
@@ -757,9 +770,9 @@ def test_ride_task_pays_for_a_push():
   assert r["feet_on_deck"].params["max_count"] == 3.0
   feet_off = cfg.terminations["feet_off_deck"].params
   assert (feet_off["min_lost"], feet_off["grace_s"]) == (2, 1.5)
-  assert r["tilt"].params["std"] == 0.35
+  assert r["tilt"].params["std"] == 0.5
   assert r["board_alignment"].params["std_pos"] == 0.08
-  assert (r["foot_reach"].weight, r["push_stroke"].weight) == (1.5, 1.0)
+  assert (r["foot_reach"].weight, r["push_stroke"].weight) == (0.5, 1.0)
   progress = r["board_progress"]
   assert progress.func is mdp.board_progress
   assert progress.weight == 1.0
@@ -777,6 +790,99 @@ def test_ride_task_pays_for_a_push():
 
 def test_split_ride_has_no_board_progress():
   assert "board_progress" not in pupper_skate_split_ride_env_cfg().rewards
+
+
+def test_only_centred_ride_plays_the_push_reference():
+  ride = pupper_skate_ride_env_cfg()
+  actor = ride.observations["actor"].terms["policy"]
+  assert actor.func is mdp.pupper_gait_actor_obs
+  assert actor.params["gait"] == "skate_push"
+  assert actor.params["frequency"] == gr.SKATE_PUSH_FREQUENCY
+  assert actor.params["blend_speed"] == gr.SKATE_PUSH_BLEND_SPEED
+  assert actor.params["gallop_speed"] > max(CENTRED_RIDE_SPEED_RANGE)
+  critic = ride.observations["critic"].terms
+  assert critic["gait_reference"].params == {
+    k: v
+    for k, v in actor.params.items()
+    if k not in ("add_noise", "imu_latency_distribution")
+  }
+  assert critic["cycle_phase"].params == {"frequency": gr.SKATE_PUSH_FREQUENCY}
+  # Balance and both split tasks build as before.
+  others = (
+    pupper_skate_balance_env_cfg(),
+    pupper_skate_split_balance_env_cfg(),
+    pupper_skate_split_ride_env_cfg(),
+  )
+  for cfg, fell in zip(others, (0.5, 0.6, 0.6), strict=True):
+    assert "reference_tracking" not in cfg.rewards
+    assert cfg.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
+    assert cfg.terminations["fell_over"].params["limit_angle"] == fell
+    policy = cfg.observations["actor"].terms["policy"]
+    assert policy.func is mdp.zero_reference_actor_obs
+    assert "cycle_phase" not in cfg.observations["critic"].terms
+    assert "gait_reference" not in cfg.observations["critic"].terms
+
+
+def test_cycle_phase_follows_the_episode_clock():
+  env = SimpleNamespace(episode_length_buf=torch.tensor([0, 25, 50, 100]), step_dt=0.02)
+  phase = mdp.cycle_phase(env, frequency=0.5)  # type: ignore[arg-type]
+  expected = torch.tensor([[0.0, 1.0], [1.0, 0.0], [0.0, -1.0], [0.0, 1.0]])
+  torch.testing.assert_close(phase, expected, atol=1e-5, rtol=0)
+
+
+@pytest.fixture(scope="module")
+def ride_env():
+  cfg = pupper_skate_ride_env_cfg(play=True)
+  cfg.scene.num_envs = 3
+  cfg.seed = 0
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.resampling_time_range = (1e6, 1e6)
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  yield env
+  env.close()
+
+
+def test_ride_exports_the_push_table_and_matches_the_robot_math(ride_env):
+  env = ride_env
+  policy = export_pupper_gait_policy_from_env(_Actor(48 * 20).eval(), env)
+  block = policy["gait_reference"]
+  assert gait_frame_kind(env) == "single"
+  np.testing.assert_allclose(
+    block["trot_table"], gr.build_joint_reference_table(100, "skate_push"), atol=1e-6
+  )
+  assert (block["frequency"], block["blend_speed"]) == (0.4, 0.05)
+  assert block["gallop_speed"] > max(CENTRED_RIDE_SPEED_RANGE)
+  assert policy["heading_hold"]["kp"] == 0.0
+  assert policy["command_clip"]["vx"] == [0.0, 0.4]
+  # The deploy mirror, fed the exported block, reproduces the offset in the
+  # newest frame of the actor observation, at command 0, 0.03 and 0.3.
+  env.reset()
+  speeds = torch.tensor([0.0, 0.03, 0.3], device=env.device)
+  twist = env.command_manager.get_term("twist")
+  twist.vel_command_b[:] = 0.0
+  twist.vel_command_b[:, 0] = speeds
+  default = np.asarray(policy["default_joint_pos"])
+  actions = torch.zeros(3, 12, device=env.device)
+  checked = 0
+  for step in range(130):
+    obs, *_ = env.step(actions)
+    if step % 13:
+      continue
+    command = env.command_manager.get_command("twist")
+    assert command is not None
+    cmd = command.cpu().numpy().astype(np.float64)
+    t = env.episode_length_buf.cpu().numpy() * env.step_dt
+    expected = reference_offset_numpy(
+      block, default, t, cmd[:, 0], cmd[:, 1], cmd[:, 2]
+    )
+    actor = obs["actor"]
+    assert isinstance(actor, torch.Tensor)
+    np.testing.assert_allclose(actor[:, -12:].cpu().numpy(), expected, atol=1e-5)
+    checked += 1
+  assert checked == 10
+  # Zero command is the still stance; 0.03 m/s plays 60% of the push.
+  assert np.allclose(expected[0], 0.0)
 
 
 @pytest.mark.slow

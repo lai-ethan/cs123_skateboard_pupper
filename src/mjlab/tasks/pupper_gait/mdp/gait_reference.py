@@ -277,8 +277,9 @@ def _spider_table(n_samples: int) -> np.ndarray:
 
 
 # Skate push: one push and glide from the centred skate stance, built for the
-# stock 103 mm deck. No task plays it yet: open loop it pushes the board but the
-# robot falls at the end of each push (skateboard/tools/play_push_reference.py).
+# stock 103 mm deck and played by Mjlab-Skate-Ride. Open loop it pushes the
+# board but the robot falls at the end of each push; the policy has to supply
+# the balance (skateboard/tools/play_push_reference.py).
 # Not a foot-space cycle either: the back right foot steps off the deck, sweeps
 # back along the floor and steps back on while the other three feet stay on the
 # deck. Each leg moves in joint space between

@@ -5,6 +5,7 @@ from mjlab.tasks.pupper_gait.mdp import *  # noqa: F401, F403
 from .observations import (  # noqa: F401
   board_pose_in_robot_frame,
   contact_flags,
+  cycle_phase,
   deck_roll_state,
 )
 from .rewards import (  # noqa: F401
