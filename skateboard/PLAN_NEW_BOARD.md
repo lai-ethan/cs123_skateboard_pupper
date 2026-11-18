@@ -57,6 +57,23 @@
 
 ---
 
+### Task 3: Split ride rewards following the heading-hold yaw command
+
+**Why:** the split ride's command carries a heading-hold yaw rate (`BoardHeadingHoldCommandCfg`, kp 1.0, clip 0.3 rad/s: turn back toward the board's heading), and the policy observes it, but no reward term reads it. In Colab run resumed from `cfcrepfu` the logged `Metrics/twist/error_vel_yaw` stayed at about 0.6 for 1500 iterations and the `board_drifted` termination did not fall. The robot yaws about 0.1 rad off the board and its deck feet creep to the deck edge.
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py` (`pupper_skate_split_ride_env_cfg` and `pupper_skate_split_steer_env_cfg`)
+- Test: `tests/test_pupper_skate_split.py`
+
+**Requirements:**
+1. In `pupper_skate_split_ride_env_cfg`, add a reward term `track_yaw_rate`: `func=mdp.track_yaw_velocity` (the existing Pupper term in `src/mjlab/tasks/pupper/mdp/rewards.py`: `exp(-(cmd_yaw - base_yaw_rate)^2 / sigma)`; import or re-export it the way the skate `mdp` package already exposes other Pupper terms, without copying the function), `weight=1.0`, `params={"sigma": 0.05, "command_name": "twist"}`. Add a comment of the surrounding density giving the reason above in two or three lines (the hold command was observed but unpaid; `sigma` 0.05 means a 0.22 rad/s error keeps 37% of the term).
+2. The steer task (`pupper_skate_split_steer_env_cfg`) builds on the ride and rewards the *board's* yaw rate against the same command field; it must not also carry `track_yaw_rate`. Delete it there next to the existing `del r["board_yaw_rate"]`, and keep the steer docstring true.
+3. Do not change any other weight, the command, terminations, or the centred tasks.
+4. Tests (plain functions, in the style of the file): the ride cfg has `track_yaw_rate` with weight 1.0 reading command `twist`; the steer cfg does not have it; in a built ride env (few envs, the file's existing fixture/helper for building one), the term's value is higher when the robot base yaw rate equals the commanded yaw rate than when it is 0.3 rad/s away from it (set the root angular velocity and the command directly, or call the term function on the env after writing the state; follow how the file's existing reward tests do it).
+5. Run `tests/test_pupper_skate_split.py` and `tests/test_pupper_skate.py` (one per Bash call), `uv run ruff format` + `uv run ruff check --fix` and `uv run pyright` on the touched files. Commit: `feat: split ride pays for following the heading-hold yaw command`.
+
+---
+
 ### Task 2 (controller): height sweep, train, judge, document
 
 Not dispatched; run by the controller.
