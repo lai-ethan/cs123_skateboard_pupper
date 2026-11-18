@@ -1,9 +1,11 @@
-"""Play the centred ride's push reference open loop and print what it does.
+"""Play the centred (tripod) ride's stroke reference open loop and print it.
 
 No policy: every step the action is the reference itself (the `skate_push`
-table in `gait_reference`, on its own clock and blend), converted through the
-action scale and the default pose, so the PD target is the reference joint
-angle. This checks that the reference can roll the board before any training.
+table in `gait_reference`, strokes of the back right foot from the tripod
+layout, on its own clock and blend), converted through the action scale and
+the default pose, so the PD target is the reference joint target. This checks
+that the reference can roll the board before any training. Episodes start in
+the tripod layout with the board already rolling at up to 0.2 m/s.
 
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/play_push_reference.py \\
@@ -16,8 +18,8 @@ and what ended them, the board's mean and final forward speed, the push foot's
 (back right) share of time on the floor and the board's speed and
 acceleration while it is down, the largest joint speed, the share of
 steps with a motor at its torque limit, and the smallest margin of body tilt to
-the `fell_over` limit. `--zero-action` holds the default pose instead
-(standing still), for comparison. `--rewards` also prints each reward term's
+the `fell_over` limit. `--zero-action` holds the default pose instead (the tripod
+layout, still), for comparison. `--rewards` also prints each reward term's
 mean per step (weight included). `--video` saves env 0, rendered as
 `render_policy.py` does.
 """
@@ -39,7 +41,7 @@ def main(argv: list[str] | None = None) -> int:
   ap.add_argument("--deck-height", type=float, default=0.103, help="deck top, m")
   ap.add_argument("--seconds", type=float, default=10.0)
   ap.add_argument("--seed", type=int, default=0)
-  ap.add_argument("--zero-action", action="store_true", help="stand still instead")
+  ap.add_argument("--zero-action", action="store_true", help="hold the layout instead")
   ap.add_argument("--rewards", action="store_true", help="print reward term means")
   ap.add_argument("--video", type=Path, help="save env 0 as this .mp4")
   args = ap.parse_args(argv)

@@ -301,7 +301,8 @@ def test_skate_exports_clip_yaw_to_the_trained_range(task):
   assert clip is not None
   assert clip["wz"] == pytest.approx(wz)
   assert clip["vy"] == (0.0, 0.0)
-  assert clip["vx"][0] == 0.0
+  # The tripod ride trains on 0.1 to 0.3 m/s (plus standing envs).
+  assert clip["vx"][0] == (0.1 if task == "Mjlab-Skate-Ride-Pupper-v3" else 0.0)
 
 
 @pytest.mark.parametrize(

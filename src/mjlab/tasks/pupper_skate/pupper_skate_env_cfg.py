@@ -4,12 +4,14 @@ The robot stands centred on the deck, all four feet on it. Two tasks share one
 scene:
 
 * balance -- hold the stance on a board that is free to roll.
-* ride    -- step the back right foot off the deck, push against the floor and
-             step back on, so the board rolls at a commanded forward speed.
+* ride    -- a tripod ride: start with three feet on the deck and the back
+             right foot on the floor beside it, and stroke with that foot so
+             the board rolls at a commanded forward speed. The push foot never
+             steps back onto the deck.
 
 The actor is the stock 48-dim gait frame (IMU, joints, command, last action,
 reference offset), so policies export and deploy like any gait policy. Balance
-leaves the reference at zero; ride fills it with a clocked push and glide.
+leaves the reference at zero; ride fills it with clocked strokes.
 Everything about the board goes to the critic only: the robot has no board
 sensor.
 
@@ -33,6 +35,10 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   PUPPER_MUJOCO_OPTIONS,
   SKATE_BOARD_OFFSET,
   SKATE_KEYFRAME,
+  SKATE_TRIPOD_BASE,
+  SKATE_TRIPOD_DECK_TOPS,
+  SKATE_TRIPOD_KEYFRAME,
+  SKATE_TRIPOD_POSES,
 )
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp import dr
@@ -62,9 +68,13 @@ _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 # uses CENTRED_RIDE_SPEED_RANGE below.
 RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.5)
 
-# Forward speed range for the centred ride [m/s]. One push every 2.5 s does not
-# reach much more than this.
-CENTRED_RIDE_SPEED_RANGE: tuple[float, float] = (0.0, 0.4)
+# Forward speed range for the centred ride [m/s]. The scripted tripod stroke
+# reaches 0.17 m/s at the 90th percentile; 0.3 leaves the policy room to beat it.
+CENTRED_RIDE_SPEED_RANGE: tuple[float, float] = (0.1, 0.3)
+
+# Centred ride: forward speed [m/s] the board and robot roll at on reset, so
+# episodes also start mid-ride.
+TRIPOD_RESET_SPEED_RANGE: tuple[float, float] = (0.0, 0.2)
 
 # Joint speed limit [rad/s] the gait check enforces. The GIM4305 spec gives
 # about 30 rad/s, and the deployed walking references ask for 15 rad/s and
@@ -81,38 +91,47 @@ JOINT_SPEED_LIMIT: float = 12.0
 DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 
-# Centred ride trains on the stock trucks (deck top 9.3 to 11.3 cm): its push
-# reference is solved for the 10.3 cm deck. A crouch and a 17 degree lean put
-# a foot on the floor from there; the lowered trucks would need a new table.
+# Centred ride trains on the stock trucks (deck top 9.3 to 11.3 cm): the tripod
+# layout (SKATE_TRIPOD_* in pupper_constants) is solved at 9.3, 10.3 and
+# 11.3 cm and its strokes at 10.3 cm; the lowered trucks would need new poses.
 RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.01, 0.01)
 
-# The centred ride's push foot: back right, the foot the skate_push reference
-# steps down, as an index into the foot sensors (FR, FL, BR, BL order).
+# The centred ride's push foot: back right, the foot on the floor in the tripod
+# layout, as an index into the foot sensors (FR, FL, BR, BL order).
 PUSH_FOOT_ID: int = 2
 SUPPORT_FOOT_IDS: tuple[int, ...] = (0, 1, 3)
 
 # Centred ride: the least height [m] of the base above that env's deck top, a
-# backstop under the knees_on_deck termination. The push reference crouches to
-# 0.091 m with the deck feet just touching (solved over the skate_push table),
-# about 0.073 m once the loaded legs give their 1.8 cm (the stance settles from
-# 0.135 to 0.117 m in sim). The limit is 0.75 of that crouch. The robot has no
-# body collision geom: lying on the deck rests the knee spheres on it, about
-# 0.074 m under the base, which knees_on_deck catches.
+# backstop under the knees_on_deck termination. The tripod layout is solved at
+# 0.087 to 0.098 m and settles about 1 cm lower under load; held still with
+# randomization on, the base stays 0.066 m or more over the deck. The strokes
+# dip under 0.055 m on about 2% of steps, and with this rule off those envs go
+# on to fall over. The robot has no body collision geom: lying on the deck
+# rests the knee spheres on it, about 0.074 m under the base, which
+# knees_on_deck catches.
 BASE_NEAR_DECK_MIN: float = 0.055
 
 # Centred ride: seconds two knees may touch the deck together, and seconds a
-# support foot may be off it, before the episode ends. At 0.2 s the open-loop
-# push reference still tripped the knee rule on level steps; 0.4 s does not.
+# support foot may be off it, before the episode ends.
 KNEES_ON_DECK_S: float = 0.4
 SUPPORT_OFF_DECK_S: float = 0.5
 
-# Centred ride: seconds the push foot may be off the deck, 1.5 times its
-# longest stretch off it in the skate_push reference. The table has the foot
-# off the deck on rows 4 to 67 of 100 (more than 2 mm off the deck top, with
-# the three deck feet on it), 0.64 of a 2.5 s cycle: 1.6 s. Played open loop
-# at 0.3 m/s on decks 9.3 to 11.3 cm, the measured stretches top out at
-# 1.62 s. 1.5 x 1.6 = 2.4 s.
-PUSH_OFF_DECK_S: float = 2.4
+# Centred ride: the knees the knees_on_deck rule counts (FR, BR, BL; sensor
+# order FR, FL, BR, BL). In the tripod layout the front left knee rests on the
+# deck under the lean: held still with randomization on, it touches on 39 to
+# 89% of steps (9.3 to 11.3 cm decks), and with the push knee brushing the deck
+# edge that tripped the two-knee rule in 1 to 2 of 16 envs. Lying on the deck
+# still rests at least two of the other three.
+TRIPOD_COUNTED_KNEES: tuple[int, ...] = (0, 2, 3)
+
+# Centred ride: gravity x, y in the body frame [g] and the board centre in the
+# robot's heading frame [m] with the tripod layout held still, randomization
+# on, decks 9.3 to 11.3 cm (means over 16 envs x 9.5 s). The tilt and
+# board_alignment rewards peak there instead of at the level stance. Gravity y
+# runs from -0.007 to -0.10 across the deck heights, x and the offset barely
+# move.
+TRIPOD_GRAVITY_XY: tuple[float, float] = (-0.277, -0.06)
+TRIPOD_BOARD_OFFSET: tuple[float, float] = (0.018, 0.012)
 
 
 # The balance tasks penalize motors above this share of their torque limit
@@ -382,14 +401,22 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """Push with the back right foot so the board rolls at the commanded speed.
+  """Tripod ride: stroke with the back right foot so the board rolls.
 
-  The actor's reference slot plays a clocked push and glide (``skate_push`` in
-  ``gait_reference``) on the stock deck: step out, reach the floor ahead of the
-  stance spot, sweep back, step back on, then glide on four feet. The body
-  must stay up and the other three feet on the deck, or the episode ends.
+  Every episode (train and play) starts in the tripod layout: front right,
+  front left and back left feet on the deck, the back right foot on the floor
+  beside it, the board already rolling at up to 0.2 m/s. The robot is placed in
+  it by hand on the real board too. The actor's reference slot plays clocked
+  strokes (``skate_push`` in ``gait_reference``): sweep the foot back along the
+  floor, lift it, swing it forward in the air and set it down. It never steps
+  back onto the deck. The body must stay up and the other three feet on the
+  deck, or the episode ends.
   """
   cfg = pupper_skate_balance_env_cfg(play=play)
+  # The tripod layout's holding targets are the default joint pose: a zero
+  # action holds it, and the export ships it as the default pose.
+  robot = cfg.scene.entities["robot"]
+  robot.init_state = dataclasses.replace(SKATE_TRIPOD_KEYFRAME)
 
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
@@ -398,21 +425,25 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
   cfg.events["deck_height"].params["ranges"] = RIDE_DECK_HEIGHT_RANGE
-  # A push takes the back right foot off the deck for about 1.6 s. Only that
-  # foot may leave: any of the other three off the deck for more than 0.5 s
-  # ends the episode, and so does the push foot off it for more than 2.4 s
-  # (PUSH_OFF_DECK_S), so it cannot be parked on the floor while foot_reach
-  # pays. feet_off_deck (two feet off past 1.5 s) stays as before.
-  cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
-  cfg.terminations["feet_off_deck"].params["min_lost"] = 2
-  cfg.terminations["push_foot_off_deck"] = TerminationTermCfg(
-    func=mdp.contact_lost,
+  # Every reset places the robot in the tripod layout on its own board, solved
+  # for that env's deck height. It runs after reset_base and reset_board, so
+  # it overrides the robot's stance spawn and follows the board's spawn noise.
+  cfg.events["reset_tripod"] = EventTermCfg(
+    func=mdp.reset_tripod_layout,
+    mode="reset",
     params={
-      "sensor_name": "deck_feet_contact",
-      "grace_s": PUSH_OFF_DECK_S,
-      "foot_ids": (PUSH_FOOT_ID,),
+      "deck_tops": SKATE_TRIPOD_DECK_TOPS,
+      "base_poses": SKATE_TRIPOD_BASE,
+      "joint_poses": SKATE_TRIPOD_POSES,
+      "speed_range": TRIPOD_RESET_SPEED_RANGE,
+      "deck_cfg": SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,)),
     },
   )
+  # The push foot lives on the floor. Any of the other three off the deck for
+  # more than 0.5 s ends the episode. feet_off_deck (two feet off past 1.5 s)
+  # stays as before: the push foot alone never trips it.
+  cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
+  cfg.terminations["feet_off_deck"].params["min_lost"] = 2
   cfg.terminations["support_feet_off_deck"] = TerminationTermCfg(
     func=mdp.contact_lost,
     params={
@@ -423,9 +454,10 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   # The body stays up: lying on the deck and paddling with the legs ends the
   # episode. Lying down rests several knees on the deck at once, so two or more
-  # knees on it together for more than 0.4 s end the episode. The push
-  # reference touches one knee at a time (the push knee at the deck edge, the
-  # front left under the lean), which this allows. The knee sensor is rebuilt
+  # knees on it together for more than 0.4 s end the episode. The front left
+  # knee rests on the deck in the tripod layout and is not counted
+  # (TRIPOD_COUNTED_KNEES); the push knee may brush the deck edge alone.
+  # The knee sensor is rebuilt
   # here to time its contacts; the reward that counts knees reads it as before.
   # base_near_deck is the backstop for a body low over the deck with the knees
   # off it. base_too_low (0.08 m above the floor) is under the deck top, so it
@@ -442,6 +474,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "sensor_name": "knees_on_deck",
       "max_contact_s": KNEES_ON_DECK_S,
       "min_count": 2,
+      "sensor_ids": TRIPOD_COUNTED_KNEES,
     },
   )
   cfg.terminations["base_near_deck"] = TerminationTermCfg(
@@ -451,11 +484,11 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "deck_cfg": SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,)),
     },
   )
-  # The push leans the body 17 degrees; 0.6 rad (34) leaves room to recover.
+  # The layout leans the body 17 degrees; 0.6 rad (34) leaves room to recover.
   cfg.terminations["fell_over"].params["limit_angle"] = 0.6
 
   ##
-  # The push reference. Same 48-dim frame as balance, with the reference slot
+  # The stroke reference. Same 48-dim frame as balance, with the reference slot
   # filled; the gallop branch is never selected. The critic also sees the
   # reference and the clock phase.
   ##
@@ -488,24 +521,31 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   r = cfg.rewards
   del r["board_still"]
   del r["feet_on_ground"]
-  # The reference sets the pose now, push and glide alike.
+  # The reference sets the pose now, stroke and hold alike.
   del r["stance_pose"]
-  # Standing still must not out-earn a push that sometimes falls: a ride run
+  # The front left knee rests on the deck in the layout: counting knees cost
+  # the held layout 0.4 to 0.9 per second. The knees_on_deck termination still
+  # catches lying on the deck.
+  del r["knees_on_deck"]
+  # Holding still must not out-earn a stroke that sometimes falls: a ride run
   # trained with balance's -100 and these weights at 1.0 learned to stand on
   # the deck. A fall costs less here, tracking the speed needs the board
   # within about 0.1 m/s of the command, and progress, reaching and pushing
-  # pay more. Played open loop at 0.3 m/s on the stock deck, falls included,
-  # the push reference earns about 1.3 times what standing still earns.
+  # pay more. Played open loop at 0.3 m/s on decks 9.3 to 11.3 cm with
+  # randomization on, falls included, the stroke reference earns 7.7 per
+  # second against 4.9 for holding the tripod layout still (1.56 times).
   r["termination"].weight = -20.0
-  # Standing on four feet must not out-earn pushing with one: the deck pays for
-  # three feet at most, and the body may tilt and the board shift a little
-  # while a leg reaches the floor.
+  # The deck pays for the three support feet, and the body may tilt and the
+  # board shift a little while the push foot strokes. Tilt and board position
+  # are measured from the tripod layout, not the level stance.
   r["feet_on_deck"].weight = 0.5
   r["feet_on_deck"].params["max_count"] = 3.0
+  r["tilt"].params["target_xy"] = TRIPOD_GRAVITY_XY
   r["tilt"].params["std"] = 0.5
+  r["board_alignment"].params["target_offset"] = TRIPOD_BOARD_OFFSET
   r["board_alignment"].params["std_pos"] = 0.08
   # Track the reference the actor sees: the default pose plus the blended
-  # offset, so the still stance at zero command.
+  # offset, so the held layout at zero command.
   r["reference_tracking"] = RewardTermCfg(
     func=mdp.gait_tracking,
     weight=1.0,
@@ -535,11 +575,10 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # paid any foot learned to lie on the deck and paddle with the other legs.
   # A support foot off the deck for under 0.1 s still counts as on it, so
   # contact flicker on the lift-off step does not lose a stroke.
-  # foot_reach leads the push foot to the floor: it pays more the closer that
-  # foot gets to the floor. On the deck it stays a deck height up and earns
-  # little. Its pay fades as the board speeds up and is gone at 0.8 of the
-  # command, so parking the foot on the floor just under that speed earns less
-  # than rolling at the command.
+  # foot_reach keeps the push foot down by the floor: it pays more the closer
+  # that foot is to the floor. Its pay fades as the board speeds up and is gone
+  # at 0.8 of the command, so parking the foot on the floor just under that
+  # speed earns less than rolling at the command.
   # push_stroke pays the push itself: once per stroke as the push foot leaves
   # the floor, in full for a stroke of 0.25 s or more.
   r["foot_reach"] = RewardTermCfg(
@@ -572,11 +611,26 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "support_grace_s": 0.1,
     },
   )
+  # A push foot that lands still swinging forward brakes the board. Only the
+  # push foot touches the floor, so feet_slide on the floor sensor charges its
+  # speed while it is down: the landing and any slip in the sweep. Weight as in
+  # the split ride.
+  r["feet_slide"] = RewardTermCfg(
+    func=mdp.feet_slide,
+    weight=-2.0,
+    params={
+      "sensor_name": "ground_feet_contact",
+      "asset_cfg": SceneEntityCfg(
+        "robot", site_names=FOOT_SITE_NAMES, preserve_order=True
+      ),
+    },
+  )
   # Keep the motion inside what the motors can do. The sim actuator limits
   # torque but not speed, so speed is limited here. The penalty starts at
-  # 6 rad/s, half the gait check's 12; the reference itself peaks under 6.
+  # 6 rad/s, half the gait check's 12. The stroke reference's push-leg swing
+  # goes well over it, so the policy is charged for copying it at full speed.
   # Action rate is five times the balance weight, and action and joint
-  # acceleration are charged as in the split ride, for smooth step-offs.
+  # acceleration are charged as in the split ride, for smooth strokes.
   r["action_rate_l2"].weight = -0.05
   r["action_acc"] = RewardTermCfg(func=mdp.action_acc_l2, weight=-0.02)
   r["joint_acc"] = RewardTermCfg(

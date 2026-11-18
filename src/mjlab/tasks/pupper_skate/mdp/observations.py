@@ -56,8 +56,8 @@ def cycle_phase(env: ManagerBasedRlEnv, frequency: float) -> torch.Tensor:
   """The reference clock's phase as ``(sin, cos)``, shape [B, 2].
 
   The same episode clock the gait reference plays on. The actor sees only the
-  reference offset, which is constant through the glide; this tells the critic
-  how long until the next push.
+  reference offset, which barely changes while the push foot waits over its
+  touchdown spot; this tells the critic where in the stroke it is.
   """
   angle = 2.0 * torch.pi * gait_phase(env, frequency)
   return torch.stack([torch.sin(angle), torch.cos(angle)], dim=1)

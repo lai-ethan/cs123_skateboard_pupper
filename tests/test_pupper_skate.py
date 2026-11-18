@@ -13,7 +13,6 @@ import pytest
 import torch
 from conftest import get_test_device
 from rsl_rl.modules import MLP, EmpiricalNormalization
-from scipy.optimize import least_squares
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
@@ -29,6 +28,10 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   SKATE_KEYFRAME,
   SKATE_POSE,
   SKATE_ROLL,
+  SKATE_TRIPOD_BASE,
+  SKATE_TRIPOD_DECK_TOPS,
+  SKATE_TRIPOD_POSES,
+  SKATE_TRIPOD_TARGETS,
   get_spec,
 )
 from mjlab.envs import ManagerBasedRlEnv
@@ -56,11 +59,11 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   KNEES_ON_DECK_S,
   PUSH_FOOT_ID,
   PUSH_INTERVAL_S,
-  PUSH_OFF_DECK_S,
   RIDE_DECK_HEIGHT_RANGE,
   RIDE_SPEED_RANGE,
   SUPPORT_FOOT_IDS,
   SUPPORT_OFF_DECK_S,
+  TRIPOD_COUNTED_KNEES,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
@@ -125,7 +128,8 @@ def test_skate_keyframe_spawns_the_pose_above_the_deck():
 
 
 ##
-# The centred push reference (gait_reference's skate_push table).
+# The tripod layout (SKATE_TRIPOD_* in pupper_constants) and its strokes
+# (gait_reference's skate_push table).
 ##
 
 _DECK_FEET = ("front_r", "front_l", "back_l")
@@ -137,100 +141,70 @@ def push_table() -> np.ndarray:
   return gr.build_joint_reference_table(100, "skate_push")
 
 
-def _phase_row(name: str, n: int = 100) -> int:
-  """Table row of the keyframe ``name``, which must appear once in the cycle."""
-  (phase,) = [p for p, key in gr.SKATE_PUSH_KEYFRAMES if key == name]
-  return round(phase * n)
+def _set_robot_pose(model, data, base, q) -> None:
+  """Robot-only model: base (x, y, z, roll, pitch), joints ``q``, yaw zero."""
+  data.qpos[0:3] = base[0:3]
+  quat = np.zeros(4)
+  mujoco.mju_euler2Quat(quat, np.array([base[3], base[4], 0.0]), "xyz")
+  data.qpos[3:7] = quat
+  for name, angle in zip(JOINT_NAMES, q, strict=True):
+    data.qpos[model.joint(name).qposadr[0]] = angle
+  mujoco.mj_kinematics(model, data)
 
 
-def test_push_table_is_periodic_and_inside_the_joint_limits(push_table):
-  assert push_table.shape == (100, 12)
-  np.testing.assert_allclose(push_table[0], SKATE_POSE)
-  np.testing.assert_allclose(push_table[-1], SKATE_POSE)
-  model = get_spec().compile()
-  limits = np.array([model.joint(n).range for n in JOINT_NAMES])
-  assert np.all(push_table >= limits[:, 0]) and np.all(push_table <= limits[:, 1])
-
-
-def test_push_table_glides_on_the_stance(push_table):
-  glide = np.arange(100) / 100 >= gr.SKATE_PUSH_GLIDE_START
-  assert glide.sum() == 29
-  np.testing.assert_allclose(push_table[glide], np.tile(SKATE_POSE, (29, 1)))
-  # Before the glide the back right leg is moving on every row but the first.
-  push = slice(6, 9)
-  moving = np.any(push_table[1:71, push] != np.array(SKATE_POSE)[push], axis=1)
-  assert moving.all()
-
-
-def test_push_table_stays_under_the_ride_speed_onset(push_table):
-  step = np.diff(np.vstack([push_table, push_table[:1]]), axis=0)
-  speed = np.abs(step) * 100 * gr.SKATE_PUSH_FREQUENCY
-  assert speed.max() < 6.0
-  assert gr.SKATE_PUSH_FREQUENCY == 0.4
-  assert gr.SKATE_PUSH_BLEND_SPEED == 0.05
-
-
-def _place_on_deck(model, data, q, centroid, deck_top, foot_r, guess):
-  """Base pose (x, y, z, roll, pitch) that rests the three deck feet on the deck.
-
-  Their undersides touch the deck top and their xy centroid sits at
-  ``centroid``; yaw is zero.
-  """
-
-  def set_pose(b):
-    data.qpos[0:3] = b[0:3]
-    quat = np.zeros(4)
-    mujoco.mju_euler2Quat(quat, np.array([b[3], b[4], 0.0]), "xyz")
-    data.qpos[3:7] = quat
-    for name, angle in zip(JOINT_NAMES, q, strict=True):
-      data.qpos[model.joint(name).qposadr[0]] = angle
-    mujoco.mj_kinematics(model, data)
-
-  def residual(b):
-    set_pose(b)
-    feet = np.array([data.site(f"leg_{leg}_3_foot_site").xpos for leg in _DECK_FEET])
-    return np.r_[feet[:, 2] - (deck_top + foot_r), feet[:, :2].mean(0) - centroid]
-
-  b = least_squares(residual, guess).x
-  set_pose(b)
-  return b
-
-
-def test_push_foot_reaches_the_floor_and_clears_the_deck_side(push_table):
-  # The robot alone, three feet resting on a stock deck (its box from the board
-  # params, centred under the stance), the push foot free.
+@pytest.mark.parametrize("row", range(3))
+def test_tripod_layout_rests_three_feet_on_the_deck_and_one_on_the_floor(row):
+  # The board centred at the origin with the deck top at the solved height.
   p = SkateboardParams()
   model = get_spec().compile()
   data = mujoco.MjData(model)
   foot_r = float(model.geom(f"leg_{_PUSH_LEG}_3_collision").size[0])
-  deck_top = p.deck_top_height
-  centre = np.array([*SKATE_BOARD_OFFSET, deck_top - p.deck_thickness / 2])
-  half = np.array([p.deck_length / 2, p.deck_width / 2, p.deck_thickness / 2])
-  # Deck feet centroid with the stance on the board.
-  stance_base = np.array([0.0, 0.0, 0.3, 0.0, 0.0])
-  _place_on_deck(model, data, SKATE_POSE, np.zeros(2), deck_top, foot_r, stance_base)
-  centroid = (
-    np.mean(
-      [data.site(f"leg_{leg}_3_foot_site").xpos[:2] for leg in _DECK_FEET], axis=0
-    )
-    - data.qpos[0:2]
+  deck_top = SKATE_TRIPOD_DECK_TOPS[row]
+  x, y, dz, roll, pitch = SKATE_TRIPOD_BASE[row]
+  _set_robot_pose(
+    model, data, (x, y, deck_top + dz, roll, pitch), SKATE_TRIPOD_POSES[row]
   )
-  base = stance_base
-  underside, side_gap = [], []
-  for q in push_table:
-    base = _place_on_deck(model, data, q, centroid, deck_top, foot_r, base)
-    foot = data.site(f"leg_{_PUSH_LEG}_3_foot_site").xpos.copy()
-    outside = np.maximum(np.abs(foot - centre) - half, 0.0)
-    underside.append(foot[2] - foot_r)
-    side_gap.append(np.linalg.norm(outside) - foot_r)
-  underside_a, side_gap_a = np.array(underside), np.array(side_gap)
-  for name in ("reach", "sweep"):
-    assert abs(underside_a[_phase_row(name)]) < 0.01, name
-  # Below the deck top the foot is beside the deck, 3 mm clear of it. On or
-  # above the top (within 1 mm) it is standing on the deck or over it.
-  below_top = underside_a < deck_top - 0.001
-  assert below_top.sum() > 20
-  assert side_gap_a[below_top].min() >= 0.003
+  for leg in _DECK_FEET:
+    foot = data.site(f"leg_{leg}_3_foot_site").xpos
+    assert abs(foot[2] - foot_r - deck_top) < 1e-3, leg
+    assert abs(foot[1]) < p.deck_width / 2 - 0.009, leg
+    assert abs(foot[0]) < p.deck_length / 2 - 0.009, leg
+  push = data.site(f"leg_{_PUSH_LEG}_3_foot_site").xpos
+  assert abs(push[2] - foot_r) < 1e-3
+  assert -push[1] - foot_r > p.deck_width / 2 + 0.002
+
+
+def test_tripod_layout_is_the_centred_ride_default_pose():
+  init = pupper_skate_ride_env_cfg().scene.entities["robot"].init_state
+  assert init.joint_pos == dict(zip(JOINT_NAMES, SKATE_TRIPOD_TARGETS, strict=True))
+  # The targets sit near the 103 mm layout's angles: the legs give under load.
+  gap = np.abs(np.array(SKATE_TRIPOD_TARGETS) - np.array(SKATE_TRIPOD_POSES[1]))
+  assert gap.max() < 0.2
+  for make_cfg in (pupper_skate_balance_env_cfg, pupper_skate_split_ride_env_cfg):
+    joints = make_cfg().scene.entities["robot"].init_state.joint_pos
+    assert joints != init.joint_pos
+
+
+def test_push_table_is_periodic_and_inside_the_joint_limits(push_table):
+  assert push_table.shape == (100, 12)
+  model = get_spec().compile()
+  limits = np.array([model.joint(n).range for n in JOINT_NAMES])
+  assert np.all(push_table >= limits[:, 0]) and np.all(push_table <= limits[:, 1])
+  # Row 0 is the start of the sweep; the cycle ends back on it.
+  np.testing.assert_allclose(push_table[0], gr._TRIPOD_FWD)
+  np.testing.assert_allclose(push_table[40], gr._TRIPOD_BACK)
+  np.testing.assert_allclose(push_table[-1], gr._TRIPOD_FWD, atol=0.01)
+  assert gr.SKATE_PUSH_FREQUENCY == 1.0
+  assert gr.SKATE_PUSH_BLEND_SPEED == 0.05
+
+
+def test_push_table_moves_only_the_push_leg_in_the_air(push_table):
+  # The three deck legs move only with the sweep (the body shifts over them);
+  # from lift-off to touchdown they hold the sweep's end and start.
+  deck_legs = np.r_[0:6, 9:12]
+  air = push_table[50:86]
+  assert np.ptp(air[:, deck_legs], axis=0).max() < 0.2
+  assert np.ptp(air[:, 6:9], axis=0).max() > 1.0
 
 
 ##
@@ -706,7 +680,7 @@ def test_ride_task_commands_forward_speed_only():
   cfg = pupper_skate_ride_env_cfg()
   twist = cfg.commands["twist"]
   assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  assert twist.ranges.lin_vel_x == CENTRED_RIDE_SPEED_RANGE == (0.0, 0.4)
+  assert twist.ranges.lin_vel_x == CENTRED_RIDE_SPEED_RANGE == (0.1, 0.3)
   assert RIDE_SPEED_RANGE == (0.0, 0.5)  # Split ride's, unchanged.
   assert twist.rel_standing_envs == 0.1
   assert twist.ranges.lin_vel_y == (0.0, 0.0) and twist.ranges.ang_vel_z == (0.0, 0.0)
@@ -879,10 +853,12 @@ def test_ride_exports_the_push_table_and_matches_the_robot_math(ride_env):
   np.testing.assert_allclose(
     block["trot_table"], gr.build_joint_reference_table(100, "skate_push"), atol=1e-6
   )
-  assert (block["frequency"], block["blend_speed"]) == (0.4, 0.05)
+  assert (block["frequency"], block["blend_speed"]) == (1.0, 0.05)
   assert block["gallop_speed"] > max(CENTRED_RIDE_SPEED_RANGE)
   assert policy["heading_hold"]["kp"] == 0.0
-  assert policy["command_clip"]["vx"] == [0.0, 0.4]
+  assert policy["command_clip"]["vx"] == [0.1, 0.3]
+  # The tripod layout's holding targets ship as the default pose.
+  np.testing.assert_allclose(policy["default_joint_pos"], SKATE_TRIPOD_TARGETS)
   # The deploy mirror, fed the exported block, reproduces the offset in the
   # newest frame of the actor observation, at command 0, 0.03 and 0.3.
   env.reset()
@@ -915,35 +891,57 @@ def test_ride_exports_the_push_table_and_matches_the_robot_math(ride_env):
 
 
 @pytest.mark.slow
-def test_ride_foot_reach_is_small_with_all_feet_on_the_deck():
-  # The lowest deck the centred ride trains on (the stock trucks), a clean
-  # spawn, a speed command and zero actions: the feet stay on the deck, so
-  # reaching pays little.
-  cfg = pupper_skate_ride_env_cfg()
-  cfg.scene.num_envs = 1
-  low = RIDE_DECK_HEIGHT_RANGE[0]
-  cfg.events["deck_height"].params["ranges"] = (low, low)
-  del cfg.events["push_robot"]
-  for name in ("reset_base", "reset_board"):
-    cfg.events[name].params["pose_range"] = {}
-  twist = cfg.commands["twist"]
-  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  twist.ranges.lin_vel_x = (0.4, 0.4)
-  twist.rel_standing_envs = 0.0
+@pytest.mark.parametrize("play", [False, True])
+@pytest.mark.parametrize("deck_offset", RIDE_DECK_HEIGHT_RANGE)
+def test_ride_resets_into_the_tripod_layout(deck_offset, play):
+  # Each end of the deck height range, train and play: after a few settle
+  # steps every env has the push foot on the floor and the three support feet
+  # on the deck, the board rolls at the reset speed, and nothing ends an
+  # episode in the first 10 steps. Then the whole batch is reset again.
+  cfg = pupper_skate_ride_env_cfg(play=play)
+  cfg.scene.num_envs = 16
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (deck_offset, deck_offset)
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
-  env.reset()
-  reach = env.reward_manager.get_term_cfg("foot_reach")
-  deck_top = SkateboardParams().deck_top_height + low
-  on_deck_cap = math.exp(-(deck_top - 0.015) / reach.params["std"])
-  actions = torch.zeros(1, 12, device=env.device)
-  for _ in range(50):  # 1 s.
-    _, _, terminated, truncated, _ = env.step(actions)
-    assert not (terminated | truncated).any()
-    # exp(-clearance / std): a foot on the deck is at least the deck height
-    # less 1.5 cm of contact sink up; a foot on the floor pays 1.
-    assert reach.func(env, **reach.params).max() < on_deck_cap
-  assert (mdp.contact_flags(env, "deck_feet_contact") == 1).all()
-  env.close()
+  try:
+    actions = torch.zeros(16, 12, device=env.device)
+    for _ in range(2):
+      env.reset()
+      board_vx = env.scene["board"].data.root_link_lin_vel_b[:, 0]
+      assert board_vx.min() >= -0.01 and board_vx.max() <= 0.21
+      assert board_vx.max() > 0.05  # The speeds are drawn, not all zero.
+      for step in range(10):
+        _, _, terminated, truncated, _ = env.step(actions)
+        assert not (terminated | truncated).any(), step
+        if step >= 4:
+          floor = env.scene["ground_feet_contact"].data.found
+          deck = env.scene["deck_feet_contact"].data.found
+          assert floor is not None and deck is not None
+          assert (floor[:, PUSH_FOOT_ID] > 0).all(), step
+          assert (deck[:, list(SUPPORT_FOOT_IDS)] > 0).all(), step
+  finally:
+    env.close()
+
+
+@pytest.mark.slow
+def test_tripod_layout_holds_for_a_whole_episode():
+  # Zero actions hold the layout (the default pose is its holding targets).
+  # The train config, randomization and shoves on: in at least 14 of 16 envs
+  # nothing but the time-out ends the 500-step episode.
+  cfg = pupper_skate_ride_env_cfg()
+  cfg.scene.num_envs = 16
+  cfg.seed = 0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  try:
+    env.reset()
+    actions = torch.zeros(16, 12, device=env.device)
+    ended = torch.zeros(16, dtype=torch.bool, device=env.device)
+    for _ in range(500):
+      _, _, terminated, _, _ = env.step(actions)
+      ended |= terminated
+    assert int(ended.sum()) <= 2, int(ended.sum())
+  finally:
+    env.close()
 
 
 @pytest.mark.slow
@@ -1107,10 +1105,9 @@ def test_balance_env_survives_pushes(robust_env):
 _NEW_RIDE_TERMS = (
   "knees_on_deck",
   "support_feet_off_deck",
-  "push_foot_off_deck",
   "base_near_deck",
 )
-_NEW_RIDE_KEYWORDS = ("foot_ids", "support_sensor", "support_grace_s")
+_NEW_RIDE_KEYWORDS = ("foot_ids", "support_sensor", "support_grace_s", "sensor_ids")
 
 
 def test_support_feet_off_deck_ignores_the_push_foot():
@@ -1140,24 +1137,20 @@ def test_support_feet_off_deck_ignores_the_push_foot():
   assert lost.tolist() == [True, False, True, False]
 
 
-def test_push_foot_off_deck_bounds_the_push_foot_alone():
-  term = pupper_skate_ride_env_cfg().terminations["push_foot_off_deck"]
-  assert term.func is mdp.contact_lost
-  assert term.params == {
-    "sensor_name": "deck_feet_contact",
-    "grace_s": PUSH_OFF_DECK_S,
-    "foot_ids": (PUSH_FOOT_ID,),
-  }
-  assert PUSH_OFF_DECK_S == 2.4
-  # Rows: the push foot off 2.3 s, off 2.5 s, a support foot alone off 5 s.
+def test_tripod_ride_lets_the_push_foot_stay_on_the_floor():
+  # The push foot never steps back onto the deck: no rule times it, and
+  # feet_off_deck needs a second foot off the deck too.
+  terms = pupper_skate_ride_env_cfg().terminations
+  assert "push_foot_off_deck" not in terms
+  params = terms["feet_off_deck"].params
+  assert params["min_lost"] == 2
+  # Rows: the push foot alone off 9 s; the push foot and a support foot off 2 s.
   env = _fake_env(
     deck_feet_contact={
-      "current_air_time": torch.tensor(
-        [[0.0, 0.0, 2.3, 0.0], [0.0, 0.0, 2.5, 0.0], [5.0, 0.0, 0.0, 0.0]]
-      )
+      "current_air_time": torch.tensor([[0.0, 0.0, 9.0, 0.0], [2.0, 0.0, 9.0, 0.0]])
     }
   )
-  assert mdp.contact_lost(env, **term.params).tolist() == [False, True, False]
+  assert mdp.contact_lost(env, **params).tolist() == [False, True]
 
 
 def test_knees_on_deck_ends_the_episode_when_two_knees_rest_past_0_4_s():
@@ -1167,27 +1160,36 @@ def test_knees_on_deck_ends_the_episode_when_two_knees_rest_past_0_4_s():
     "sensor_name": "knees_on_deck",
     "max_contact_s": KNEES_ON_DECK_S,
     "min_count": 2,
+    "sensor_ids": TRIPOD_COUNTED_KNEES,
   }
   assert KNEES_ON_DECK_S == 0.4
-  # Rows: no knee down; one knee down 5 s; two down, one only 0.1 s; two down
-  # past the 0.4 s hold.
+  # The front left knee (sensor index 1) rests on the deck in the tripod
+  # layout and is not counted.
+  assert TRIPOD_COUNTED_KNEES == (0, 2, 3)
+  # Rows: no knee down; one knee down 5 s; two down, one only 0.1 s; the front
+  # left and the push knee down past the hold; the push and back left knees
+  # down past the hold.
   env = _fake_env(
     knees_on_deck={
       "current_contact_time": torch.tensor(
         [
           [0.0, 0.0, 0.0, 0.0],
           [0.0, 5.0, 0.0, 0.0],
-          [0.1, 0.5, 0.0, 0.0],
+          [0.1, 0.0, 0.5, 0.0],
           [0.0, 0.5, 0.45, 0.0],
+          [0.0, 0.0, 0.45, 0.5],
         ]
       )
     }
   )
   held = mdp.contact_held(env, **term.params)
-  assert held.tolist() == [False, False, False, True]
+  assert held.tolist() == [False, False, False, False, True]
+  # Every knee counted: the front left and push knees together trip it.
+  params = {**term.params, "sensor_ids": None}
+  assert mdp.contact_held(env, **params).tolist() == [False, False, False, True, True]
   # The default min_count of 1: any one knee past the hold.
   held = mdp.contact_held(env, "knees_on_deck", max_contact_s=0.4)
-  assert held.tolist() == [False, True, True, True]
+  assert held.tolist() == [False, True, True, True, True]
 
 
 def _deck_env(deck_top: list[float], base_z: list[float]) -> Any:
@@ -1341,14 +1343,20 @@ def test_other_skate_tasks_keep_their_rules(make_cfg):
         assert key not in term.params, key
     knees = [s for s in cfg.scene.sensors or () if s.name == "knees_on_deck"]
     assert len(knees) == 1 and not knees[0].track_air_time
+    # No tripod start: the other tasks spawn in their own stance.
+    assert "reset_tripod" not in cfg.events
+    assert all(e.func is not mdp.reset_tripod_layout for e in cfg.events.values())
+    init = cfg.scene.entities["robot"].init_state.joint_pos
+    assert init != dict(zip(JOINT_NAMES, SKATE_TRIPOD_TARGETS, strict=True))
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("deck_offset", RIDE_DECK_HEIGHT_RANGE)
 def test_base_near_deck_in_the_sim(deck_offset):
   # The ride env with the deck pinned at one end of its range, a still command
-  # and zero actions: the stance holds 1 s without tripping the new rules.
-  # Then the base is held 4 cm over the deck top and base_near_deck fires.
+  # and zero actions: the tripod layout holds 1 s without tripping the new
+  # rules. Then the base is held level 4 cm over the deck top, belly on the
+  # deck, and base_near_deck fires.
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = 2
   cfg.seed = 0
@@ -1378,29 +1386,14 @@ def test_base_near_deck_in_the_sim(deck_offset):
     env.close()
 
 
-def play_push_reference_terminations(
-  deck_top: float,
-  num_envs: int = 8,
-  seconds: float = 6.0,
-  seed: int = 0,
-  watch: tuple[str, ...] = (),
+def play_push_reference(
+  deck_top: float, num_envs: int = 8, seconds: float = 3.0, seed: int = 0
 ) -> dict[str, Any]:
-  """Play the skate_push reference open loop on the centred ride (play config).
+  """Play the skate_push strokes open loop on the centred ride (play config).
 
-  Command 0.3 m/s, deck top pinned at ``deck_top``. Returns, per termination,
-  how many env-steps it fired in all (``total``) and how many of those came
-  with the body tilted under 0.2 rad and the episode over 0.5 s old
-  (``calm``; both read the step before, since a terminated env is reset
-  within the step). Also returns the number of push_stroke pays and the share
-  of env-steps that paid.
-
-  The terminations named in ``watch`` are taken out of the config and only
-  watched: each step they are evaluated on the state the termination manager
-  would have judged, without ending the episode, so it is visible whether a
-  fall follows. ``pre_end`` counts their calm firings followed within 0.5 s by
-  the end of that env's episode on any other termination (fell_over,
-  support_feet_off_deck, ...; not the time-out), and ``calm_no_end`` the rest,
-  listed in ``no_end_events``.
+  Command 0.3 m/s, deck top pinned at ``deck_top``, the board at rest on
+  reset. Returns how far each env's board rolled forward [m], the number of
+  env-steps any termination fired on, and the number of push_stroke pays.
   """
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = num_envs
@@ -1412,13 +1405,8 @@ def play_push_reference_terminations(
   twist.resampling_time_range = (1e6, 1e6)
   offset = deck_top - SkateboardParams().deck_top_height
   cfg.events["deck_height"].params["ranges"] = (offset, offset)
-  watched = {name: cfg.terminations.pop(name) for name in watch}
+  cfg.events["reset_tripod"].params["speed_range"] = (0.0, 0.0)
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
-  for term in watched.values():
-    for value in term.params.values():
-      if isinstance(value, SceneEntityCfg):
-        value.resolve(env.scene)
-  window = int(round(0.5 / env.step_dt))
   try:
     table = torch.tensor(
       gr.build_joint_reference_table(GAIT_N_SAMPLES, "skate_push"),
@@ -1427,20 +1415,14 @@ def play_push_reference_terminations(
     )
     action_term = env.action_manager.get_term("joint_pos")
     assert isinstance(action_term, BaseAction)
-    robot = env.scene["robot"]
-    names = list(env.termination_manager.active_terms)
-    total = dict.fromkeys([*names, *watched], 0)
-    calm = dict.fromkeys([*names, *watched], 0)
-    # Per watched rule, the (step, env) of each calm firing.
-    calm_at: dict[str, list[tuple[int, int]]] = {name: [] for name in watched}
-    stopped, ended = [], []
-    causes: list[list[list[str]]] = []
+    robot, board = env.scene["robot"], env.scene["board"]
     stroke_idx = env.reward_manager.active_terms.index("push_stroke")
-    pays = 0
     env.reset()
-    steps = int(round(seconds / env.step_dt))
+    start = board.data.root_link_pos_w[:, :2].clone()
+    heading = board.data.heading_w.clone()
+    stops = pays = 0
     with torch.no_grad():
-      for step in range(steps):
+      for _ in range(int(round(seconds / env.step_dt))):
         command = env.command_manager.get_command("twist")
         assert command is not None
         default = robot.data.default_joint_pos
@@ -1458,88 +1440,33 @@ def play_push_reference_terminations(
           gallop_freq_mult=1.0,
         )
         action = (reference - action_term.offset) / action_term.scale
-        gz = robot.data.projected_gravity_b[:, 2].clamp(-1.0, 1.0)
-        level = torch.acos(-gz) < 0.2
-        settled = env.episode_length_buf * env.step_dt > 0.5
-        for name, term in watched.items():
-          fired = term.func(env, **term.params)
-          total[name] += int(fired.sum())
-          hits = fired & level & settled
-          calm[name] += int(hits.sum())
-          calm_at[name] += [(step, i) for i in hits.nonzero().flatten().tolist()]
         _, _, terminated, truncated, _ = env.step(action)
-        stopped.append(terminated.cpu().clone())
-        causes.append(
-          [
-            [n for n in names if env.termination_manager.get_term(n)[i]]
-            for i in range(num_envs)
-          ]
-        )
-        ended.append((terminated | truncated).cpu().clone())
-        for name in names:
-          fired = env.termination_manager.get_term(name)
-          total[name] += int(fired.sum())
-          calm[name] += int((fired & level & settled).sum())
+        stops += int((terminated | truncated).sum())
         pays += int((env.reward_manager._step_reward[:, stroke_idx] > 0).sum())
+    moved = board.data.root_link_pos_w[:, :2] - start
+    forward = moved[:, 0] * torch.cos(heading) + moved[:, 1] * torch.sin(heading)
   finally:
     env.close()
-  pre_end = dict.fromkeys(watched, 0)
-  # Calm firings with no termination after them: (step, env, steps to the next
-  # reset or None if the run ended first, what ended that episode).
-  no_end: dict[str, list[tuple[int, int, int | None, list[str]]]] = {
-    name: [] for name in watched
-  }
-  for name, hits in calm_at.items():
-    for step, i in hits:
-      # The first reset in the window, if any, must be a termination.
-      for later in range(step, min(step + window, steps)):
-        if ended[later][i]:
-          if stopped[later][i]:
-            pre_end[name] += 1
-            break
-          no_end[name].append((step, i, later - step, causes[later][i]))
-          break
-      else:
-        after = [k for k in range(step, steps) if ended[k][i]]
-        nxt = after[0] - step if after else None
-        cause = causes[after[0]][i] if after else []
-        no_end[name].append((step, i, nxt, cause))
-  return {
-    "total": total,
-    "calm": calm,
-    "pre_end": pre_end,
-    "calm_no_end": {name: calm[name] - pre_end[name] for name in watched},
-    "no_end_events": no_end,
-    "stroke_pays": pays,
-    "stroke_pay_share": pays / (steps * num_envs),
-  }
+  return {"forward": forward.cpu().tolist(), "stops": stops, "stroke_pays": pays}
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("deck_top", [0.093, 0.103, 0.113])
-def test_push_reference_does_not_trip_the_new_ride_rules(deck_top):
-  # Open loop the reference falls at the end of each push; only the steps with
-  # the body level and the episode under way must stay clear of the rules that
-  # catch lying on the deck and a parked push foot. The 0.5 s before the env's
-  # episode ends on another termination (fell_over, support_feet_off_deck,
-  # feet_off_deck, board_tipped) are left out too: they are the start of the
-  # reference's own end-of-push fall, where the base sinks under 0.055 m while
-  # the tilt is still under 0.2 rad, and ending the episode a few steps early
-  # there is harmless. 16 envs for 10 s, the size the limits were measured at;
-  # about 17 s per deck height on CPU, hence slow.
-  watch = ("knees_on_deck", "base_near_deck", "push_foot_off_deck")
-  result = play_push_reference_terminations(
-    deck_top, num_envs=16, seconds=10.0, watch=watch
-  )
-  for name in watch:
-    assert result["calm_no_end"][name] == 0, (name, result)
+def test_push_reference_rolls_the_board_forward():
+  # Three cycles of the strokes from a standing board, 103 mm deck: every
+  # board rolls at least 5 cm forward, nothing ends an episode, and the
+  # strokes pay.
+  result = play_push_reference(0.103, num_envs=8, seconds=3.0 / gr.SKATE_PUSH_FREQUENCY)
+  assert result["stops"] == 0, result
+  assert min(result["forward"]) >= 0.05, result
+  assert result["stroke_pays"] > 0, result
 
 
 @pytest.mark.slow
 def test_knees_on_deck_fires_lying_on_the_deck():
-  # The base held 0.07 m over the deck top, level: the knee spheres (0.074 m
-  # under the base at the stance) rest on the deck, as when lying on it. Two
-  # knees down past the hold end the episode before base_near_deck would.
+  # The base held 0.07 m over the deck top, level, the legs in the stance: the
+  # knee spheres (0.074 m under the base at the stance) rest on the deck, as
+  # when lying on it. Two counted knees down past the hold end the episode
+  # before base_near_deck would.
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = 1
   cfg.seed = 0
@@ -1553,13 +1480,20 @@ def test_knees_on_deck_fires_lying_on_the_deck():
     lying = robot.data.default_root_state.clone()
     lying[:, :3] += env.scene.env_origins
     lying[:, 2] = SkateboardParams().deck_top_height + 0.07
-    actions = torch.zeros(1, 12, device=env.device)
+    # The default pose is the tripod layout's; aim the joints at the stance.
+    stance = torch.tensor([SKATE_POSE], device=env.device)
+    action_term = env.action_manager.get_term("joint_pos")
+    assert isinstance(action_term, BaseAction)
+    actions = (stance - action_term.offset) / action_term.scale
     most_knees, fired_at = 0, None
     for step in range(40):  # 0.8 s.
       robot.write_root_state_to_sim(lying)
+      robot.write_joint_state_to_sim(stance, torch.zeros_like(stance))
       env.step(actions)
       found = env.scene["knees_on_deck"].data.found
-      most_knees = max(most_knees, int((found > 0).sum()))
+      assert found is not None
+      counted = found[:, list(TRIPOD_COUNTED_KNEES)]
+      most_knees = max(most_knees, int((counted > 0).sum()))
       if env.termination_manager.get_term("knees_on_deck").any():
         fired_at = step
         break

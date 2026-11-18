@@ -356,9 +356,9 @@ CENTRED_BALANCE_WEIGHTS = {
   "torque_saturation": -1.0,
 }
 
+# The tripod ride (task 38) dropped knees_on_deck and added feet_slide.
 CENTRED_RIDE_WEIGHTS = {
   "feet_on_deck": 0.5,
-  "knees_on_deck": -1.0,
   "tilt": 1.0,
   "board_alignment": 1.0,
   "deck_flat": -5.0,
@@ -370,6 +370,7 @@ CENTRED_RIDE_WEIGHTS = {
   "board_yaw_rate": -0.5,
   "foot_reach": 1.0,
   "push_stroke": 3.0,
+  "feet_slide": -2.0,
   "board_progress": 4.0,
   "action_acc": -0.02,
   "joint_acc": -1e-6,
@@ -528,8 +529,10 @@ def test_centred_cfgs_are_unchanged():
 def test_only_split_ride_charges_taps_sliding_and_idle_feet(make_cfg):
   rewards = make_cfg().rewards
   assert "short_stride" not in rewards
-  assert "feet_slide" not in rewards
   assert "push_foot_idle" not in rewards
+  # The tripod ride charges its push foot sliding on the floor; balance does not.
+  if make_cfg is not pupper_skate_ride_env_cfg:
+    assert "feet_slide" not in rewards
 
 
 @pytest.mark.parametrize(

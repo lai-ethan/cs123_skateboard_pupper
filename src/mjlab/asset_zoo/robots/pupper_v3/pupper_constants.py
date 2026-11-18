@@ -84,6 +84,45 @@ SKATE_ROLL: float = 0.0  # the centred stance is level
 # Board centre in the robot's heading frame (x forward, y left).
 SKATE_BOARD_OFFSET: tuple[float, float] = (-0.01, 0.0)
 
+# Tripod push layout (centred ride): front right, front left and back left feet
+# on the deck, back right foot on the floor beside it. The support feet are not
+# on their stance spots: front right sits about 10 cm further back and front left
+# about 4 cm further forward, which widens their triangle enough to hold the
+# centre of mass 4 cm inside it. The body crouches 4 to 5 cm and tilts 17
+# degrees, mostly nose down. Solved offline (SLSQP on MuJoCo forward kinematics
+# of the compiled ride scene: deck feet 1 cm inside the deck edges, push foot
+# touching the floor 3 mm clear of the deck side and wheels, knees 15 mm clear,
+# joints 0.05 rad inside their limits, tilt at most 0.3 rad, CoM margin 4 cm,
+# joints closest to SKATE_POSE) at three deck tops. The robot is placed in it by
+# hand; it never steps into it from SKATE_POSE.
+SKATE_TRIPOD_DECK_TOPS: tuple[float, ...] = (0.093, 0.103, 0.113)
+# Joint angles of the layout at each deck top, in JOINT_NAMES order.
+SKATE_TRIPOD_POSES: tuple[tuple[float, ...], ...] = (
+  (-0.786, -0.37, -0.107, -0.205, 0.37, 0.051,
+   0.653, 0.839, -1.46, 1.101, 0.37, 0.488),
+  (-0.882, -0.37, -0.045, -0.279, 0.37, 0.013,
+   0.749, 0.899, -1.578, 1.147, 0.1, 0.5),
+  (-0.947, -0.37, 0.033, -0.248, 0.37, -0.049,
+   0.89, 0.993, -1.737, 1.155, 0.08, 0.505),
+)  # fmt: skip
+# Base pose at each deck top: x and y of base_link from the board centre in the
+# board frame [m], height of base_link above the deck top [m], roll and pitch
+# [rad]. x is free along the deck; it is held at the value the stroke was
+# measured with.
+SKATE_TRIPOD_BASE: tuple[tuple[float, ...], ...] = (
+  (-0.022, -0.018, 0.0983, 0.0676, -0.2925),
+  (-0.022, -0.0165, 0.0914, 0.0718, -0.2915),
+  (-0.022, -0.0157, 0.0872, 0.0905, -0.2864),
+)
+# Joint targets that hold the 103 mm layout under the PD (inverse statics
+# feed-forward plus three correction passes): the centred ride's default pose,
+# so a zero action holds the layout. They sit 0.01 to 0.16 rad from the angles
+# because the legs give under load.
+SKATE_TRIPOD_TARGETS: tuple[float, ...] = (
+  -0.759, -0.319, -0.059, -0.17, 0.349, 0.17,
+  0.758, 0.875, -1.596, 1.051, 0.111, 0.456,
+)  # fmt: skip
+
 # Split stance: left feet on the measured deck (0.103 m up, 0.161 m wide), right
 # feet on the floor. The legs cannot make up the whole deck height, so the stance
 # is rolled toward the floor side. Left feet sit 0.14 m out and 0.064 m below the
@@ -192,6 +231,17 @@ SKATE_KEYFRAME = EntityCfg.InitialStateCfg(
   pos=(0.0, 0.0, SKATE_HEIGHT + 0.01),
   rot=(math.cos(SKATE_ROLL / 2), math.sin(SKATE_ROLL / 2), 0.0, 0.0),
   joint_pos={name: angle for name, angle in zip(JOINT_NAMES, SKATE_POSE, strict=True)},
+  joint_vel={".*": 0.0},
+)
+
+# The tripod layout at the 103 mm deck, with its holding targets as the default
+# joint pose. The centred ride's reset event places it on each env's own board.
+SKATE_TRIPOD_KEYFRAME = EntityCfg.InitialStateCfg(
+  pos=(0.0, 0.0, SKATE_TRIPOD_DECK_TOPS[1] + SKATE_TRIPOD_BASE[1][2]),
+  rot=(1.0, 0.0, 0.0, 0.0),
+  joint_pos={
+    name: angle for name, angle in zip(JOINT_NAMES, SKATE_TRIPOD_TARGETS, strict=True)
+  },
   joint_vel={".*": 0.0},
 )
 

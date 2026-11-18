@@ -3,6 +3,7 @@
 from mjlab.tasks.pupper_gait.mdp import *  # noqa: F401, F403
 
 from .commands import SteerVelocityCommand, SteerVelocityCommandCfg  # noqa: F401
+from .events import reset_tripod_layout  # noqa: F401
 from .observations import (  # noqa: F401
   board_pose_in_robot_frame,
   contact_flags,

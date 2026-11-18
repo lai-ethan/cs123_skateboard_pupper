@@ -188,7 +188,6 @@ if SPLIT:
 else:
   REWARD_WEIGHTS = {
     "feet_on_deck": 0.5 if RIDE else 1.0,
-    "knees_on_deck": -1.0,
     "tilt": 1.0,
     "board_alignment": 1.0,
     "deck_flat": -5.0,
@@ -205,6 +204,7 @@ else:
       "reference_tracking": 1.0,
       "foot_reach": 1.0,
       "push_stroke": 3.0,
+      "feet_slide": -2.0,
       "action_acc": -0.02,
       "joint_acc": -1e-6,
       "joint_vel_l2": -0.001,
@@ -212,6 +212,7 @@ else:
     })
   else:
     REWARD_WEIGHTS.update({
+      "knees_on_deck": -1.0,
       "stance_pose": 1.0,
       "feet_on_ground": -1.0,
       "board_still": -2.0,
@@ -235,7 +236,8 @@ out = [
   md(
     "# Pupper on a skateboard 🛹\n\n"
     "Trains the skateboard tasks. There are two stances:\n\n"
-    "- **Centred** (`Mjlab-Skate-*`): all four feet on the deck.\n"
+    "- **Centred** (`Mjlab-Skate-*`): all four feet on the deck (balance), or\n"
+    "  three on the deck and the back right foot on the floor (ride).\n"
     "- **Split** (`Mjlab-SkateSplit-*`): left feet on the deck, right feet on\n"
     "  the floor.\n\n"
     "Each stance has a balance task and a ride task. Built from\n"
@@ -262,9 +264,11 @@ out = [
     "| Task | What it is |\n| --- | --- |\n"
     "| `Mjlab-Skate-Balance-Pupper-v3` | Hold the centred stance on a board that"
     " is free to roll. Train this first. |\n"
-    "| `Mjlab-Skate-Ride-Pupper-v3` | Push with the back right foot, on a"
-    " clocked push-and-glide reference, so the board rolls at the commanded"
-    " speed (0 to 0.4 m/s). Built for the stock trucks. |\n"
+    "| `Mjlab-Skate-Ride-Pupper-v3` | Tripod ride: start with three feet on"
+    " the deck and the back right foot on the floor beside it, and stroke with"
+    " that foot (a clocked stroke reference) so the board rolls at the"
+    " commanded speed (0.1 to 0.3 m/s). The foot never steps back onto the"
+    " deck. Built for the stock trucks. |\n"
     "| `Mjlab-SkateSplit-Balance-Pupper-v3` | Hold the split stance (left feet"
     " on the deck, right feet on the floor) on a board that is free to roll. |\n"
     "| `Mjlab-SkateSplit-Ride-Pupper-v3` | Push with the right legs so the board"
@@ -274,7 +278,7 @@ out = [
   code(
     "# Pick one:\n"
     "#   Mjlab-Skate-Balance-Pupper-v3       centred: hold the stance on a free board\n"
-    "#   Mjlab-Skate-Ride-Pupper-v3          centred: push with the back right foot\n"
+    "#   Mjlab-Skate-Ride-Pupper-v3          centred: tripod, stroke the back right foot\n"
     "#   Mjlab-SkateSplit-Balance-Pupper-v3  split: hold the stance, right feet down\n"
     "#   Mjlab-SkateSplit-Ride-Pupper-v3     split: push with the right legs to ride\n"
     'TASK = "Mjlab-Skate-Balance-Pupper-v3"\n'
@@ -293,16 +297,19 @@ out = [
     "it. Shipped defaults, for reference.\n\n"
     "**Centred** (`Mjlab-Skate-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
-    "| `feet_on_deck` | 1.0 | 0.5 | +1 per foot touching the deck (ride: three"
-    " at most, so a push loses nothing) |\n"
+    "| `feet_on_deck` | 1.0 | 0.5 | +1 per foot touching the deck (ride: the"
+    " three support feet) |\n"
     "| `feet_on_ground` | -1.0 | n/a | a foot on the floor (balance only) |\n"
-    "| `knees_on_deck` | -1.0 | -1.0 | knee resting on the deck |\n"
-    "| `tilt` | 1.0 | 1.0 | body level: no roll, no pitch (ride: looser) |\n"
+    "| `knees_on_deck` | -1.0 | n/a | knee resting on the deck (ride: the"
+    " tripod layout rests the front left knee; lying down still ends the"
+    " episode) |\n"
+    "| `tilt` | 1.0 | 1.0 | body level (ride: at the tripod layout's lean,"
+    " looser) |\n"
     "| `stance_pose` | 1.0 | n/a | joints near the keyframe (balance only) |\n"
-    "| `reference_tracking` | n/a | 1.0 | joints follow the push-and-glide"
-    " reference (the stance at zero command) |\n"
+    "| `reference_tracking` | n/a | 1.0 | joints follow the stroke reference"
+    " (the held tripod layout at zero command) |\n"
     "| `board_alignment` | 1.0 | 1.0 | board centred under the feet, parallel to"
-    " the robot (ride: looser) |\n"
+    " the robot (ride: where the tripod layout puts it, looser) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command"
@@ -310,10 +317,12 @@ out = [
     "| `board_progress` | n/a | 4.0 | the share of the commanded speed the board"
     " reaches, so a first slow push pays |\n"
     "| `board_yaw_rate` | n/a | -0.5 | board turning |\n"
-    "| `foot_reach` | n/a | 1.0 | the lowest foot gets close to the floor; fades"
+    "| `foot_reach` | n/a | 1.0 | the push foot is close to the floor; fades"
     " as the board speeds up, gone at 0.8 of the command |\n"
-    "| `push_stroke` | n/a | 3.0 | a foot pushes against the floor; paid once as"
-    " it lifts, in full for a 0.25 s stroke |\n"
+    "| `push_stroke` | n/a | 3.0 | the push foot pushes against the floor; paid"
+    " once as it lifts, in full for a 0.25 s stroke |\n"
+    "| `feet_slide` | n/a | -2.0 | the push foot moving while on the floor:"
+    " landing still swinging forward brakes the board |\n"
     "| `joint_vel_l2` | n/a | -1e-3 | joint speed |\n"
     "| `joint_speed_limit` | n/a | -0.1 | joint speed above 6 rad/s |\n"
     "| `torque_saturation` | -1.0 | -0.5 | motors above half (balance) or 80% (ride)"
@@ -322,8 +331,9 @@ out = [
     "| `action_acc` | n/a | -0.02 | action acceleration |\n"
     "| `joint_acc` | n/a | -1e-6 | joint acceleration |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
-    "| `termination` | -100 | -20 | falling, leaving the deck (ride: two feet"
-    " off), tipping the board (ride: cheaper, so a push is worth trying) |\n"
+    "| `termination` | -100 | -20 | falling, leaving the deck (ride: a support"
+    " foot off), lying on the deck, tipping the board (ride: cheaper, so a"
+    " push is worth trying) |\n"
     "\n**Split** (`Mjlab-SkateSplit-*`):\n\n"
     "| Term | Balance | Ride | What it does |\n| --- | --- | --- | --- |\n"
     "| `feet_on_deck` | 1.0 | 1.0 | +1 per left foot touching the deck |\n"
@@ -381,10 +391,11 @@ out = [
     "  passes at -0.05 or above. Lower means motors push near their limit.\n"
     "- `Episode_Termination/*`: which termination ends episodes.\n"
     "- Ride: `Episode_Reward/track_board_velocity` (3.0 is perfect).\n"
-    "- Centred ride: `Episode_Reward/foot_reach` (above 0 means a foot reaches\n"
-    "  for the floor) and `Episode_Reward/push_stroke` (above 0 means a foot is\n"
-    "  pushing). Both should rise above zero within about 300 iterations. If\n"
-    "  both stay at zero, stop the ride run: it is not learning to push.\n"
+    "- Centred ride: `Episode_Reward/push_stroke` (above 0 means the push foot\n"
+    "  is stroking). It should rise above zero within about 300 iterations. If\n"
+    "  it stays at zero, stop the ride run: it is not learning to push.\n"
+    "  (`foot_reach` pays from the start: the tripod layout already has the\n"
+    "  push foot on the floor.)\n"
     "- Split ride: `Episode_Reward/push_stride` (above 0 means the right feet\n"
     "  take planted strides).\n"
   ),

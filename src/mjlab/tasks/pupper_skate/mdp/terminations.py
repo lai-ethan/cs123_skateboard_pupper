@@ -40,18 +40,25 @@ def contact_lost(
 
 
 def contact_held(
-  env: ManagerBasedRlEnv, sensor_name: str, max_contact_s: float, min_count: int = 1
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  max_contact_s: float,
+  min_count: int = 1,
+  sensor_ids: tuple[int, ...] | None = None,
 ) -> torch.Tensor:
   """Terminate when the sensor's geoms have been in contact too long.
 
   Ends the episode once at least ``min_count`` geoms have each touched for
   longer than ``max_contact_s`` without a break, so with ``min_count`` 2 they
   have all been down together for that long. The sensor must be built with
-  ``track_air_time=True``.
+  ``track_air_time=True``. With ``sensor_ids`` only those of the sensor's geoms
+  (by index, in sensor order) count; the others may rest for good.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   contact_time = sensor.data.current_contact_time
   assert contact_time is not None
+  if sensor_ids is not None:
+    contact_time = contact_time[:, list(sensor_ids)]
   return torch.sum(contact_time > max_contact_s, dim=1) >= min_count
 
 

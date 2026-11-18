@@ -19,7 +19,6 @@ import numpy as np
 
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
-  SKATE_POSE,
   SPIDER_POSE,
   get_spec,
 )
@@ -276,63 +275,58 @@ def _spider_table(n_samples: int) -> np.ndarray:
   return table
 
 
-# Skate push: one push and glide from the centred skate stance, built for the
-# stock 103 mm deck and played by Mjlab-Skate-Ride. Open loop it pushes the
-# board but the robot falls at the end of each push; the policy has to supply
-# the balance (skateboard/tools/play_push_reference.py).
-# Not a foot-space cycle either: the back right foot steps off the deck, sweeps
-# back along the floor and steps back on while the other three feet stay on the
-# deck. Each leg moves in joint space between
-# the keyframes below, minimum-jerk (smoothstep-5) on each segment.
+# Skate push (tripod): strokes from the tripod push layout (SKATE_TRIPOD_* in
+# pupper_constants), played by Mjlab-Skate-Ride. Three feet stay on the deck in
+# the layout and the back right foot stays beside it: it sweeps back along the
+# floor, lifts, swings forward in the air and sets down again. It never steps
+# back onto the deck. Each joint moves between the keyframes below,
+# minimum-jerk (smoothstep-5) on each segment.
 #
-# The poses were solved offline (SLSQP on MuJoCo forward kinematics of the
-# compiled ride scene at a 103 mm deck, 20 seeds): the three deck feet at least
-# 1 cm inside the deck edges, the centre of mass at least 4 cm inside their
-# triangle (2 cm let the soft PD tip the body over before the foot reached the
-# floor), total body tilt at most 17 degrees, knees 15 mm clear of the deck,
-# wheels and floor, joints 0.05 rad inside their limits, and the joints as close
-# to SKATE_POSE as that allows. `reach` and `sweep` put the push foot on the
-# floor 6 cm ahead of and 4 cm behind the solver's push spot (a 10 cm stroke)
-# with the deck feet in the same spots. `lift` holds the push foot 3.5 cm above
-# the deck top beside its stance spot, with the joints 30% of the way from the
-# stance to the push poses. The foot passes through `lift` both ways, so it
-# never cuts the deck edge.
-_PUSH_REACH: tuple[float, ...] = (
-  -0.877, -0.37, -0.031,
-  -0.302, 0.37, 0.017,
-  1.241, 0.889, -1.754,
-  1.165, 0.091, 0.46,
+# The keyframes are joint targets, not angles: the angles the stroke was solved
+# for (deck feet fixed, body free, CoM 3 cm inside the deck feet's triangle,
+# 103 mm deck) plus the feed-forward offset that holds the layout under the PD.
+# `fwd` and `back` put the push foot on the floor 5 cm ahead of and 4.5 cm behind
+# its spot in the layout (a 9.5 cm stroke); `fwd_air` and `back_air` lift it
+# 7 cm straight up from there with the push leg alone. Played open loop at
+# 0.3 m/s on a 103 mm deck with randomization on, it rolls the board at a mean
+# 0.06 m/s (0.17 m/s at the 90th percentile) and pays push_stroke about once a
+# cycle; the push leg's swing peaks well over 6 rad/s.
+_TRIPOD_FWD: tuple[float, ...] = (
+  -0.77, -0.324, -0.112,
+  -0.102, 0.345, 0.115,
+  1.013, 0.835, -1.613,
+  1.022, 0.098, 0.548,
 )  # fmt: skip
-_PUSH_SWEEP: tuple[float, ...] = (
-  -0.886, -0.37, -0.049,
-  -0.274, 0.37, 0.003,
-  0.636, 0.894, -1.96,
-  1.136, 0.088, 0.514,
+_TRIPOD_BACK: tuple[float, ...] = (
+  -0.763, -0.3, 0.006,
+  -0.246, 0.364, 0.266,
+  0.702, 0.958, -1.859,
+  1.003, 0.131, 0.464,
 )  # fmt: skip
-_PUSH_LIFT: tuple[float, ...] = (
-  -0.066, -0.316, -0.274,
-  0.083, 0.37, -0.186,
-  0.111, 0.436, -0.511,
-  0.2, 0.156, 0.228,
+# The two air poses differ from fwd and back in the push leg only.
+_TRIPOD_FWD_AIR: tuple[float, ...] = (
+  *_TRIPOD_FWD[:6], 0.206, 0.724, -0.09, *_TRIPOD_FWD[9:],
 )  # fmt: skip
-# (phase, keyframe) in cycle order: step out over the deck edge, down to the
-# floor ahead of the stance spot, sweep back, up and back over the edge, onto
-# the deck, then glide on four feet for the rest of the cycle. Segment lengths
-# follow each segment's largest joint move, so the reference peaks under
-# 6 rad/s at SKATE_PUSH_FREQUENCY.
-SKATE_PUSH_GLIDE_START: float = 0.71
+_TRIPOD_BACK_AIR: tuple[float, ...] = (
+  *_TRIPOD_BACK[:6], -0.852, 0.559, -0.093, *_TRIPOD_BACK[9:],
+)  # fmt: skip
+# (phase, keyframe) in cycle order: sweep back on the floor (0.4 s), lift
+# (0.1 s), swing forward in the air (0.25 s), wait over the touchdown spot
+# (0.1 s) so the foot is not still moving forward when it lands, set down
+# (0.15 s). The last row closes the cycle.
 SKATE_PUSH_KEYFRAMES: tuple[tuple[float, str], ...] = (
-  (0.0, "stance"),
-  (0.09, "lift"),
-  (0.25, "reach"),
-  (0.43, "sweep"),
-  (0.62, "lift"),
-  (SKATE_PUSH_GLIDE_START, "stance"),
+  (0.0, "fwd"),
+  (0.4, "back"),
+  (0.5, "back_air"),
+  (0.75, "fwd_air"),
+  (0.85, "fwd_air"),
+  (1.0, "fwd"),
 )
-# Phase clock [Hz]: one push every 2.5 s.
-SKATE_PUSH_FREQUENCY: float = 0.4
+# Phase clock [Hz]: one stroke a second.
+SKATE_PUSH_FREQUENCY: float = 1.0
 # Command speed [m/s] at and above which the push plays in full. Below it the
-# reference blends linearly toward the still stance, which it is at zero.
+# reference blends linearly toward the default pose (the held layout), which
+# it is at zero.
 SKATE_PUSH_BLEND_SPEED: float = 0.05
 
 
@@ -341,14 +335,14 @@ def _smoothstep5(u: float) -> float:
 
 
 def _skate_push_table(n_samples: int) -> np.ndarray:
-  """Skate push and glide: minimum-jerk joint moves between the keyframes."""
+  """Tripod strokes: minimum-jerk joint moves between the keyframes."""
   poses = {
-    "stance": np.array(SKATE_POSE),
-    "lift": np.array(_PUSH_LIFT),
-    "reach": np.array(_PUSH_REACH),
-    "sweep": np.array(_PUSH_SWEEP),
+    "fwd": np.array(_TRIPOD_FWD),
+    "back": np.array(_TRIPOD_BACK),
+    "fwd_air": np.array(_TRIPOD_FWD_AIR),
+    "back_air": np.array(_TRIPOD_BACK_AIR),
   }
-  table = np.tile(poses["stance"], (n_samples, 1))
+  table = np.zeros((n_samples, 12))
   segments = zip(SKATE_PUSH_KEYFRAMES[:-1], SKATE_PUSH_KEYFRAMES[1:], strict=True)
   for (start, a), (end, b) in segments:
     for i in range(n_samples):
