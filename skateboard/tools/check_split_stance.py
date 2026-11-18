@@ -18,7 +18,8 @@ the last prints, the board has not moved, both left feet were on the deck and
 both right feet on the floor at least 95% of the time, and the deck roll ends
 under 0.05 rad. The last print's roll and base z are the new SKATE_SPLIT_ROLL
 and SKATE_SPLIT_HEIGHT. The last lines give each left foot's distance to both
-deck edges and each right foot's position.
+deck edges (the traced outline at that foot's x) and each right foot's
+position.
 """
 
 import argparse
@@ -29,6 +30,7 @@ import torch
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
   SkateboardParams,
+  deck_half_width_at,
   get_skateboard_cfg,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
@@ -128,8 +130,8 @@ for step in range(steps):
       f"base {base}  board {deck}  deck roll {board_entity.data.joint_pos[0, 0]:.3f}"
     )
 
-# Feet in the board's frame: y is the distance from the deck's centre line.
-half_width = params.deck_width / 2
+# Feet in the board's frame: y is the distance from the deck's centre line, and
+# the deck's half-width is the outline's at the foot's x.
 board_pos = board_entity.data.root_link_pos_w[0]
 board_quat = board_entity.data.root_link_quat_w[0]
 for leg in ("front_l", "back_l", "front_r", "back_r"):
@@ -138,6 +140,7 @@ for leg in ("front_l", "back_l", "front_r", "back_r"):
   foot_b = quat_apply_inverse(board_quat, foot_w - board_pos)
   if leg.endswith("_l"):
     y = float(foot_b[1])
+    half_width = deck_half_width_at(float(foot_b[0]), params)
     print(
       f"{leg}: {y:+.4f} m from the centre line, "
       f"{half_width - y:.4f} m to the left edge, {half_width + y:.4f} m to the right"

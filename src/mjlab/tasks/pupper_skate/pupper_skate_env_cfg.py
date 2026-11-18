@@ -25,6 +25,7 @@ import dataclasses
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
   DECK_ROLL_JOINT_NAME,
+  LEGACY_BOX_PARAMS,
   WHEEL_GEOM_NAMES,
   SkateboardParams,
   get_skateboard_cfg,
@@ -233,7 +234,7 @@ def pupper_skate_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   ##
   robot = cfg.scene.entities["robot"]
   robot.init_state = dataclasses.replace(SKATE_KEYFRAME)
-  board = get_skateboard_cfg()
+  board = get_skateboard_cfg(LEGACY_BOX_PARAMS)
   board.init_state = dataclasses.replace(
     board.init_state,
     pos=(SKATE_BOARD_OFFSET[0], SKATE_BOARD_OFFSET[1], SkateboardParams().wheel_radius),

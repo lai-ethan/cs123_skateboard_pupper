@@ -17,6 +17,7 @@ from rsl_rl.modules import MLP, EmpiricalNormalization
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
   DECK_GEOM_NAME,
   DECK_ROLL_JOINT_NAME,
+  LEGACY_BOX_PARAMS,
   SkateboardParams,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
@@ -113,7 +114,7 @@ def test_skate_pose_puts_all_four_feet_over_the_deck(stance):
   feet = [_foot_in_base(model, data, leg) for leg in legs]
   # Each foot centre is at least 1 cm in from the deck's edge, so spawn noise
   # does not drop a foot off it.
-  half_width = SkateboardParams().deck_width / 2
+  half_width = LEGACY_BOX_PARAMS.deck_width / 2
   for leg, foot in zip(legs, feet, strict=True):
     assert abs(foot[1] - SKATE_BOARD_OFFSET[1]) <= half_width - 0.01, leg
     assert foot[2] == pytest.approx(-0.115, abs=0.005), leg
@@ -155,8 +156,9 @@ def _set_robot_pose(model, data, base, q) -> None:
 
 @pytest.mark.parametrize("row", range(3))
 def test_tripod_layout_rests_three_feet_on_the_deck_and_one_on_the_floor(row):
-  # The board centred at the origin with the deck top at the solved height.
-  p = SkateboardParams()
+  # The board centred at the origin with the deck top at the solved height, on
+  # the centred tasks' board.
+  p = LEGACY_BOX_PARAMS
   model = get_spec().compile()
   data = mujoco.MjData(model)
   foot_r = float(model.geom(f"leg_{_PUSH_LEG}_3_collision").size[0])
@@ -1026,6 +1028,19 @@ def test_nan_in_one_env_resets_only_that_env(task):
     assert torch.isfinite(reward).all() and not terminated.any()
   finally:
     env.close()
+
+
+def test_centred_tasks_ride_the_legacy_box_and_split_tasks_the_outline():
+  # The centred stance and tripod layout were solved on the 0.161 m box.
+  for make in (pupper_skate_balance_env_cfg, pupper_skate_ride_env_cfg):
+    model = make().scene.entities["board"].spec_fn().compile()
+    geom = model.geom(DECK_GEOM_NAME)
+    assert geom.type[0] == mujoco.mjtGeom.mjGEOM_BOX, make.__name__
+    assert geom.size[1] == pytest.approx(0.0805), make.__name__
+  for make in (pupper_skate_split_balance_env_cfg, pupper_skate_split_ride_env_cfg):
+    model = make().scene.entities["board"].spec_fn().compile()
+    geom = model.geom(DECK_GEOM_NAME)
+    assert geom.type[0] == mujoco.mjtGeom.mjGEOM_MESH, make.__name__
 
 
 @pytest.mark.slow

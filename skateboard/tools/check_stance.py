@@ -14,7 +14,9 @@ Holds the pose with zero actions for 5 s on a free-rolling board and prints
 the state once a second. Accept the stance if roll, pitch and height are steady
 over the last three prints and the board has not moved. SKATE_HEIGHT is the base
 height with the feet just touching the deck; the loaded legs settle about 2 cm
-below it.
+below it. The board is the centred task's legacy box; the last lines give each
+foot's distance to both edges of the real deck (the traced outline at that
+foot's x), so a negative number is a foot off the real board.
 """
 
 import argparse
@@ -23,7 +25,8 @@ import dataclasses
 import torch
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
-  SkateboardParams,
+  LEGACY_BOX_PARAMS,
+  deck_half_width_at,
   get_skateboard_cfg,
 )
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import JOINT_NAMES
@@ -31,7 +34,7 @@ from mjlab.envs import ManagerBasedRlEnv, mdp
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
-from mjlab.utils.lab_api.math import euler_xyz_from_quat
+from mjlab.utils.lab_api.math import euler_xyz_from_quat, quat_apply_inverse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--deck-height", type=float, default=None)
@@ -40,7 +43,7 @@ parser.add_argument("robot_z", type=float)
 parser.add_argument("angles", type=float, nargs=12)
 args = parser.parse_args()
 pose = dict(zip(JOINT_NAMES, args.angles, strict=True))
-params = SkateboardParams()
+params = LEGACY_BOX_PARAMS
 if args.deck_height is not None:
   params = dataclasses.replace(params, deck_top_height=args.deck_height)
 
@@ -80,4 +83,19 @@ for step in range(250):
       f"t {(step + 1) * 0.02:.0f} s  roll {roll[0]:.3f}  pitch {pitch[0]:.3f}  "
       f"base {base}  board {deck}  deck roll {board_entity.data.joint_pos[0, 0]:.3f}"
     )
+
+# Feet in the board's frame: y is the distance from the deck's centre line, and
+# the half-width is the traced outline's at the foot's x, not the box's.
+board_pos = board_entity.data.root_link_pos_w[0]
+board_quat = board_entity.data.root_link_quat_w[0]
+for leg in ("front_r", "front_l", "back_r", "back_l"):
+  site = robot_entity.find_sites((f"leg_{leg}_3_foot_site",))[0][0]
+  foot_w = robot_entity.data.site_pos_w[0, site]
+  foot_b = quat_apply_inverse(board_quat, foot_w - board_pos)
+  y = float(foot_b[1])
+  half_width = deck_half_width_at(float(foot_b[0]))
+  print(
+    f"{leg}: {y:+.4f} m from the centre line, "
+    f"{half_width - y:.4f} m to the left edge, {half_width + y:.4f} m to the right"
+  )
 env.close()
