@@ -31,6 +31,22 @@ def fix_speed(env_cfg: Any, speed: float) -> None:
   twist.rel_standing_envs = 0.0
 
 
+def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
+  """Command a fixed board yaw rate in rad/s in every env.
+
+  Also turns off the forward-only and turn-only command shares, which would
+  zero or replace the yaw rate (and lift or zero the speed) in some envs. On
+  the tasks with no yaw command (all but the steer task) a yaw rate of 0 is
+  the trained range already, and both shares are already 0, so nothing
+  changes.
+  """
+  twist = env_cfg.commands["twist"]
+  assert isinstance(twist, PupperVelocityCommandCfg)
+  twist.ranges.ang_vel_z = (yaw_rate, yaw_rate)
+  twist.rel_forward_envs = 0.0
+  twist.rel_turn_envs = 0.0
+
+
 def load_policy(
   task: str,
   policy_path: Path,
@@ -41,6 +57,7 @@ def load_policy(
   configure: Callable[[Any], None] | None = None,
   num_envs: int = 1,
   seed: int | None = None,
+  yaw_rate: float | None = None,
 ) -> tuple[ManagerBasedRlEnv, RslRlVecEnvWrapper, Callable]:
   """Play-mode envs, their rsl_rl wrapper, and `policy(obs) -> actions`.
 
@@ -48,6 +65,8 @@ def load_policy(
   (board, gains, commands) so two runs match; None draws a fresh seed.
   `speed` fixes the board speed command in m/s (ride) and turns off standing
   commands (see `fix_speed`); None keeps the task's range and standing share.
+  `yaw_rate` fixes the board yaw-rate command in rad/s (see `fix_yaw_rate`);
+  None keeps the task's yaw range.
   `render_mode` and `viewer` (attributes set on the env's viewer config) are
   only needed for rendering. `configure(env_cfg)`, if given, edits the env
   config after the edits above and before the env is built.
@@ -61,6 +80,8 @@ def load_policy(
     setattr(env_cfg.viewer, key, value)
   if speed is not None:
     fix_speed(env_cfg, speed)
+  if yaw_rate is not None:
+    fix_yaw_rate(env_cfg, yaw_rate)
   if configure is not None:
     configure(env_cfg)
   agent_cfg = load_rl_cfg(task)

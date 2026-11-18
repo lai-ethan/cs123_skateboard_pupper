@@ -8,6 +8,7 @@ interval are shared with it. Two tasks share one scene:
 * balance -- hold the split stance on a board that is free to roll.
 * ride    -- push with the floor-side legs so the board rolls at a commanded
              forward speed.
+* steer   -- the ride plus a commanded board yaw rate.
 
 The actor is the stock 48-dim zero-reference frame (IMU, joints, command, last
 action), so policies export and deploy like any gait policy. Everything about
@@ -66,6 +67,9 @@ _GROUND_FOOT_SITES = tuple(
   f"leg_{end}_{GROUND_SIDE}_3_foot_site" for end in ("front", "back")
 )
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
+
+# Steer task: board yaw-rate command range [rad/s].
+STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.3, 0.3)
 
 
 def _contact(
@@ -466,5 +470,38 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   r["torque_saturation"] = RewardTermCfg(
     func=mdp.torque_saturation, weight=-1.5, params={"limit": PUPPER_EFFORT_LIMIT}
+  )
+  return cfg
+
+
+def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
+  """The split ride plus a commanded board yaw rate: push and turn the board.
+
+  Only the yaw rate is rewarded, not how it is made (angled pushes, the deck
+  feet on the deck edge, leaning). Every other term is the ride's: none of them
+  reads a world-frame heading (forward speed is along the board's own axis,
+  board alignment is in the robot's heading frame, foot slide and the shoves
+  are the same in every direction), so they hold once the board has turned.
+  """
+  cfg = pupper_skate_split_ride_env_cfg(play=play)
+
+  # About 30% of moving envs ride straight. rel_forward_envs zeroes their yaw
+  # (and lifts their speed to at least 0.3 m/s); the standing share is drawn
+  # on its own and overrides it. rel_turn_envs stays 0: it would zero the
+  # speed and ask for 0.5 rad/s, outside this range. Heading hold stays off
+  # (set in the balance config), as in the other skate tasks.
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.ranges.ang_vel_z = STEER_YAW_RATE_RANGE
+  twist.rel_forward_envs = 0.3
+  twist.rel_turn_envs = 0.0
+  twist.heading_hold_kp = None
+
+  r = cfg.rewards
+  del r["board_yaw_rate"]
+  r["track_board_yaw_rate"] = RewardTermCfg(
+    func=mdp.track_board_yaw_rate,
+    weight=2.0,
+    params={"command_name": "twist", "std": 0.15},
   )
   return cfg

@@ -18,6 +18,7 @@ import torch
 from rsl_rl.modules import MLP, EmpiricalNormalization
 
 from mjlab.tasks.pupper.export import (
+  command_clip_from_env,
   convert_pupper_policy,
   json_forward,
   to_robot_order,
@@ -273,6 +274,7 @@ SKATE_TASKS = (
   "Mjlab-Skate-Ride-Pupper-v3",
   "Mjlab-SkateSplit-Balance-Pupper-v3",
   "Mjlab-SkateSplit-Ride-Pupper-v3",
+  "Mjlab-SkateSplit-Steer-Pupper-v3",
 )
 
 
@@ -287,6 +289,19 @@ def test_skate_exports_turn_heading_hold_off(task):
     "yaw_threshold": 0.1,
     "walk_threshold": 0.05,
   }
+
+
+@pytest.mark.parametrize("task", SKATE_TASKS)
+def test_skate_exports_clip_yaw_to_the_trained_range(task):
+  # Only the steer task trains on a yaw-rate command; the other four clip the
+  # robot's yaw command to zero, as before it existed.
+  env = SimpleNamespace(cfg=load_env_cfg(task, play=True))
+  wz = (-0.3, 0.3) if "Steer" in task else (0.0, 0.0)
+  clip = command_clip_from_env(env)
+  assert clip is not None
+  assert clip["wz"] == pytest.approx(wz)
+  assert clip["vy"] == (0.0, 0.0)
+  assert clip["vx"][0] == 0.0
 
 
 @pytest.mark.parametrize(

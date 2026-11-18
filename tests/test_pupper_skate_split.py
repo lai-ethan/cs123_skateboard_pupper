@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import torch
 from conftest import get_test_device
+from rsl_rl.modules import MLP, EmpiricalNormalization
 
 from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardParams
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
@@ -26,6 +27,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
 )
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.tasks.pupper_gait.export import export_pupper_gait_policy_from_env
 from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.mdp.rewards import stance_target
@@ -37,8 +39,10 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  STEER_YAW_RATE_RANGE,
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
+  pupper_skate_split_steer_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks, load_env_cfg
 from mjlab.utils.lab_api.math import euler_xyz_from_quat
@@ -46,6 +50,7 @@ from mjlab.utils.lab_api.math import euler_xyz_from_quat
 NUM_ENVS = 4
 SPLIT_TASKS = ("Mjlab-SkateSplit-Balance-Pupper-v3", "Mjlab-SkateSplit-Ride-Pupper-v3")
 CENTRED_TASKS = ("Mjlab-Skate-Balance-Pupper-v3", "Mjlab-Skate-Ride-Pupper-v3")
+STEER_TASK = "Mjlab-SkateSplit-Steer-Pupper-v3"
 
 ##
 # Keyframe.
@@ -735,3 +740,142 @@ def test_leaving_the_deck_ends_the_split_episode(split_env):
     env.step(actions)
     fired |= env.termination_manager.get_term("feet_off_deck")
   assert fired.all()
+
+
+##
+# The steer task: the split ride plus a board yaw-rate command.
+##
+
+
+def _fake_yaw_env(command: list[list[float]], board_yaw_rate: list[float]) -> Any:
+  """Enough of an env for track_board_yaw_rate: the board and the command."""
+  ang_vel = torch.zeros(len(board_yaw_rate), 3)
+  ang_vel[:, 2] = torch.tensor(board_yaw_rate)
+  return SimpleNamespace(
+    scene={"board": SimpleNamespace(data=SimpleNamespace(root_link_ang_vel_w=ang_vel))},
+    command_manager=SimpleNamespace(get_command=lambda name: torch.tensor(command)),
+  )
+
+
+def test_track_board_yaw_rate_peaks_at_the_command():
+  # Rows: on the command, turning the other way, not turning, half the command.
+  command = [[0.3, 0.0, 0.2]] * 4
+  env = _fake_yaw_env(command, [0.2, -0.2, 0.0, 0.1])
+  reward = mdp.track_board_yaw_rate(env, command_name="twist", std=0.15)
+  assert reward[0] == pytest.approx(1.0)
+  assert torch.all(reward[1:] < 1.0)
+  assert reward[3] == pytest.approx(math.exp(-(0.1**2) / 0.15**2))
+  assert reward[1] < reward[2] < reward[3]
+
+
+def test_steer_is_the_split_ride_plus_a_yaw_command():
+  for play in (False, True):
+    ride = pupper_skate_split_ride_env_cfg(play=play)
+    steer = pupper_skate_split_steer_env_cfg(play=play)
+    expected = _weights(ride)
+    del expected["board_yaw_rate"]
+    expected["track_board_yaw_rate"] = 2.0
+    assert _weights(steer) == pytest.approx(expected)
+    term = steer.rewards["track_board_yaw_rate"]
+    assert term.func is mdp.track_board_yaw_rate
+    assert term.params == {"command_name": "twist", "std": 0.15}
+    for name in ride.rewards:
+      if name != "board_yaw_rate":
+        assert steer.rewards[name].func is ride.rewards[name].func, name
+        assert steer.rewards[name].params == ride.rewards[name].params, name
+    assert steer.terminations.keys() == ride.terminations.keys()
+    assert steer.events.keys() == ride.events.keys()
+    assert steer.observations["critic"].terms.keys() == (
+      ride.observations["critic"].terms.keys()
+    )
+    twist = steer.commands["twist"]
+    assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+    assert STEER_YAW_RATE_RANGE == (-0.3, 0.3)
+    assert twist.ranges.ang_vel_z == STEER_YAW_RATE_RANGE
+    assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
+    assert twist.ranges.lin_vel_y == (0.0, 0.0)
+    assert twist.rel_forward_envs == 0.3 and twist.rel_turn_envs == 0.0
+    assert twist.rel_standing_envs == 0.1
+    assert twist.heading_hold_kp is None
+
+
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_balance_env_cfg,
+    pupper_skate_ride_env_cfg,
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_split_ride_env_cfg,
+  ],
+)
+def test_existing_skate_tasks_keep_a_zero_yaw_command(make_cfg):
+  for play in (False, True):
+    cfg = make_cfg(play=play)
+    twist = cfg.commands["twist"]
+    assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+    assert twist.ranges.ang_vel_z == (0.0, 0.0)
+    assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
+    assert twist.heading_hold_kp is None
+    assert "track_board_yaw_rate" not in cfg.rewards
+
+
+@pytest.mark.parametrize(
+  "make_cfg", [pupper_skate_ride_env_cfg, pupper_skate_split_ride_env_cfg]
+)
+def test_ride_tasks_keep_their_yaw_rate_penalty(make_cfg):
+  term = make_cfg().rewards["board_yaw_rate"]
+  assert term.func is mdp.board_yaw_rate_l2 and term.weight == -0.5
+
+
+def test_steer_task_is_registered():
+  assert STEER_TASK in list_tasks()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("play", [False, True])
+def test_steer_task_builds_and_steps_with_zero_actions(play):
+  cfg = load_env_cfg(STEER_TASK, play=play)
+  cfg.scene.num_envs = 4
+  cfg.seed = 0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  obs, _ = env.reset()
+  actor = obs["actor"]
+  assert isinstance(actor, torch.Tensor) and actor.shape == (4, 48 * 20)
+  for _ in range(100):  # 2 s
+    _, reward, _, _, _ = env.step(torch.zeros(4, 12, device=env.device))
+    assert torch.isfinite(reward).all()
+  command = env.command_manager.get_command("twist")
+  assert command is not None
+  lo, hi = STEER_YAW_RATE_RANGE
+  assert torch.all((command[:, 2] >= lo) & (command[:, 2] <= hi))
+  env.close()
+
+
+class _Actor(torch.nn.Module):
+  """Minimal MLPModel-like holder: has ``.mlp`` and ``.obs_normalizer``."""
+
+  def __init__(self, in_dim: int):
+    super().__init__()
+    self.mlp = MLP(in_dim, 12, (64, 64), activation="elu")
+    self.obs_normalizer = EmpiricalNormalization(in_dim)
+
+
+@pytest.mark.slow
+def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
+  cfg = load_env_cfg(STEER_TASK, play=True)
+  cfg.scene.num_envs = 1
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  policy = export_pupper_gait_policy_from_env(_Actor(48 * 20).eval(), env)
+  env.close()
+  assert policy["command_clip"] == {
+    "vx": list(RIDE_SPEED_RANGE),
+    "vy": [0.0, 0.0],
+    "wz": [-0.3, 0.3],
+  }
+  assert policy["heading_hold"] == {
+    "kp": 0.0,
+    "clip": 0.3,
+    "yaw_threshold": 0.1,
+    "walk_threshold": 0.05,
+  }
+  assert "gait_reference" in policy

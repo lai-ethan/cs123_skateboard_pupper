@@ -324,3 +324,19 @@ def test_floor_share_for_split_names_the_right_feet():
   ground[:, 1] = 1.0
   share = gr.floor_share(ground, ("FR", "BR"))
   assert share == {"FR": 0.0, "BR": 1.0}
+
+
+def test_steer_task_needs_a_positive_speed(capsys):
+  with pytest.raises(SystemExit) as exit_info:
+    gr.main(["Mjlab-SkateSplit-Steer-Pupper-v3", "model_1.pt"])
+  assert exit_info.value.code == 2
+  assert "--speed" in capsys.readouterr().err
+  assert gr.needs_speed("Mjlab-SkateSplit-Ride-Pupper-v3")
+  assert not gr.needs_speed("Mjlab-SkateSplit-Balance-Pupper-v3")
+
+
+def test_yaw_rate_ratio_compares_the_board_to_the_command():
+  mean, ratio = gr.yaw_rate_ratio(np.full((50, 4), 0.1), 0.2)
+  assert mean == pytest.approx(0.1) and ratio == pytest.approx(0.5)
+  mean, ratio = gr.yaw_rate_ratio(np.array([-0.3, -0.1]), -0.2)
+  assert mean == pytest.approx(-0.2) and ratio == pytest.approx(1.0)

@@ -6,7 +6,7 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/gait_report.py \\
     Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt \\
     --speed 0.4 [--envs 16] [--seed 0] [--deck-height 0.103] [--steps 500] \\
-    [--skip 100]
+    [--skip 100] [--yaw-rate 0.2]
 
 Rolls out `--envs` environments at once, built from `--seed`, so two runs
 give the same answer. Each env draws its own board (deck height, truck
@@ -31,6 +31,11 @@ left feet stay on the deck; the task ends the episode if they leave it.
 A ride task needs a positive `--speed`. Without one (balance), the speed
 share is reported as 1.0 and passes. Any episode reset in any env in the
 measured steps fails the gait: a policy that falls is not a passing gait.
+`--yaw-rate` commands a board yaw rate in rad/s (steer task, default 0, the
+only yaw rate the other tasks trained on). When it is not 0 the report also
+prints the board's mean yaw rate and its ratio to the command; that line is
+not part of the verdict. The steer task needs a positive `--speed`, like a
+ride.
 The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
 """
 
@@ -146,6 +151,21 @@ def gait_verdict(
   return rows
 
 
+def needs_speed(task: str) -> bool:
+  """True for the tasks that command a board speed (ride and steer)."""
+  return "Ride" in task or "Steer" in task
+
+
+def yaw_rate_ratio(board_yaw_rate: np.ndarray, command: float) -> tuple[float, float]:
+  """The board's mean yaw rate in rad/s and its ratio to a non-zero `command`.
+
+  `board_yaw_rate` holds the board's yaw rate about world z, any shape (all
+  steps of all envs); the ratio is 1.0 when the board turns at the command.
+  """
+  mean = float(np.mean(board_yaw_rate))
+  return mean, mean / command
+
+
 def deck_offset(deck_height: float, nominal: float) -> float:
   """The deck height event's offset in m for a deck top `deck_height` m up."""
   return deck_height - nominal
@@ -163,10 +183,13 @@ def main(argv: list[str] | None = None) -> int:
   )
   parser.add_argument("--steps", type=int, default=500, help="50 per second")
   parser.add_argument("--skip", type=int, default=100, help="settling steps")
+  parser.add_argument(
+    "--yaw-rate", type=float, default=0.0, help="board yaw-rate command, rad/s"
+  )
   args = parser.parse_args(argv)
   if args.steps <= args.skip:
     parser.error(f"--steps ({args.steps}) must be greater than --skip ({args.skip})")
-  if "Ride" in args.task and not (args.speed is not None and args.speed > 0):
+  if needs_speed(args.task) and not (args.speed is not None and args.speed > 0):
     parser.error("a ride task needs a positive --speed, for example --speed 0.4")
   if args.envs < 1:
     parser.error(f"--envs ({args.envs}) must be at least 1")
@@ -199,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
     num_envs=args.envs,
     seed=args.seed,
     configure=configure,
+    yaw_rate=args.yaw_rate,
   )
   robot = raw.scene["robot"]
   deck_feet = raw.scene["deck_feet_contact"]
@@ -208,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
   obs = obs[0] if isinstance(obs, tuple) else obs
   # Each list gets one [envs, ...] array per measured step.
   joint_vel, torque, deck, ground, board_speed = [], [], [], [], []
+  board_yaw_rate = []
   resets = np.zeros(args.envs, dtype=int)
   with torch.no_grad():
     for step in range(args.steps):
@@ -221,6 +246,8 @@ def main(argv: list[str] | None = None) -> int:
       ground.append((ground_feet.data.found > 0).float().cpu().numpy())
       # Same frame as the ride reward track_board_velocity: the board's own axis.
       board_speed.append(board.data.root_link_lin_vel_b[:, 0].cpu().numpy())
+      # Same quantity as the steer reward track_board_yaw_rate.
+      board_yaw_rate.append(board.data.root_link_ang_vel_w[:, 2].cpu().numpy())
 
   split = is_split(args.task)
   joint_vel_a, torque_a = np.stack(joint_vel), np.stack(torque)
@@ -247,6 +274,12 @@ def main(argv: list[str] | None = None) -> int:
   )
   if not args.speed:
     print("no speed command: board_speed_ratio is reported as 1.0")
+  if args.yaw_rate:
+    mean_yaw, ratio = yaw_rate_ratio(np.stack(board_yaw_rate), args.yaw_rate)
+    print(
+      f"board yaw rate (not part of the verdict): mean {mean_yaw:.3f} rad/s over"
+      f" all envs, {ratio:.2f} of the commanded {args.yaw_rate}"
+    )
   fastest = int(np.argmax([m["max_joint_speed"] for m in per_env]))
   print(
     "largest joint speed (not part of the verdict): "

@@ -136,6 +136,25 @@ def track_board_velocity(
   return torch.exp(-torch.square(error) / std**2)
 
 
+def track_board_yaw_rate(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the board turning at the commanded yaw rate (steer task).
+
+  exp(-(cmd_wz - board_wz)^2 / std^2), with ``cmd_wz`` the command's yaw rate
+  (dim 2) and ``board_wz`` the board's yaw rate about world z, the quantity
+  ``board_yaw_rate_l2`` penalizes. How the board is made to turn is left open.
+  """
+  board: Entity = env.scene[board_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  error = command[:, 2] - board.data.root_link_ang_vel_w[:, 2]
+  return torch.exp(-torch.square(error) / std**2)
+
+
 def board_progress(
   env: ManagerBasedRlEnv,
   command_name: str,

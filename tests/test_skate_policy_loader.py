@@ -30,3 +30,26 @@ def test_fix_speed_pins_the_command_and_turns_off_standing():
   pl.fix_speed(cfg, 0.4)
   assert twist.ranges.lin_vel_x == (0.4, 0.4)
   assert twist.rel_standing_envs == 0.0
+
+
+def test_fix_yaw_rate_pins_the_yaw_command_on_the_steer_task():
+  cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, PupperVelocityCommandCfg)
+  assert twist.rel_forward_envs > 0.0
+  pl.fix_yaw_rate(cfg, 0.2)
+  assert twist.ranges.ang_vel_z == (0.2, 0.2)
+  assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
+
+
+def test_zero_yaw_rate_leaves_the_other_skate_commands_alone():
+  for task in (
+    "Mjlab-Skate-Balance-Pupper-v3",
+    "Mjlab-Skate-Ride-Pupper-v3",
+    "Mjlab-SkateSplit-Balance-Pupper-v3",
+    "Mjlab-SkateSplit-Ride-Pupper-v3",
+  ):
+    cfg = load_env_cfg(task, play=True)
+    before = repr(cfg.commands["twist"])
+    pl.fix_yaw_rate(cfg, 0.0)
+    assert repr(cfg.commands["twist"]) == before, task
