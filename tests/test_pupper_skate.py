@@ -1668,8 +1668,9 @@ def test_push_reference_charges_only_its_swing_brush(push_reference_pay):
   # foot brushing the floor for 0.14 to 0.24 s in the forward swing (the 4 cm
   # lift does not clear it), about 2.2 a cycle, and the short first stroke,
   # about 0.8. Measured: 61% of the stroke pay at 103 mm, 64% at 93 mm and 68%
-  # at 113 mm (bound set to the 103 mm figure rounded up to the next 5%). The
-  # policy is expected to lift clear instead.
+  # at 113 mm. The bound is the 103 mm figure (61%) rounded up to the next 5%;
+  # this test plays the 103 mm deck only, so the higher 93 and 113 mm shares
+  # are not checked. The policy is expected to lift clear instead.
   result = push_reference_pay
   after_stroke = [c for t, c in result["landings"] if t >= TRIPOD_STROKE_S]
   assert len(after_stroke) >= 2 * 2, result
