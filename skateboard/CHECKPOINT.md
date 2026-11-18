@@ -1,57 +1,68 @@
-# Checkpoint summary: Monday Nov 16
+# Checkpoint summary: Tuesday Nov 17 (updated Nov 18)
 
-Both skateboard policies are trained in simulation and saved to W&B. Nothing has run on the real robot yet.
+Pupper v3 on a mini cruiser (deck top 103 mm), two stances, each with a balance
+and a ride policy. Everything below is simulation only. Nothing has run on the
+robot. Demo Day is Dec 3.
 
-Balance is the only robot candidate. The ride policy passes the curve check but fails the gait check: its legs move too fast and its motors sit at the torque limit. Ride will be retrained with reshaped rewards before it goes near the robot. That retrain has not run yet.
+## What works
 
-## What is done
+Each policy below prints `GAIT: PASS` on the 103 mm deck. Limits: peak joint
+speed at most 12 rad/s, saturated at most 5% of the time, min foot duty at
+least 0.4, stride rate at most 2 Hz, board speed 0.5 to 1.5 times the command,
+no resets.
 
-| Policy | W&B run | Sim result |
-| --- | --- | --- |
-| Balance (with shoves and deck-height randomization) | `ethanlai-stanford-university/mjlab/2ace1uqa` | PASS: episode length 500 of 500, feet on deck 2.00 of 2 |
-| Balance (no shoves, backup) | `ethanlai-stanford-university/mjlab/2zxd46yi` | PASS |
-| Ride (push the board at 0 to 0.5 m/s) | `ethanlai-stanford-university/mjlab/29p4j81t` | Curves PASS: episode length 487 of 500, speed tracking 2.38 of 3 (need 2.0), feet on deck 1.87 of 2. Gait FAIL: not for the robot |
+| Policy | Run | Policy file | Video |
+| --- | --- | --- | --- |
+| Centred balance | `zdctdcyf` | `policies/balance_zdctdcyf_policy.json` | `media/balance_zdctdcyf.mp4` |
+| Split balance | `gt60lfo0` | `policies/split_balance_gt60lfo0_policy.json` | `media/split_balance_gt60lfo0.mp4` |
+| Split ride v4 | `iznjwbka` | `policies/split_ride_iznjwbka_policy.json` | `media/split_ride_iznjwbka_0.3ms.mp4` |
 
-- Board model, split stance (left feet on deck, right feet on floor), both tasks, tests and the Colab notebook are in this repo.
-- Default reward weights passed the curve check for both tasks. For ride, that check missed the gait.
-- Each run has a `policy.json` in its W&B Files. Only the balance ones are for the robot.
-- Gait check (`skateboard/tools/gait_report.py`): balance prints `GAIT: PASS`; ride at 0.4 m/s prints `GAIT: FAIL` (99th-percentile joint speed 24 to 26 rad/s against a limit of 8, a motor at the torque limit in almost every step, and the right feet stepping more than 2 times per second). The numbers change between runs because the play env is unseeded. Single rows can flip; the overall verdict has not.
-- The ride rewards were reshaped for the motors (PLAN Task 16). Ride needs a fresh 1500-iteration run with them; see PLAN Task 11.
-- The ride run is the full 1500 iterations (Colab Pro T4, 55 min). An earlier ride run, `me6p0pdw`, stopped at iteration ~1120; use `29p4j81t`.
-- Sim videos of both policies are in `skateboard/media/`; the policy files are in `skateboard/policies/`. To replay them, see step 4 of `skateboard/README.md`.
+- Centred balance: peak joint speed 2.63 rad/s, no saturation, min foot duty
+  0.99, no resets.
+- Split balance: peak joint speed 0.58 rad/s, right feet on the floor 100% of
+  the time, no resets.
+- Split ride v4: passes at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`.
+- Heading hold is off in all skate exports (kp 0).
 
-## What to do Monday
+## What does not work
 
-0. **Measure the deck height before powering on.** The saved balance policy was trained for 8.5 to 11.5 cm (floor to top of deck). Outside that, do not run it; retrain first. Training now covers 7 to 13 cm, so the next balance run will handle a wider range.
-1. **Show a TA the sim result and get a sign-off.** Balance first. No skate policy runs on the robot without it.
-2. **Wedge or tape the wheels** so the board cannot roll on the first try.
-3. **Deploy balance** on the robot over SSH:
-   ```bash
-   cd ~/pupper_gait_deploy
-   ./deploy.sh ethanlai-stanford-university/mjlab/2ace1uqa
-   ```
-4. **First run:** one person holds the robot by the handle in the stance on the board, another starts the policy with the kill switch in hand. Let go only if it holds still for 5 s.
-5. **If it shakes:** retrain with `action_rate_l2` at -0.05 and `KP_MULTIPLIER_RANGE` widened to `(0.5, 1.2)` (PLAN Task 12).
-6. **If balance holds:** unwedge the wheels and repeat. Do not deploy ride (`29p4j81t`). Ride goes on the robot only after a retrained run prints both `RESULT: PASS` and `GAIT: PASS`, at the lowest speed.
-7. **Measure the board** (deck height, wheelbase, width, mass) and send the numbers. The sim uses estimates; see README step 1.
+- **Centred ride passes all but one limit.** It is now a tripod ride: three
+  feet on the deck, the back right foot pushing on the floor. The sixth run,
+  `7fyt12i1`, rides at 0.1, 0.2 and 0.3 m/s with no resets, joint speed under
+  7 rad/s, no saturation and at most 1.5 strides per second. It fails
+  `min_foot_duty`: the push foot is on the floor 20% of the time (limit 40%),
+  because it pushes briefly and then glides.
+  Video: `media/centred_ride_v9_7fyt12i1.mp4`. Provisional policy:
+  `policies/centred_ride_7fyt12i1_max0.3_policy.json`.
+- Earlier centred ride runs stood still (`vrn7pp8n`, `2kmu10gl`), lay on the
+  deck (`xtbenpi4`), skittered (`9c33unfu`) or took one stride too many
+  (`zvx4xc24`). The history is in `SIM2REAL.md`.
+- **Steering.** The steer run `jl7i4id0` does not turn the board. In sim the
+  robot is too light to tilt the deck far enough (`SIM2REAL.md`, "Steering").
+- Centred balance has little sideways room: it fails 7 of 21 stance audit rows
+  (board 2 cm off-centre, shoves, soft trucks). Place it within about 1 cm.
+- The 12 rad/s joint speed limit is an estimate (motor spec is about 30 rad/s
+  with no load), not a measurement.
 
-## Known gaps
+## What is next
 
-- The robot-side deploy (`pupper_gait_deploy`) has never been run with a skate policy. Not checked in sim: torso touching the deck, and truck steering direction against the real board.
+1. Ethan decides on the centred ride: test `7fyt12i1` as it is (last, hand
+   held), or train a seventh run that pays the push foot for time on the
+   floor.
+2. Get Ethan's OK and a TA sign-off for the first hardware session.
+3. Run the session from [`HARDWARE_TEST.md`](HARDWARE_TEST.md): board tilt
+   (test 0), split balance, centred balance, split ride at 0.2 then 0.3 m/s.
+4. Measure truck stiffness and wheel drag (still guesses).
 
-- The joint speed limit the gait check enforces (8 rad/s) is a first guess, not a measured motor limit. The ride reward's speed penalty starts at 75% of it (6 rad/s), so the best-paid gait stays inside the check.
-- Board dimensions in sim are estimates. Deck height is randomized ±3 cm to cover the error (the saved policies were trained with ±1.5 cm).
-- To retrain: open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, paste your own W&B key, Run all. About 55 min for 1500 iterations on a T4, about 9 min on a G4. Never commit a key.
-- `Metrics/twist/error_vel_xy` in W&B is not a tracking error; it grows with episode length. Read `Episode_Reward/track_board_velocity` instead.
+## What changed from the Nov 17 version
 
-## What changed from v1
-
-- Ride was retrained for the full 1500 iterations (run `29p4j81t`, Mon Nov 16, 13:01 CST) and has a real `RESULT: PASS`. It replaces the stopgap policy from iteration 1100 of `me6p0pdw`.
-- The notebook's section 4 now lists every reward weight, so tuning is a one-number edit.
-- Later on Mon Nov 16 the ride gait was checked and fails: it is not robot-ready. The ride rewards were reshaped and the notebook gained a gait check. Ride is no longer next in line for the robot; it will be retrained first.
+- Centred ride: tripod design, five more runs, `7fyt12i1` exported as a
+  provisional candidate.
+- Added the steering result and the tilt test.
 
 ## Accounting
 
-- Skipped: nothing on the robot; `/code-review` (not available in this setup).
-- Assumed: sim board dimensions (estimates until measured).
-- Issues: reward weights are the first guess and untested on hardware; expect to tune them after the first robot runs. The reshaped ride rewards have not been trained yet.
+- Skipped: anything on the robot; a stance audit for the ride policies.
+- Assumed: the 12 rad/s joint speed limit; truck stiffness 30 N·m/rad.
+- Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); the robot-side loader has not run
+  a skate policy.

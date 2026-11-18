@@ -25,33 +25,39 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 | Tests | `tests/test_pupper_skate.py`, `tests/test_pupper_skate_split.py`, `tests/test_pupper_skateboard.py` |
 | Stance helper scripts, video renderer, pass check, gait report | [`tools/`](tools/) |
 | Sim2real: stance margins, what sim cannot show, steps before the first real run | [`SIM2REAL.md`](SIM2REAL.md) |
+| First hardware session test sheet | [`HARDWARE_TEST.md`](HARDWARE_TEST.md) |
 | Trained policies, sim videos | [`policies/`](policies/), [`media/`](media/) |
 
 ## Status
 
-As of 2026-11-17. Nothing has run on the robot.
+As of 2026-11-18. Nothing has run on the robot.
 
 | Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | First candidate |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
-| Split ride | `3qmtsv4o` | pass | fail, one line | not run | Not yet (close) |
-| Centred ride | `cy8f55bg` | fail | fail | not run | No |
+| Split ride v4 | `iznjwbka` | pass | pass at 0.2, 0.3, 0.4 m/s | not run | Third, after both balance tests |
+| Centred ride (tripod) | `7fyt12i1` | pass | fail on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 
-- Done: board model on the measured board, both stances, four tasks, tests, notebook, both balance policies.
+- Done: board model on the measured board, both stances, five tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
-- Ride is not ready in either stance. Split ride `3qmtsv4o` (PLAN Task 30 rewards) rides at the commanded speed with no falls and fails one gait line: peak joint speed 9.2 rad/s against a guessed limit of 8. The centred ride policy falls onto the deck and the board barely moves. The centred ride task now targets the stock deck with a clocked push reference (PLAN Task 32) and has not been trained since.
-- Not done: a ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md).
+- Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passes the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`. Policy: `policies/split_ride_iznjwbka_policy.json`.
+- Centred ride is a tripod ride now: three feet on the deck, the back right foot pushing on the floor. Run `7fyt12i1` rides at 0.1 to 0.3 m/s with no resets and passes every gait limit but one: the push foot is on the floor 20% of the time (limit 40%). Provisional policy: `policies/centred_ride_7fyt12i1_max0.3_policy.json`. Video: `media/centred_ride_v9_7fyt12i1.mp4`. The run history is in [`SIM2REAL.md`](SIM2REAL.md).
+- Steering: the steer run `jl7i4id0` does not turn the board. In sim the robot is too light to tilt the deck far enough. Measure the real trucks first ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), test 0).
+- Heading hold is off in all skate exports (kp 0).
+- Not done: a centred ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md); the test sheet is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
-Four tasks are registered:
+Five tasks are registered:
 
 - `Mjlab-Skate-Balance-Pupper-v3`: hold the centred stance on a board that is free to roll.
   - Both balance tasks penalize any motor above half its torque limit (`torque_saturation`). The first centred balance run, `k4kci0oj`, passed the curve check while it held its legs on the joint stops at full torque, which a real motor cannot keep up.
-- `Mjlab-Skate-Ride-Pupper-v3`: push with the back right foot so the board rolls at a commanded speed (0 to 0.4 m/s), on the stock deck (9.3 to 11.3 cm). The actor's reference slot plays `skate_push` from `gait_reference.py`, a 2.5 s cycle (0.4 Hz): the foot steps out over the deck edge, down to the floor ahead of its stance spot, sweeps 10 cm back, steps back on, and all four feet glide for the last 29% of the cycle. The full cycle plays at 0.05 m/s or more and fades to the still stance at zero command. The reference is solved for the 103 mm deck; the lowered trucks would need a new table. `reference_tracking` (weight 1.0, std 0.3) replaces `stance_pose`; the critic also sees the reference and the clock phase. `foot_reach` (1.0, std 8 cm) and `push_stroke` (3.0) still pay for reaching and pushing while the board is too slow, `board_progress` (4.0) pays the share of the commanded speed reached, `track_board_velocity` (3.0, std 0.10) pays almost nothing for standing at a speed command, and a fall costs -20 rather than balance's -100. With these weights the push reference played open loop at 0.3 m/s, falls included, earns 5.38 per step against 4.06 for standing still (PLAN Task 33); the first run of this task, with -100 and weights near 1, learned to stand. The deck pays for three feet at most, one foot may stay off it (two off past 1.5 s ends the episode), `tilt` is looser (std 0.5), the fall limit is 0.6 rad, and action rate (-0.05), action and joint acceleration (-0.02, -1e-6) and joint speed over 6 rad/s (-0.1) keep the motion smooth (PLAN Task 32). Played open loop, the reference pushes the board but the robot falls at the end of each push, so the policy has to supply the balance.
+- `Mjlab-Skate-Ride-Pupper-v3`: the tripod ride. Three feet stay on the deck and the back right foot pushes on the floor so the board rolls at a commanded speed (0.1 to 0.3 m/s), on the stock deck (9.3 to 11.3 cm). Every episode starts in the tripod layout with the push foot already on the floor, so it never steps on or off the deck. The actor's reference slot plays the `skate_push` stroke from `gait_reference.py` at 0.8 Hz. `push_stroke` (3.0) and `foot_reach` (1.0) pay only the back right foot, and only while the other three are on the deck; `board_progress` (4.0) and `track_board_velocity` pay for the commanded speed; `short_stride` (-3.0) charges every push that ends before 0.75 s, so quick taps lose reward; `torque_saturation` (-1.0) charges motors near their limit. The episode ends if the body drops toward the deck (`base_near_deck`) or a support foot is off the deck for more than 0.3 s (`support_feet_off_deck`). Earlier designs had the foot step off the deck each stroke; none learned it (history in [`SIM2REAL.md`](SIM2REAL.md)). Export with `--clip-vx "(0.0, 0.3)"`.
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
 - `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet, each stance as long as a 10 cm stroke takes at the command (0.25 to 0.5 s). `action_rate_l2`, `action_acc`, `joint_acc` and `swing_height` charge for snaps at lift-off and touchdown and for swings higher than 3 cm, and the joint speed penalty starts at 5 rad/s (PLAN Task 31).
 
-The reward tables for all four are in section 4 of the notebook.
+- `Mjlab-SkateSplit-Steer-Pupper-v3`: the split ride plus a commanded board turn rate of up to 0.15 rad/s. `track_board_yaw_rate` pays for the board's turn rate. No run of it turns the board yet.
+
+The reward tables are in section 4 of the notebook.
 
 ## How to start
 
@@ -133,7 +139,8 @@ when a run fails is in Tasks 9 and 11 of the plan.
 ### 4. Replay the trained policies (laptop)
 
 Saved policies are in [`policies/`](policies/), so no W&B login is needed. The
-current ones are `split_balance_gt60lfo0_*` and `balance_zdctdcyf_*` (centred).
+current ones are `split_balance_gt60lfo0_*`, `balance_zdctdcyf_*` (centred) and
+`split_ride_iznjwbka_*` (split ride v4).
 `balance_2ace1uqa_*` and `ride_29p4j81t_*` are from the first split stance on a
 guessed board; the commands below use them only to show the tools. From the repo
 root:
