@@ -107,6 +107,13 @@ RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.01, 0.01)
 PUSH_FOOT_ID: int = 2
 SUPPORT_FOOT_IDS: tuple[int, ...] = (0, 1, 3)
 
+# Centred ride: the floor contact [s] a push stroke needs to pay in full, and
+# under which a landing is charged as a tap. Played open loop on decks 9.3 to
+# 11.3 cm, the stroke reference holds the push foot on the floor 0.86 to
+# 0.92 s a cycle on the nominal robot; with randomization on, a few strokes on
+# the 11.3 cm deck last 0.64 to 0.74 s and most 0.76 s or more.
+TRIPOD_STROKE_S: float = 0.75
+
 # Centred ride: the least height [m] of the base above that env's deck top, a
 # backstop under the knees_on_deck termination. The tripod layout is solved at
 # 0.087 to 0.098 m and settles about 1 cm lower under load; held still with
@@ -540,8 +547,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # the deck. A fall costs less here, tracking the speed needs the board
   # within about 0.1 m/s of the command, and progress, reaching and pushing
   # pay more. Played open loop at 0.3 m/s on decks 9.3 to 11.3 cm with
-  # randomization on, falls included, the stroke reference earns 8.0 per
-  # second against 5.2 for holding the tripod layout still (1.54 times).
+  # randomization on, falls included, the stroke reference earns 6.9 per
+  # second against 5.1 for holding the tripod layout still (1.34 times).
   r["termination"].weight = -20.0
   # The deck pays for the three support feet, and the body may tilt and the
   # board shift a little while the push foot strokes. Tilt and board position
@@ -588,7 +595,9 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # at 0.8 of the command, so parking the foot on the floor just under that
   # speed earns less than rolling at the command.
   # push_stroke pays the push itself: once per stroke as the push foot leaves
-  # the floor, in full for a stroke of 0.25 s or more.
+  # the floor, in full for a stroke of 0.75 s or more and in proportion below.
+  # The stroke reference keeps the push foot on the floor longer than that
+  # (TRIPOD_STROKE_S), so it is paid in full.
   r["foot_reach"] = RewardTermCfg(
     func=mdp.foot_reach,
     weight=1.0,
@@ -610,7 +619,7 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     weight=3.0,
     params={
       "sensor_name": "ground_feet_contact",
-      "stroke_s": 0.25,
+      "stroke_s": TRIPOD_STROKE_S,
       "command_name": "twist",
       "command_threshold": 0.1,
       "speed_fraction": 1.0,
@@ -618,6 +627,19 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "support_sensor": "deck_feet_contact",
       "support_grace_s": 0.1,
     },
+  )
+  # short_stride charges each push-foot landing whose last floor contact was
+  # short, 1.5 * (1 - min(contact / 0.75 s, 1)), at any command (run 9c33unfu
+  # skittered at 7 landings a second). With push_stroke, a 0.11 s tap nets
+  # 3 * 0.11 / 0.75 - 1.5 * (1 - 0.11 / 0.75) = 0.44 - 1.28 = -0.84, a full
+  # 0.75 s stroke nets +3.0, and contacts under 0.25 s lose. The stroke
+  # reference's foot brushes the floor for about 0.2 s in its forward swing,
+  # which costs it about 1.1 a cycle; lifting clear avoids it. Only the push
+  # foot reaches the floor, so the floor sensor needs no foot filter.
+  r["short_stride"] = RewardTermCfg(
+    func=mdp.short_stride,
+    weight=-1.5,
+    params={"sensor_name": "ground_feet_contact", "stance_s": TRIPOD_STROKE_S},
   )
   # A push foot that lands still swinging forward brakes the board. Only the
   # push foot touches the floor, so feet_slide on the floor sensor charges its
@@ -638,7 +660,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # 6 rad/s, half the gait check's 12. The stroke reference's push-leg swing
   # goes well over it, so the policy is charged for copying it at full speed.
   # Action rate is five times the balance weight, and action and joint
-  # acceleration are charged as in the split ride, for smooth strokes.
+  # acceleration are charged as in the split ride, for smooth strokes. Motors
+  # past 0.8 of their torque limit cost 1.0 per motor at the limit.
   r["action_rate_l2"].weight = -0.05
   r["action_acc"] = RewardTermCfg(func=mdp.action_acc_l2, weight=-0.02)
   r["joint_acc"] = RewardTermCfg(
@@ -653,6 +676,6 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     params={"limit": 6.0},
   )
   r["torque_saturation"] = RewardTermCfg(
-    func=mdp.torque_saturation, weight=-0.5, params={"limit": PUPPER_EFFORT_LIMIT}
+    func=mdp.torque_saturation, weight=-1.0, params={"limit": PUPPER_EFFORT_LIMIT}
   )
   return cfg

@@ -356,7 +356,8 @@ CENTRED_BALANCE_WEIGHTS = {
   "torque_saturation": -1.0,
 }
 
-# The tripod ride (task 38) dropped knees_on_deck and added feet_slide.
+# The tripod ride (task 38) dropped knees_on_deck and added feet_slide; task 39
+# charges push-foot taps and doubles the torque penalty.
 CENTRED_RIDE_WEIGHTS = {
   "feet_on_deck": 0.5,
   "tilt": 1.0,
@@ -370,13 +371,14 @@ CENTRED_RIDE_WEIGHTS = {
   "board_yaw_rate": -0.5,
   "foot_reach": 1.0,
   "push_stroke": 3.0,
+  "short_stride": -1.5,
   "feet_slide": -2.0,
   "board_progress": 4.0,
   "action_acc": -0.02,
   "joint_acc": -1e-6,
   "joint_vel_l2": -1e-3,
   "joint_speed_limit": -0.1,
-  "torque_saturation": -0.5,
+  "torque_saturation": -1.0,
 }
 
 
@@ -501,7 +503,7 @@ def test_balance_penalizes_torque_above_half_the_limit(make_cfg):
 
 @pytest.mark.parametrize(
   "make_cfg, weight",
-  [(pupper_skate_ride_env_cfg, -0.5), (pupper_skate_split_ride_env_cfg, -1.5)],
+  [(pupper_skate_ride_env_cfg, -1.0), (pupper_skate_split_ride_env_cfg, -1.5)],
 )
 def test_ride_keeps_its_own_torque_penalty(make_cfg, weight):
   term = make_cfg().rewards["torque_saturation"]
@@ -526,12 +528,13 @@ def test_centred_cfgs_are_unchanged():
     pupper_skate_ride_env_cfg,
   ],
 )
-def test_only_split_ride_charges_taps_sliding_and_idle_feet(make_cfg):
+def test_only_the_rides_charge_taps_and_sliding_feet(make_cfg):
   rewards = make_cfg().rewards
-  assert "short_stride" not in rewards
   assert "push_foot_idle" not in rewards
-  # The tripod ride charges its push foot sliding on the floor; balance does not.
+  # The tripod ride charges its push foot's taps and sliding on the floor;
+  # balance does neither.
   if make_cfg is not pupper_skate_ride_env_cfg:
+    assert "short_stride" not in rewards
     assert "feet_slide" not in rewards
 
 

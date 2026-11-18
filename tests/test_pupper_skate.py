@@ -64,6 +64,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   SUPPORT_FOOT_IDS,
   SUPPORT_OFF_DECK_S,
   TRIPOD_COUNTED_KNEES,
+  TRIPOD_STROKE_S,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
@@ -1339,6 +1340,107 @@ def test_ride_cfg_gates_both_push_terms():
   assert set(_NEW_RIDE_TERMS) <= set(terms)
 
 
+_SPLIT_SHORT_STRIDE: dict[str, Any] = {
+  "sensor_name": "ground_feet_contact",
+  "stroke_m": 0.10,
+  "stance_range": (0.25, 0.5),
+  "command_name": "twist",
+}
+
+
+def test_tripod_ride_charges_push_foot_taps():
+  for play in (False, True):
+    r = pupper_skate_ride_env_cfg(play=play).rewards
+    assert TRIPOD_STROKE_S == 0.75
+    assert r["push_stroke"].params["stroke_s"] == TRIPOD_STROKE_S
+    assert r["push_stroke"].weight == 3.0
+    short = r["short_stride"]
+    assert short.func is mdp.short_stride
+    assert short.weight == -1.5
+    assert short.params == {
+      "sensor_name": "ground_feet_contact",
+      "stance_s": TRIPOD_STROKE_S,
+    }
+    assert r["torque_saturation"].weight == -1.0
+  # The other skate tasks keep theirs: the split tasks charge taps against a
+  # per-command stance and pay strides, balance does neither.
+  for make_cfg in (pupper_skate_split_ride_env_cfg, pupper_skate_split_steer_env_cfg):
+    for play in (False, True):
+      r = make_cfg(play=play).rewards
+      assert "push_stroke" not in r
+      assert r["short_stride"].weight == -0.3
+      assert r["short_stride"].params == _SPLIT_SHORT_STRIDE
+  for make_cfg in (pupper_skate_balance_env_cfg, pupper_skate_split_balance_env_cfg):
+    for play in (False, True):
+      r = make_cfg(play=play).rewards
+      assert "push_stroke" not in r and "short_stride" not in r
+
+
+def _push_foot_pay(contact: list[bool], step_dt: float = 0.01) -> dict[str, float]:
+  """push_stroke and short_stride, as the centred ride weights them, summed over
+  a push-foot floor contact pattern (one entry per step).
+
+  The floor sensor's air and contact clocks are stepped as the contact sensor
+  does, which counts the lift-off step into the contact. The other three feet
+  stay on the deck and off the floor, the command is 0.3 m/s and the board is
+  at rest, so every stroke passes the gates.
+  """
+  r = pupper_skate_ride_env_cfg().rewards
+  timers = {
+    k: torch.zeros(1, 4)
+    for k in (
+      "current_air_time",
+      "last_air_time",
+      "current_contact_time",
+      "last_contact_time",
+    )
+  }
+  timers["current_air_time"][:] = 1.0  # All feet start in the air.
+  env = _fake_env(
+    ground_feet_contact=timers,
+    deck_feet_contact={"current_air_time": torch.zeros(1, 4)},
+  )
+  env.step_dt = step_dt
+  _with_command(env, 0.3, [0.0])
+  sums = {"push_stroke": 0.0, "short_stride": 0.0}
+  for down in contact:
+    is_contact = torch.zeros(1, 4, dtype=torch.bool)
+    is_contact[0, PUSH_FOOT_ID] = down
+    air, con = timers["current_air_time"], timers["current_contact_time"]
+    landed, lifted = (air > 0) & is_contact, (con > 0) & ~is_contact
+    timers["last_air_time"][:] = torch.where(
+      landed, air + step_dt, timers["last_air_time"]
+    )
+    timers["last_contact_time"][:] = torch.where(
+      lifted, con + step_dt, timers["last_contact_time"]
+    )
+    air[:] = torch.where(is_contact, 0.0, air + step_dt)
+    con[:] = torch.where(is_contact, con + step_dt, 0.0)
+    for name in sums:
+      term = r[name]
+      raw = term.func(env, **term.params)
+      sums[name] += float(raw.sum()) * term.weight * step_dt
+  return sums
+
+
+def test_push_foot_taps_lose_and_a_full_stroke_pays():
+  # Run 9c33unfu's skitter: 0.11 s on the floor, 0.03 s up, 7 taps a second,
+  # for 2 s. Each tap earns 3 * 0.11 / 0.75 = 0.44 and the landing after it
+  # costs 1.5 * (1 - 0.11 / 0.75) = 1.28; the first landing has no stance
+  # before it and costs nothing.
+  tap = [True] * 10 + [False] * 4
+  pay = _push_foot_pay([False] * 3 + tap * 14)
+  assert pay["push_stroke"] == pytest.approx(14 * 0.44, rel=1e-3)
+  net = pay["push_stroke"] + pay["short_stride"]
+  assert net == pytest.approx(14 * 0.44 - 13 * 1.28, rel=1e-2)
+  assert net < -10.0
+  # One stroke of stroke_s, a 0.3 s swing and the next landing: +3.
+  stroke = [False] * 3 + [True] * 74 + [False] * 30 + [True] * 5
+  pay = _push_foot_pay(stroke)
+  assert pay["push_stroke"] == pytest.approx(3.0, rel=1e-3)
+  assert pay["short_stride"] == pytest.approx(0.0, abs=1e-6)
+
+
 @pytest.mark.parametrize(
   "make_cfg",
   [
@@ -1426,8 +1528,10 @@ def play_push_reference(
   Command 0.3 m/s, deck top pinned at ``deck_top``, the board at rest on
   reset. With ``nominal`` the startup randomization and the reset's placement
   noise are off. Returns how far each env's board rolled forward [m], the
-  number of env-steps any termination fired on, and the number of push_stroke
-  pays.
+  number of env-steps any termination fired on, the number of push_stroke
+  pays, push_stroke's and short_stride's weighted sums over all envs, and
+  the push foot's floor contact time [s] at each of its lift-offs (in step
+  order, all envs).
   """
   cfg = pupper_skate_ride_env_cfg(play=True)
   cfg.scene.num_envs = num_envs
@@ -1454,11 +1558,16 @@ def play_push_reference(
     action_term = env.action_manager.get_term("joint_pos")
     assert isinstance(action_term, BaseAction)
     robot, board = env.scene["robot"], env.scene["board"]
-    stroke_idx = env.reward_manager.active_terms.index("push_stroke")
+    terms = env.reward_manager.active_terms
+    stroke_idx = terms.index("push_stroke")
+    short_idx = terms.index("short_stride")
+    ground_sensor = env.scene["ground_feet_contact"]
     env.reset()
     start = board.data.root_link_pos_w[:, :2].clone()
     heading = board.data.heading_w.clone()
     stops = pays = 0
+    stroke_pay = short_charge = 0.0
+    strokes: list[float] = []
     with torch.no_grad():
       for _ in range(int(round(seconds / env.step_dt))):
         command = env.command_manager.get_command("twist")
@@ -1480,12 +1589,26 @@ def play_push_reference(
         action = (reference - action_term.offset) / action_term.scale
         _, _, terminated, truncated, _ = env.step(action)
         stops += int((terminated | truncated).sum())
-        pays += int((env.reward_manager._step_reward[:, stroke_idx] > 0).sum())
+        step_reward = env.reward_manager._step_reward * env.step_dt
+        pays += int((step_reward[:, stroke_idx] > 0).sum())
+        stroke_pay += float(step_reward[:, stroke_idx].sum())
+        short_charge += float(step_reward[:, short_idx].sum())
+        ground = ground_sensor.data
+        air = ground.current_air_time[:, PUSH_FOOT_ID]
+        lifted = (air > 0.0) & (air < env.step_dt + 1.0e-6)
+        strokes += ground.last_contact_time[lifted, PUSH_FOOT_ID].tolist()
     moved = board.data.root_link_pos_w[:, :2] - start
     forward = moved[:, 0] * torch.cos(heading) + moved[:, 1] * torch.sin(heading)
   finally:
     env.close()
-  return {"forward": forward.cpu().tolist(), "stops": stops, "stroke_pays": pays}
+  return {
+    "forward": forward.cpu().tolist(),
+    "stops": stops,
+    "stroke_pays": pays,
+    "stroke_pay": stroke_pay,
+    "short_charge": short_charge,
+    "strokes": strokes,
+  }
 
 
 @pytest.mark.slow
@@ -1499,6 +1622,42 @@ def test_push_reference_rolls_the_board_forward():
   assert result["stops"] == 0, result
   assert min(result["forward"]) >= 0.05, result
   assert result["stroke_pays"] > 0, result
+
+
+@pytest.fixture(scope="module")
+def push_reference_pay() -> dict[str, Any]:
+  """Three cycles of the stroke reference, nominal robot, 103 mm deck."""
+  seconds = 3.0 / gr.SKATE_PUSH_FREQUENCY
+  return play_push_reference(0.103, num_envs=2, seconds=seconds, nominal=True)
+
+
+@pytest.mark.slow
+def test_push_reference_strokes_earn_full_pay(push_reference_pay):
+  # Each cycle's planted stroke (0.86 to 0.92 s on the floor) lasts past
+  # stroke_s and earns push_stroke in full. The first stroke after the reset
+  # has no set-down before its sweep and is shorter (0.55 s).
+  result = push_reference_pay
+  assert result["stops"] == 0, result
+  planted = [t for t in result["strokes"] if t >= 0.4]
+  assert len(planted) >= 2 * 3, result
+  assert sum(t >= TRIPOD_STROKE_S for t in planted) >= 2 * 2, result
+  assert result["stroke_pay"] >= 3.0 * 2 * 2, result
+
+
+@pytest.mark.slow
+@pytest.mark.xfail(
+  strict=True,
+  reason=(
+    "The reference's push foot brushes the floor for 0.14 to 0.24 s during "
+    "the forward swing every cycle (its 4 cm lift does not clear the floor), "
+    "and short_stride charges the landing after that brush about 1.1. With "
+    "the shorter first stroke, the charge is 31% of the stroke pay on the "
+    "103 mm deck (32% at 93 mm, 34% at 113 mm). Task 39 finding."
+  ),
+)
+def test_push_reference_is_not_charged_as_taps(push_reference_pay):
+  result = push_reference_pay
+  assert -result["short_charge"] < 0.05 * result["stroke_pay"], result
 
 
 @pytest.mark.slow
