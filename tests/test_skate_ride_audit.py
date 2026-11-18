@@ -50,7 +50,12 @@ def _load_ride_audit():
 
 
 ra = _load_ride_audit()
-GOOD = {"envs_with_reset": 0, "speed_ratio_mean": 1.0, "deck_contact_worst_env": 1.0}
+GOOD = {
+  "envs_with_reset": 0,
+  "resets_before_skip": 0,
+  "speed_ratio_mean": 1.0,
+  "deck_contact_worst_env": 1.0,
+}
 
 
 def test_rows_are_the_sixteen_in_order():
@@ -68,6 +73,7 @@ def test_ride_limits():
     "min_speed_ratio": 0.7,
     "max_speed_ratio": 1.3,
     "min_deck_contact": 0.9,
+    "max_early_resets": 0,
   }
 
 
@@ -93,6 +99,13 @@ def test_verdict_at_each_limit():
   assert ra.row_verdict({**GOOD, "envs_with_reset": 2}, 32)
 
 
+def test_any_reset_before_the_metrics_start_fails():
+  # A fall at step 50 resets before the measured window; the env then rides
+  # cleanly, so only resets_before_skip shows it.
+  assert not ra.row_verdict({**GOOD, "resets_before_skip": 1}, 16)
+  assert not ra.row_verdict({**GOOD, "resets_before_skip": 1}, 64)
+
+
 def test_split_ride_feet_come_from_its_sensors():
   sides = ra.foot_sides(load_env_cfg(SPLIT_RIDE, play=True))
   assert sides.deck == ("leg_front_l_3_collision", "leg_back_l_3_collision")
@@ -111,9 +124,14 @@ def test_tripod_ride_has_three_deck_feet_and_one_floor_foot():
   assert sides.deck_slots == (0, 1, 3)
 
 
+BOARD_POSE_ROWS = ("board_y_+2cm", "board_y_-2cm", "board_yaw_0.15")
+
+
 def test_every_row_configures_the_split_and_tripod_rides():
   for task in (SPLIT_RIDE, TRIPOD_RIDE):
     for name, row in ra.ROWS.items():
+      if task == TRIPOD_RIDE and name in BOARD_POSE_ROWS:
+        continue  # n/a there, see the tripod test below
       cfg = load_env_cfg(task, play=True)
       ra.configure_row(cfg, row, ra.foot_sides(cfg))
       if row.kind == "deck_grip":
@@ -124,6 +142,22 @@ def test_every_row_configures_the_split_and_tripod_rides():
         events = list(cfg.events)
         draws = [i for i, n in enumerate(events) if n.endswith("foot_friction")]
         assert draws and events.index("audit_deck_grip") > max(draws)
+
+
+def test_board_pose_rows_are_not_applicable_on_the_tripod_ride():
+  # The tripod reset places the robot on the board after reset_board, so a
+  # board pose offset moves the robot too and the row would pass vacuously.
+  cfg = load_env_cfg(TRIPOD_RIDE, play=True)
+  assert ra.TRIPOD_RESET_EVENT in cfg.events
+  assert list(cfg.events).index(ra.TRIPOD_RESET_EVENT) > list(cfg.events).index(
+    "reset_board"
+  )
+  for name in BOARD_POSE_ROWS:
+    cfg = load_env_cfg(TRIPOD_RIDE, play=True)
+    with pytest.raises(ra.NotApplicable, match="reset_tripod"):
+      ra.configure_row(cfg, ra.ROWS[name], ra.foot_sides(cfg))
+  # The split ride has no tripod reset, so the rows apply there.
+  assert ra.TRIPOD_RESET_EVENT not in load_env_cfg(SPLIT_RIDE, play=True).events
 
 
 def test_board_yaw_adds_to_the_task_noise():
@@ -168,3 +202,22 @@ def test_nominal_row_smoke(tmp_path):
   numbers += metrics["deck_contact_mean"] + metrics["deck_contact_min_env"]
   assert numbers and all(math.isfinite(v) for v in numbers)
   assert 0.0 <= metrics["deck_contact_worst_env"] <= 1.0
+
+
+def test_table_row_shows_early_resets():
+  m = {
+    **GOOD,
+    "resets_total": 0,
+    "terminations": {},
+    "resets_before_skip": 2,
+    "terminations_before_skip": {"fell_over": 2},
+    "deck_contact_mean": [1.0, 1.0],
+    "deck_contact_min_env": [1.0, 1.0],
+    "speed_ratio_min_env": 1.0,
+    "speed_ratio_max_env": 1.0,
+    "lateral_offset_min": 0.1,
+    "lateral_offset_max": 0.2,
+    "heading_drift_max": 0.1,
+    "heading_drift_mean": 0.05,
+  }
+  assert "early 2 (fell_over:2)" in ra._fmt(m)

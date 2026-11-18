@@ -7,7 +7,8 @@ PASS/FAIL row per condition. Every row keeps the task's play-mode
 randomization (training DR ranges, reset noise, observation noise, latency)
 and overrides one thing. A row passes when at most 6.25% of the envs reset
 (1 of 16), the board's mean speed is 0.7 to 1.3 times the command, and every
-deck foot touches the deck at least 90% of the time in the worst env. It
+deck foot touches the deck at least 90% of the time in the worst env. Any
+reset in the first 100 steps (before the metrics start) fails the row. It
 trains nothing and changes no task.
 
 Which feet are deck-side and floor-side comes from the task's contact sensors:
@@ -84,7 +85,11 @@ RIDE_LIMITS: dict[str, float] = {
   "min_speed_ratio": 0.7,
   "max_speed_ratio": 1.3,
   "min_deck_contact": 0.9,  # worst env, least-planted deck foot
+  "max_early_resets": 0,  # resets before step SKIP, all envs together
 }
+# The tripod ride's reset event: it runs after reset_board and places the
+# robot on the board's pose and heading, so a board pose offset moves both.
+TRIPOD_RESET_EVENT = "reset_tripod"
 
 
 class NotApplicable(Exception):
@@ -101,6 +106,7 @@ def row_verdict(metrics: dict[str, Any], num_envs: int) -> bool:
   """True when a row's metrics meet every entry of RIDE_LIMITS."""
   return (
     metrics["envs_with_reset"] <= max_resets(num_envs)
+    and metrics["resets_before_skip"] <= RIDE_LIMITS["max_early_resets"]
     and RIDE_LIMITS["min_speed_ratio"]
     <= metrics["speed_ratio_mean"]
     <= RIDE_LIMITS["max_speed_ratio"]
@@ -215,6 +221,11 @@ def configure_row(env_cfg: Any, row: Row, sides: FootSides) -> None:
     _foot_grip(env_cfg, "audit_deck_grip", sides.deck, row.value)
   elif row.kind == "floor_grip":
     _foot_grip(env_cfg, "audit_floor_grip", sides.floor, row.value)
+  elif row.kind in ("board_y", "board_yaw") and TRIPOD_RESET_EVENT in events:
+    raise NotApplicable(
+      f"{TRIPOD_RESET_EVENT} places the robot on the board after reset_board, "
+      "so the board pose offset moves the robot with it"
+    )
   elif row.kind == "board_y":
     term = _event(events, "reset_board", "pose_range")
     term.params["pose_range"] = {
@@ -327,6 +338,7 @@ def run_row(
   sign[1::2] = -1.0
   shove_axis = {"shove_x": 0, "shove_y": 1}.get(row.kind)
   early_resets = 0
+  early_terms = {name: 0 for name in terms.active_terms}
   done_l, deck_l, speed_l, lat_l, dyaw_l = [], [], [], [], []
   heading = board.data.heading_w.cpu().numpy()
   with torch.no_grad():
@@ -340,13 +352,15 @@ def run_row(
       new_heading = board.data.heading_w.cpu().numpy()
       dyaw = _wrap(new_heading - heading)
       heading = new_heading
+      if d.any():
+        # Resets before SKIP are counted apart: they fail the row on their own.
+        counts = early_terms if step < SKIP else term_counts
+        mask = torch.as_tensor(d, device=raw.device)
+        for name in counts:
+          counts[name] += int(terms.get_term(name)[mask].sum().item())
       if step < SKIP:
         early_resets += int(d.sum())
         continue
-      if d.any():
-        mask = torch.as_tensor(d, device=raw.device)
-        for name in term_counts:
-          term_counts[name] += int(terms.get_term(name)[mask].sum().item())
       found_deck = deck_sensor.data.found[:, list(sides.deck_slots)]
       rel = board.data.root_link_pos_w - robot.data.root_link_pos_w
       rel_b = quat_apply_inverse(yaw_quat(robot.data.root_link_quat_w), rel)
@@ -366,12 +380,16 @@ def run_row(
   )
   metrics["terminations"] = {k: v for k, v in term_counts.items() if v}
   metrics["resets_before_skip"] = early_resets
+  metrics["terminations_before_skip"] = {k: v for k, v in early_terms.items() if v}
   metrics["deck_feet"] = list(sides.deck)
   return metrics
 
 
 def _fmt(m: dict[str, Any]) -> str:
   terms = ",".join(f"{k}:{v}" for k, v in m["terminations"].items()) or "-"
+  if m["resets_before_skip"]:
+    early = ",".join(f"{k}:{v}" for k, v in m["terminations_before_skip"].items())
+    terms += f" early {m['resets_before_skip']} ({early})"
   deck = "/".join(
     f"{a:.3f}({b:.2f})"
     for a, b in zip(m["deck_contact_mean"], m["deck_contact_min_env"], strict=True)
@@ -416,7 +434,8 @@ def main(argv: list[str] | None = None) -> int:
     f"envs: {args.num_envs}  seed: {args.seed}  measured after step {SKIP}; "
     f"limits {RIDE_LIMITS} (at most {max_resets(args.num_envs)} envs reset)"
   )
-  print("columns: envs reset/total resets, deck foot contact mean(worst env),")
+  print("columns: envs reset/total resets (after step 100; any earlier reset")
+  print("  fails the row and is listed as early), deck foot contact mean(worst env),")
   print("  speed ratio mean [min env, max env], board lateral offset over the")
   print("  last 2 s (env min..max), board heading drift max (mean)")
   results: dict[str, Any] = {}
