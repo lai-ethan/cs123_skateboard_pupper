@@ -5,6 +5,9 @@ from pathlib import Path
 
 import pytest
 
+import mjlab.tasks  # noqa: F401  (registers the tasks)
+from mjlab.tasks.registry import load_env_cfg
+
 REPO = Path(__file__).parent.parent
 SQUARE = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]
 OVERRIDE_KEYS = {
@@ -131,3 +134,18 @@ def test_split_rule_is_left_feet_on_deck_90_percent():
   good = {"resets": 0, "min_deck_contact": 0.92, "max_torque_use": 0.2, "margin": 0.06}
   assert sa.condition_verdict(good)
   assert not sa.condition_verdict({**good, "min_deck_contact": 0.85})
+
+
+def test_deck_grip_sets_the_deck_feet_not_the_deck():
+  # Feet have geom priority 1, so only the feet's own friction reaches a foot
+  # contact. The mu row must set the deck feet and leave the deck geom alone.
+  cfg = load_env_cfg("Mjlab-SkateSplit-Balance-Pupper-v3", play=True)
+  sa._configure(cfg, {**sa.OVERRIDE_DEFAULTS, **sa.CONDITIONS["deck_mu_0.3"]})
+  grip = cfg.events["deck_feet_friction"].params
+  assert grip["ranges"] == (0.3, 0.3)
+  assert grip["asset_cfg"].geom_names == r"^leg_(front|back)_l_3_collision$"
+  assert cfg.events["foot_friction"].params["ranges"] == (1.0, 1.0)
+  deck = sa.DECK_FRICTION
+  assert cfg.events["deck_friction"].params["ranges"] == (deck, deck)
+  events = list(cfg.events)
+  assert events.index("deck_feet_friction") > events.index("foot_friction")

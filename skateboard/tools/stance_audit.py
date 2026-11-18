@@ -41,6 +41,9 @@ DEFAULT_TASK = "Mjlab-Skate-Balance-Pupper-v3"
 DEFAULT_POLICY = Path("skateboard/policies/balance_2ace1uqa_policy.json")
 STEPS, SKIP, KICK_STEP = 500, 100, 200
 WHEEL_FRICTION = 0.85
+# The deck geom's own friction. Feet have geom priority 1, so a foot contact
+# takes the foot's friction and this value only reaches the knees and body.
+DECK_FRICTION = 0.9
 # Row key -> foot site, in the contact sensors' order (FR, FL, BR, BL).
 LIFT_FEET = {
   "lift_fr": "leg_front_r_3_foot_site",
@@ -64,7 +67,7 @@ def lift_feet(task: str) -> dict[str, str]:
 OVERRIDE_DEFAULTS: dict[str, float] = {
   "deck": 0.0,  # added to the deck height
   "truck": 1.0,  # truck stiffness scale
-  "mu": 0.9,  # deck friction
+  "mu": 1.0,  # friction of the feet on the deck
   "kp": 1.0,  # position gain scale
   "effort": 3.0,  # actuator effort limit, N m
   "board_x": 0.0,  # board reset pose offsets
@@ -173,7 +176,7 @@ def _configure(env_cfg: Any, o: dict[str, float]) -> None:
   # Board.
   _pin(events, "deck_height", "ranges", (o["deck"], o["deck"]))
   _pin(events, "truck_stiffness", "ranges", (o["truck"], o["truck"]))
-  _pin(events, "deck_friction", "ranges", (o["mu"], o["mu"]))
+  _pin(events, "deck_friction", "ranges", (DECK_FRICTION, DECK_FRICTION))
   _pin(events, "wheel_friction", "ranges", (WHEEL_FRICTION, WHEEL_FRICTION))
   _pin(events, "board_inertial", "alpha_range", (0.0, 0.0))
   _pin(
@@ -230,6 +233,20 @@ def _configure(env_cfg: Any, o: dict[str, float]) -> None:
   unknown = set(events) - pinned - set(UNPINNED_EVENTS)
   if unknown:
     raise KeyError(f"events {sorted(unknown)} are not pinned by the stance audit")
+  # Deck grip: the friction of the feet that stand on the deck (the deck
+  # sensor's geoms). Added after foot_friction, so it overrides it for them.
+  deck_sensor = next(s for s in env_cfg.scene.sensors if s.name == "deck_feet_contact")
+  events["deck_feet_friction"] = dataclasses.replace(
+    events["foot_friction"],
+    params={
+      **events["foot_friction"].params,
+      "asset_cfg": dataclasses.replace(
+        events["foot_friction"].params["asset_cfg"],
+        geom_names=deck_sensor.primary.pattern,
+      ),
+      "ranges": (o["mu"], o["mu"]),
+    },
+  )
   robot = env_cfg.scene.entities["robot"]
   articulation = robot.articulation
   actuator = dataclasses.replace(
