@@ -30,4 +30,8 @@ from .rewards import (  # noqa: F401
   track_board_velocity,
   track_board_yaw_rate,
 )
-from .terminations import contact_lost  # noqa: F401
+from .terminations import (  # noqa: F401
+  base_near_deck,
+  contact_held,
+  contact_lost,
+)

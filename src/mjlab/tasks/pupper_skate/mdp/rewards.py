@@ -367,6 +367,9 @@ def push_stroke(
   command_threshold: float,
   speed_fraction: float,
   board_cfg: SceneEntityCfg = _BOARD,
+  foot_ids: tuple[int, ...] | None = None,
+  support_sensor: str | None = None,
+  support_grace_s: float = 0.1,
 ) -> torch.Tensor:
   """Reward planted pushes against the floor, paid once as the foot lifts off.
 
@@ -376,13 +379,24 @@ def push_stroke(
   ``command_threshold`` m/s of commanded speed, and only while the board's
   forward speed is under ``speed_fraction`` of the command, so tapping on a
   board that already rolls fast enough earns nothing.
+
+  With ``foot_ids`` only strokes by those feet (sensor order) count. With
+  ``support_sensor`` it pays only while every other foot is down on that
+  sensor, where a foot out of contact for under ``support_grace_s`` still
+  counts as down (``_support_down``), so one step of contact flicker does not
+  lose a stroke. Unset, any foot's stroke pays, in any posture.
   """
   sensor: ContactSensor = env.scene[sensor_name]
   air_time, stroke_time = sensor.data.current_air_time, sensor.data.last_contact_time
   assert air_time is not None and stroke_time is not None
+  if foot_ids is not None:
+    air_time = air_time[:, list(foot_ids)]
+    stroke_time = stroke_time[:, list(foot_ids)]
   lifted = (air_time > 0.0) & (air_time < env.step_dt + 1.0e-6)
   score = torch.clamp(stroke_time / stroke_s, max=1.0)
   reward = torch.sum(score * lifted.float(), dim=1) / env.step_dt
+  if support_sensor is not None:
+    reward = reward * _support_down(env, support_sensor, foot_ids, support_grace_s)
   return reward * _needs_push(
     env, command_name, command_threshold, speed_fraction, board_cfg
   )
@@ -398,6 +412,9 @@ def foot_reach(
   foot_cfg: SceneEntityCfg,
   board_cfg: SceneEntityCfg = _BOARD,
   continuous_gate: bool = False,
+  foot_ids: tuple[int, ...] | None = None,
+  support_sensor: str | None = None,
+  support_grace_s: float = 0.1,
 ) -> torch.Tensor:
   """Reward the lowest foot getting close to the floor, exp(-clearance / std).
 
@@ -412,11 +429,19 @@ def foot_reach(
   by clamp(1 - board_vx / (speed_fraction * cmd_vx), 0, 1), so it is full at
   rest and gone by ``speed_fraction`` of the command. A foot parked on the
   floor then cannot out-earn rolling at the commanded speed.
+
+  With ``foot_ids`` (indices into ``foot_cfg``'s sites) only those feet count
+  as the lowest foot. With ``support_sensor`` it pays only while every other
+  foot is down on that sensor, as in ``push_stroke``.
   """
   robot: Entity = env.scene[foot_cfg.name]
   foot_z = robot.data.site_pos_w[:, foot_cfg.site_ids, 2]
+  if foot_ids is not None:
+    foot_z = foot_z[:, list(foot_ids)]
   clearance = torch.clamp(torch.min(foot_z, dim=1).values - foot_radius, min=0.0)
   reward = torch.exp(-clearance / std)
+  if support_sensor is not None:
+    reward = reward * _support_down(env, support_sensor, foot_ids, support_grace_s)
   if continuous_gate:
     return reward * _push_share_missing(
       env, command_name, command_threshold, speed_fraction, board_cfg
@@ -424,6 +449,26 @@ def foot_reach(
   return reward * _needs_push(
     env, command_name, command_threshold, speed_fraction, board_cfg
   )
+
+
+def _support_down(
+  env: ManagerBasedRlEnv,
+  sensor_name: str,
+  foot_ids: tuple[int, ...] | None,
+  grace_s: float,
+) -> torch.Tensor:
+  """1.0 where every foot of the sensor outside ``foot_ids`` is down.
+
+  A foot is down while its air time is under ``grace_s`` (zero in contact), so
+  a brief loss of contact still counts. The sensor must track air time.
+  """
+  sensor: ContactSensor = env.scene[sensor_name]
+  air_time = sensor.data.current_air_time
+  assert air_time is not None
+  support = torch.ones(air_time.shape[1], dtype=torch.bool, device=air_time.device)
+  if foot_ids is not None:
+    support[list(foot_ids)] = False
+  return (air_time[:, support] < grace_s).all(dim=1).float()
 
 
 def _needs_push(

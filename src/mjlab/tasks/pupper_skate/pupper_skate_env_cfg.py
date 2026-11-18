@@ -86,6 +86,26 @@ PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 # a foot on the floor from there; the lowered trucks would need a new table.
 RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.01, 0.01)
 
+# The centred ride's push foot: back right, the foot the skate_push reference
+# steps down, as an index into the foot sensors (FR, FL, BR, BL order).
+PUSH_FOOT_ID: int = 2
+SUPPORT_FOOT_IDS: tuple[int, ...] = (0, 1, 3)
+
+# Centred ride: the least height [m] of the base above that env's deck top, a
+# backstop under the knees_on_deck termination. The push reference crouches to
+# 0.091 m with the deck feet just touching (solved over the skate_push table),
+# about 0.073 m once the loaded legs give their 1.8 cm (the stance settles from
+# 0.135 to 0.117 m in sim). The limit is 0.75 of that crouch. The robot has no
+# body collision geom: lying on the deck rests the knee spheres on it, about
+# 0.074 m under the base, which knees_on_deck catches.
+BASE_NEAR_DECK_MIN: float = 0.055
+
+# Centred ride: seconds two knees may touch the deck together, and seconds a
+# support foot may be off it, before the episode ends. At 0.2 s the open-loop
+# push reference still tripped the knee rule on level steps; 0.4 s does not.
+KNEES_ON_DECK_S: float = 0.4
+SUPPORT_OFF_DECK_S: float = 0.5
+
 
 # The balance tasks penalize motors above this share of their torque limit
 # (1.5 N*m). Standing with zero actions peaks near 0.5 N*m; run k4kci0oj instead
@@ -358,7 +378,8 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   The actor's reference slot plays a clocked push and glide (``skate_push`` in
   ``gait_reference``) on the stock deck: step out, reach the floor ahead of the
-  stance spot, sweep back, step back on, then glide on four feet.
+  stance spot, sweep back, step back on, then glide on four feet. The body
+  must stay up and the other three feet on the deck, or the episode ends.
   """
   cfg = pupper_skate_balance_env_cfg(play=play)
 
@@ -369,10 +390,49 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # The board is meant to roll here: no shoving it.
   cfg.events.pop("nudge_board", None)
   cfg.events["deck_height"].params["ranges"] = RIDE_DECK_HEIGHT_RANGE
-  # A push takes a foot off the deck for about a second. One foot may stay off
-  # for good: the episode ends only when two have been off past the grace.
+  # A push takes the back right foot off the deck for about a second. Only that
+  # foot may leave: any of the other three off the deck for more than 0.5 s
+  # ends the episode. feet_off_deck still ends it once two feet have been off
+  # past 1.5 s, which bounds how long the push foot stays away.
   cfg.terminations["feet_off_deck"].params["grace_s"] = 1.5
   cfg.terminations["feet_off_deck"].params["min_lost"] = 2
+  cfg.terminations["support_feet_off_deck"] = TerminationTermCfg(
+    func=mdp.contact_lost,
+    params={
+      "sensor_name": "deck_feet_contact",
+      "grace_s": SUPPORT_OFF_DECK_S,
+      "foot_ids": SUPPORT_FOOT_IDS,
+    },
+  )
+  # The body stays up: lying on the deck and paddling with the legs ends the
+  # episode. Lying down rests several knees on the deck at once, so two or more
+  # knees on it together for more than 0.4 s end the episode. The push
+  # reference touches one knee at a time (the push knee at the deck edge, the
+  # front left under the lean), which this allows. The knee sensor is rebuilt here to time its contacts; the reward
+  # that counts knees reads it as before. base_near_deck is the backstop for a
+  # body low over the deck with the knees off it. base_too_low (0.08 m above
+  # the floor) is under the deck top, so it cannot catch either.
+  cfg.scene.sensors = tuple(
+    _contact("knees_on_deck", _KNEES, on_deck=True, track_air_time=True)
+    if sensor.name == "knees_on_deck"
+    else sensor
+    for sensor in cfg.scene.sensors or ()
+  )
+  cfg.terminations["knees_on_deck"] = TerminationTermCfg(
+    func=mdp.contact_held,
+    params={
+      "sensor_name": "knees_on_deck",
+      "max_contact_s": KNEES_ON_DECK_S,
+      "min_count": 2,
+    },
+  )
+  cfg.terminations["base_near_deck"] = TerminationTermCfg(
+    func=mdp.base_near_deck,
+    params={
+      "minimum_height": BASE_NEAR_DECK_MIN,
+      "deck_cfg": SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,)),
+    },
+  )
   # The push leans the body 17 degrees; 0.6 rad (34) leaves room to recover.
   cfg.terminations["fell_over"].params["limit_angle"] = 0.6
 
@@ -452,14 +512,18 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   r["board_yaw_rate"] = RewardTermCfg(func=mdp.board_yaw_rate_l2, weight=-0.5)
   # Pushing, in two steps, on top of the reference. Both pay only while a
-  # speed is commanded and the board is too slow.
-  # foot_reach leads a foot to the floor: it pays more the closer the lowest
-  # foot gets to the floor. A foot on the deck stays a deck height up and earns
+  # speed is commanded and the board is too slow, only for the push foot (back
+  # right), and only while the other three feet are on the deck: a run that
+  # paid any foot learned to lie on the deck and paddle with the other legs.
+  # A support foot off the deck for under 0.1 s still counts as on it, so
+  # contact flicker on the lift-off step does not lose a stroke.
+  # foot_reach leads the push foot to the floor: it pays more the closer that
+  # foot gets to the floor. On the deck it stays a deck height up and earns
   # little. Its pay fades as the board speeds up and is gone at 0.8 of the
-  # command, so parking a foot on the floor just under that speed earns less
+  # command, so parking the foot on the floor just under that speed earns less
   # than rolling at the command.
-  # push_stroke pays the push itself: once per stroke as a foot leaves the
-  # floor, in full for a stroke of 0.25 s or more.
+  # push_stroke pays the push itself: once per stroke as the push foot leaves
+  # the floor, in full for a stroke of 0.25 s or more.
   r["foot_reach"] = RewardTermCfg(
     func=mdp.foot_reach,
     weight=1.0,
@@ -471,6 +535,9 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "speed_fraction": 0.8,
       "foot_cfg": SceneEntityCfg("robot", site_names=FOOT_SITE_NAMES),
       "continuous_gate": True,
+      "foot_ids": (PUSH_FOOT_ID,),
+      "support_sensor": "deck_feet_contact",
+      "support_grace_s": 0.1,
     },
   )
   r["push_stroke"] = RewardTermCfg(
@@ -482,6 +549,9 @@ def pupper_skate_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
       "command_name": "twist",
       "command_threshold": 0.1,
       "speed_fraction": 1.0,
+      "foot_ids": (PUSH_FOOT_ID,),
+      "support_sensor": "deck_feet_contact",
+      "support_grace_s": 0.1,
     },
   )
   # Keep the motion inside what the motors can do. The sim actuator limits

@@ -32,6 +32,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   get_spec,
 )
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.envs.mdp.actions.actions import BaseAction
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.tasks.pupper_gait.export import (
   export_pupper_gait_policy_from_env,
@@ -39,22 +40,33 @@ from mjlab.tasks.pupper_gait.export import (
   reference_offset_numpy,
 )
 from mjlab.tasks.pupper_gait.mdp import gait_reference as gr
-from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import pupper_velocity_fs_env_cfg
+from mjlab.tasks.pupper_gait.mdp.gait import reference_offset_from_tables
+from mjlab.tasks.pupper_gait.pupper_gait_env_cfg import (
+  GAIT_GALLOP_SPEED,
+  GAIT_N_SAMPLES,
+  pupper_velocity_fs_env_cfg,
+)
 from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
+  BASE_NEAR_DECK_MIN,
   CENTRED_RIDE_SPEED_RANGE,
   DECK_HEIGHT_RANGE,
   JOINT_SPEED_LIMIT,
+  KNEES_ON_DECK_S,
+  PUSH_FOOT_ID,
   PUSH_INTERVAL_S,
   RIDE_DECK_HEIGHT_RANGE,
   RIDE_SPEED_RANGE,
+  SUPPORT_FOOT_IDS,
+  SUPPORT_OFF_DECK_S,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
+  pupper_skate_split_steer_env_cfg,
 )
 from mjlab.tasks.registry import list_tasks, load_env_cfg
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
@@ -742,6 +754,9 @@ def test_ride_task_rewards_reaching_for_the_floor():
     "command_threshold": 0.1,
     "speed_fraction": 0.8,
     "continuous_gate": True,
+    "foot_ids": (PUSH_FOOT_ID,),
+    "support_sensor": "deck_feet_contact",
+    "support_grace_s": 0.1,
   }
   assert foot_cfg.name == "robot"
   assert tuple(foot_cfg.site_names) == FOOT_SITE_NAMES
@@ -1072,3 +1087,466 @@ def test_balance_env_survives_pushes(robust_env):
     for group in ("actor", "critic"):
       values = obs[group]
       assert isinstance(values, torch.Tensor) and torch.isfinite(values).all()
+
+
+##
+# Centred ride: only a standing back-foot push pays (task 35). The last run lay
+# on the deck and paddled with the other legs.
+##
+
+_NEW_RIDE_TERMS = ("knees_on_deck", "support_feet_off_deck", "base_near_deck")
+_NEW_RIDE_KEYWORDS = ("foot_ids", "support_sensor", "support_grace_s")
+
+
+def test_support_feet_off_deck_ignores_the_push_foot():
+  term = pupper_skate_ride_env_cfg().terminations["support_feet_off_deck"]
+  assert term.func is mdp.contact_lost
+  params = term.params
+  assert params["foot_ids"] == SUPPORT_FOOT_IDS == (0, 1, 3)
+  assert params["grace_s"] == SUPPORT_OFF_DECK_S == 0.5
+  assert PUSH_FOOT_ID == 2 and PUSH_FOOT_ID not in SUPPORT_FOOT_IDS
+  # Rows: a support foot off 0.6 s, off 0.4 s, the push foot alone off 5 s,
+  # all four down.
+  env = _fake_env(
+    deck_feet_contact={
+      "current_air_time": torch.tensor(
+        [
+          [0.0, 0.6, 0.0, 0.0],
+          [0.0, 0.0, 0.0, 0.4],
+          [0.0, 0.0, 5.0, 0.0],
+          [0.0, 0.0, 0.0, 0.0],
+        ]
+      )
+    }
+  )
+  assert mdp.contact_lost(env, **params).tolist() == [True, False, False, False]
+  # Without foot_ids every foot counts, as before.
+  lost = mdp.contact_lost(env, "deck_feet_contact", grace_s=0.5)
+  assert lost.tolist() == [True, False, True, False]
+
+
+def test_knees_on_deck_ends_the_episode_after_0_2_s():
+  term = pupper_skate_ride_env_cfg().terminations["knees_on_deck"]
+  assert term.func is mdp.contact_held
+  assert term.params == {
+    "sensor_name": "knees_on_deck",
+    "max_contact_s": KNEES_ON_DECK_S,
+    "min_count": 2,
+  }
+  assert KNEES_ON_DECK_S == 0.4
+  # Rows: no knee down; one knee down 5 s; two down, one only 0.1 s; two down
+  # past the 0.4 s hold.
+  env = _fake_env(
+    knees_on_deck={
+      "current_contact_time": torch.tensor(
+        [
+          [0.0, 0.0, 0.0, 0.0],
+          [0.0, 5.0, 0.0, 0.0],
+          [0.1, 0.5, 0.0, 0.0],
+          [0.0, 0.5, 0.45, 0.0],
+        ]
+      )
+    }
+  )
+  held = mdp.contact_held(env, **term.params)
+  assert held.tolist() == [False, False, False, True]
+  # The default min_count of 1: any one knee past the hold.
+  held = mdp.contact_held(env, "knees_on_deck", max_contact_s=0.4)
+  assert held.tolist() == [False, True, True, True]
+
+
+def _deck_env(deck_top: list[float], base_z: list[float]) -> Any:
+  """Board with one deck geom whose top is ``deck_top``; robot base at ``base_z``."""
+  half = SkateboardParams().deck_thickness / 2
+  geom = torch.zeros(len(deck_top), 1, 3)
+  geom[:, 0, 2] = torch.tensor(deck_top) - half
+  base = torch.zeros(len(base_z), 3)
+  base[:, 2] = torch.tensor(base_z)
+  return _fake_env(board={"geom_pos_w": geom}, robot={"root_link_pos_w": base})
+
+
+def test_base_near_deck_follows_each_env_deck_top():
+  term = pupper_skate_ride_env_cfg().terminations["base_near_deck"]
+  assert term.func is mdp.base_near_deck
+  assert term.params["minimum_height"] == BASE_NEAR_DECK_MIN == 0.055
+  deck_cfg = SceneEntityCfg("board", geom_names=(DECK_GEOM_NAME,))
+  deck_cfg.geom_ids = [0]
+  nominal = SkateboardParams().deck_top_height
+  low, high = (nominal + d for d in RIDE_DECK_HEIGHT_RANGE)
+  # At each end of the deck range: the settled stance (0.117 m up), the loaded
+  # push crouch (0.073 m up), and the base lowered onto the deck (0.04 m up).
+  tops = [low, low, low, high, high, high]
+  heights = [0.117, 0.073, 0.04] * 2
+  env = _deck_env(tops, [t + h for t, h in zip(tops, heights, strict=True)])
+  near = mdp.base_near_deck(env, BASE_NEAR_DECK_MIN, deck_cfg)
+  assert near.tolist() == [False, False, True] * 2
+  # A fixed base height means different things over different decks.
+  env = _deck_env([low, high], [high + 0.05, high + 0.05])
+  assert mdp.base_near_deck(env, BASE_NEAR_DECK_MIN, deck_cfg).tolist() == [
+    False,
+    True,
+  ]
+
+
+def _push_env(
+  ground_air: list[list[float]],
+  stroke: list[list[float]],
+  deck_air: list[list[float]],
+  foot_z: list[list[float]],
+) -> Any:
+  """Ground and deck foot sensors and foot heights; a 0.4 m/s command, board at rest."""
+  pos = torch.zeros(len(foot_z), 4, 3)
+  pos[:, :, 2] = torch.tensor(foot_z)
+  env = _fake_env(
+    ground_feet_contact={
+      "current_air_time": torch.tensor(ground_air),
+      "last_contact_time": torch.tensor(stroke),
+    },
+    deck_feet_contact={"current_air_time": torch.tensor(deck_air)},
+    robot={"site_pos_w": pos},
+  )
+  env.step_dt = 0.02
+  return _with_command(env, 0.4, [0.0] * len(foot_z))
+
+
+_STROKE: dict[str, Any] = {
+  "sensor_name": "ground_feet_contact",
+  "stroke_s": 0.25,
+  "command_name": "twist",
+  "command_threshold": 0.1,
+  "speed_fraction": 1.0,
+}
+_REACH: dict[str, Any] = {**_FOOT_REACH, "std": 0.08, "continuous_gate": True}
+_PUSH_ONLY: dict[str, Any] = {
+  "foot_ids": (PUSH_FOOT_ID,),
+  "support_sensor": "deck_feet_contact",
+  "support_grace_s": 0.1,
+}
+
+
+def _push_rows() -> Any:
+  # Rows: the push foot lifts off after a full stroke with the support feet on
+  # the deck; a front right foot does the same with the push foot on the
+  # deck; the push foot strokes with the back left foot off the deck 0.2 s;
+  # the push foot strokes while the front left foot flickers off for one step.
+  # Feet on the floor are at z = 0.02, on the deck at 0.12.
+  up, down = 0.12, 0.02
+  return _push_env(
+    ground_air=[
+      [0.0, 0.0, 0.02, 0.0],
+      [0.02, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 0.02, 0.0],
+      [0.0, 0.0, 0.02, 0.0],
+    ],
+    stroke=[[0.0, 0.0, 0.4, 0.0], [0.4, 0.0, 0.0, 0.0]] + [[0.0, 0.0, 0.4, 0.0]] * 2,
+    deck_air=[
+      [0.0, 0.0, 1.0, 0.0],
+      [1.0, 0.0, 0.0, 0.0],
+      [0.0, 0.0, 1.0, 0.2],
+      [0.0, 0.02, 1.0, 0.0],
+    ],
+    foot_z=[
+      [up, up, down, up],
+      [down, up, up, up],
+      [up, up, down, up],
+      [up, up, down, up],
+    ],
+  )
+
+
+def test_push_stroke_pays_only_the_push_foot_with_the_support_down():
+  env = _push_rows()
+  old = mdp.push_stroke(env, **_STROKE)
+  # Unset keywords: any foot's stroke pays, in any posture.
+  assert old.tolist() == pytest.approx([50.0] * 4)
+  new = mdp.push_stroke(env, **_STROKE, **_PUSH_ONLY)
+  # A one-step flicker (0.02 s off) does not lose the stroke; 0.2 s off does.
+  assert new.tolist() == pytest.approx([50.0, 0.0, 0.0, 50.0])
+
+
+def test_foot_reach_pays_only_the_push_foot_with_the_support_down():
+  env = _push_rows()
+  old = mdp.foot_reach(env, **_REACH)
+  assert old.tolist() == pytest.approx([1.0] * 4)
+  new = mdp.foot_reach(env, **_REACH, **_PUSH_ONLY)
+  # Rows 1 and 2: a support foot is off the deck (front right on the floor, back
+  # left lifted), so nothing pays.
+  assert new.tolist() == pytest.approx([1.0, 0.0, 0.0, 1.0])
+  # With the support feet down, a push foot on the deck pays its deck height.
+  env.scene["deck_feet_contact"].data.current_air_time[1] = 0.0
+  reach = mdp.foot_reach(env, **_REACH, **_PUSH_ONLY)[1].item()
+  assert reach == pytest.approx(math.exp(-0.10 / 0.08))
+
+
+def test_unset_keywords_keep_the_old_push_terms():
+  # Same random inputs, with and without the keywords at their defaults.
+  torch.manual_seed(0)
+  rows = 32
+  ground_air = (torch.rand(rows, 4) < 0.5) * torch.rand(rows, 4) * 0.04
+  stroke = torch.rand(rows, 4) * 0.5
+  foot_z = torch.rand(rows, 4) * 0.15
+  env = _push_env(
+    ground_air.tolist(), stroke.tolist(), [[0.0] * 4] * rows, foot_z.tolist()
+  )
+  defaults = {"foot_ids": None, "support_sensor": None}
+  torch.testing.assert_close(
+    mdp.push_stroke(env, **_STROKE), mdp.push_stroke(env, **_STROKE, **defaults)
+  )
+  torch.testing.assert_close(
+    mdp.foot_reach(env, **_REACH), mdp.foot_reach(env, **_REACH, **defaults)
+  )
+  lost = mdp.contact_lost(env, "ground_feet_contact", grace_s=0.01)
+  torch.testing.assert_close(
+    lost, mdp.contact_lost(env, "ground_feet_contact", grace_s=0.01, foot_ids=None)
+  )
+
+
+def test_ride_cfg_gates_both_push_terms():
+  r = pupper_skate_ride_env_cfg().rewards
+  for name in ("push_stroke", "foot_reach"):
+    for key, value in _PUSH_ONLY.items():
+      assert r[name].params[key] == value, (name, key)
+  terms = pupper_skate_ride_env_cfg(play=True).terminations
+  assert set(_NEW_RIDE_TERMS) <= set(terms)
+
+
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_balance_env_cfg,
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_split_ride_env_cfg,
+    pupper_skate_split_steer_env_cfg,
+  ],
+)
+def test_other_skate_tasks_keep_their_rules(make_cfg):
+  for play in (False, True):
+    cfg = make_cfg(play=play)
+    for name in _NEW_RIDE_TERMS:
+      assert name not in cfg.terminations, name
+    for term in (*cfg.rewards.values(), *cfg.terminations.values()):
+      for key in _NEW_RIDE_KEYWORDS:
+        assert key not in term.params, key
+    knees = [s for s in cfg.scene.sensors or () if s.name == "knees_on_deck"]
+    assert len(knees) == 1 and not knees[0].track_air_time
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("deck_offset", RIDE_DECK_HEIGHT_RANGE)
+def test_base_near_deck_in_the_sim(deck_offset):
+  # The ride env with the deck pinned at one end of its range, a still command
+  # and zero actions: the stance holds 1 s without tripping the new rules.
+  # Then the base is held 4 cm over the deck top and base_near_deck fires.
+  cfg = pupper_skate_ride_env_cfg(play=True)
+  cfg.scene.num_envs = 2
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (deck_offset, deck_offset)
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (0.0, 0.0)
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  try:
+    env.reset()
+    actions = torch.zeros(2, 12, device=env.device)
+    for _ in range(50):
+      env.step(actions)
+      for name in _NEW_RIDE_TERMS:
+        assert not env.termination_manager.get_term(name).any(), name
+    robot = env.scene["robot"]
+    deck_top = SkateboardParams().deck_top_height + deck_offset
+    low = robot.data.default_root_state.clone()
+    low[:, :3] += env.scene.env_origins
+    low[:, 2] = deck_top + 0.04
+    robot.write_root_state_to_sim(low)
+    env.step(actions)
+    assert env.termination_manager.get_term("base_near_deck").all()
+  finally:
+    env.close()
+
+
+def play_push_reference_terminations(
+  deck_top: float,
+  num_envs: int = 8,
+  seconds: float = 6.0,
+  seed: int = 0,
+  watch: tuple[str, ...] = (),
+) -> dict[str, Any]:
+  """Play the skate_push reference open loop on the centred ride (play config).
+
+  Command 0.3 m/s, deck top pinned at ``deck_top``. Returns, per termination,
+  how many env-steps it fired in all (``total``) and how many of those came
+  with the body tilted under 0.2 rad and the episode over 0.5 s old
+  (``calm``; both read the step before, since a terminated env is reset
+  within the step). Also returns the number of push_stroke pays and the share
+  of env-steps that paid.
+
+  The terminations named in ``watch`` are taken out of the config and only
+  watched: each step they are evaluated on the state the termination manager
+  would have judged, without ending the episode, so it is visible whether a
+  fall follows. ``pre_fall`` counts their calm firings followed by a
+  ``fell_over`` in that env within 0.5 s, and ``calm_no_fall`` the rest.
+  """
+  cfg = pupper_skate_ride_env_cfg(play=True)
+  cfg.scene.num_envs = num_envs
+  cfg.seed = seed
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (0.3, 0.3)
+  twist.rel_standing_envs = 0.0
+  twist.resampling_time_range = (1e6, 1e6)
+  offset = deck_top - SkateboardParams().deck_top_height
+  cfg.events["deck_height"].params["ranges"] = (offset, offset)
+  watched = {name: cfg.terminations.pop(name) for name in watch}
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  for term in watched.values():
+    for value in term.params.values():
+      if isinstance(value, SceneEntityCfg):
+        value.resolve(env.scene)
+  window = int(round(0.5 / env.step_dt))
+  try:
+    table = torch.tensor(
+      gr.build_joint_reference_table(GAIT_N_SAMPLES, "skate_push"),
+      dtype=torch.float32,
+      device=env.device,
+    )
+    action_term = env.action_manager.get_term("joint_pos")
+    assert isinstance(action_term, BaseAction)
+    robot = env.scene["robot"]
+    names = list(env.termination_manager.active_terms)
+    total = dict.fromkeys([*names, *watched], 0)
+    calm = dict.fromkeys([*names, *watched], 0)
+    # Per watched rule, the (step, env) of each calm firing.
+    calm_at: dict[str, list[tuple[int, int]]] = {name: [] for name in watched}
+    fell, ended = [], []
+    causes: list[list[list[str]]] = []
+    stroke_idx = env.reward_manager.active_terms.index("push_stroke")
+    pays = 0
+    env.reset()
+    steps = int(round(seconds / env.step_dt))
+    with torch.no_grad():
+      for step in range(steps):
+        command = env.command_manager.get_command("twist")
+        assert command is not None
+        default = robot.data.default_joint_pos
+        reference = default + reference_offset_from_tables(
+          table,
+          table,
+          env.episode_length_buf.float() * env.step_dt,
+          command[:, 0],
+          command[:, 1],
+          command[:, 2],
+          default,
+          frequency=gr.SKATE_PUSH_FREQUENCY,
+          blend_speed=gr.SKATE_PUSH_BLEND_SPEED,
+          gallop_speed=GAIT_GALLOP_SPEED,
+          gallop_freq_mult=1.0,
+        )
+        action = (reference - action_term.offset) / action_term.scale
+        gz = robot.data.projected_gravity_b[:, 2].clamp(-1.0, 1.0)
+        level = torch.acos(-gz) < 0.2
+        settled = env.episode_length_buf * env.step_dt > 0.5
+        for name, term in watched.items():
+          fired = term.func(env, **term.params)
+          total[name] += int(fired.sum())
+          hits = fired & level & settled
+          calm[name] += int(hits.sum())
+          calm_at[name] += [(step, i) for i in hits.nonzero().flatten().tolist()]
+        _, _, terminated, truncated, _ = env.step(action)
+        fell.append(env.termination_manager.get_term("fell_over").cpu().clone())
+        causes.append(
+          [
+            [n for n in names if env.termination_manager.get_term(n)[i]]
+            for i in range(num_envs)
+          ]
+        )
+        ended.append((terminated | truncated).cpu().clone())
+        for name in names:
+          fired = env.termination_manager.get_term(name)
+          total[name] += int(fired.sum())
+          calm[name] += int((fired & level & settled).sum())
+        pays += int((env.reward_manager._step_reward[:, stroke_idx] > 0).sum())
+  finally:
+    env.close()
+  pre_fall = dict.fromkeys(watched, 0)
+  # Calm firings with no fall after them: (step, env, steps to the next reset
+  # or None if the run ended first, what ended that episode).
+  no_fall: dict[str, list[tuple[int, int, int | None, list[str]]]] = {
+    name: [] for name in watched
+  }
+  for name, hits in calm_at.items():
+    for step, i in hits:
+      # The first reset in the window, if any, must be a fall.
+      for later in range(step, min(step + window, steps)):
+        if ended[later][i]:
+          if fell[later][i]:
+            pre_fall[name] += 1
+            break
+          no_fall[name].append((step, i, later - step, causes[later][i]))
+          break
+      else:
+        after = [k for k in range(step, steps) if ended[k][i]]
+        nxt = after[0] - step if after else None
+        cause = causes[after[0]][i] if after else []
+        no_fall[name].append((step, i, nxt, cause))
+  return {
+    "total": total,
+    "calm": calm,
+    "pre_fall": pre_fall,
+    "calm_no_fall": {name: calm[name] - pre_fall[name] for name in watched},
+    "no_fall_events": no_fall,
+    "stroke_pays": pays,
+    "stroke_pay_share": pays / (steps * num_envs),
+  }
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("deck_top", [0.093, 0.103, 0.113])
+def test_push_reference_does_not_trip_the_lying_down_rules(deck_top):
+  # Open loop the reference falls at the end of each push; only the steps with
+  # the body level and the episode under way must stay clear of the rules that
+  # catch lying on the deck. The 0.5 s before a fell_over in that env are left
+  # out too: they are the start of the reference's own end-of-push fall, where
+  # the base sinks under 0.055 m while the tilt is still under 0.2 rad, and
+  # ending the episode a few steps early there is harmless.
+  watch = ("knees_on_deck", "base_near_deck")
+  result = play_push_reference_terminations(deck_top, watch=watch)
+  for name in watch:
+    assert result["calm_no_fall"][name] == 0, (name, result)
+
+
+@pytest.mark.slow
+def test_knees_on_deck_fires_lying_on_the_deck():
+  # The base held 0.07 m over the deck top, level: the knee spheres (0.074 m
+  # under the base at the stance) rest on the deck, as when lying on it. Two
+  # knees down past the hold end the episode before base_near_deck would.
+  cfg = pupper_skate_ride_env_cfg(play=True)
+  cfg.scene.num_envs = 1
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (0.0, 0.0)
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  try:
+    env.reset()
+    robot = env.scene["robot"]
+    lying = robot.data.default_root_state.clone()
+    lying[:, :3] += env.scene.env_origins
+    lying[:, 2] = SkateboardParams().deck_top_height + 0.07
+    actions = torch.zeros(1, 12, device=env.device)
+    most_knees, fired_at = 0, None
+    for step in range(40):  # 0.8 s.
+      robot.write_root_state_to_sim(lying)
+      env.step(actions)
+      found = env.scene["knees_on_deck"].data.found
+      most_knees = max(most_knees, int((found > 0).sum()))
+      if env.termination_manager.get_term("knees_on_deck").any():
+        fired_at = step
+        break
+    assert most_knees >= 2
+    # Not before the hold: the knees have been down (fired_at + 1) steps.
+    assert fired_at is not None
+    assert (fired_at + 1) * env.step_dt >= KNEES_ON_DECK_S - 1e-6
+  finally:
+    env.close()
