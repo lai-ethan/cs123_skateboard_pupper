@@ -9,7 +9,8 @@ and overrides one thing. A row passes when at most 6.25% of the envs reset
 (1 of 16), the board's mean speed is 0.7 to 1.3 times the command, and every
 deck foot touches the deck at least 90% of the time in the worst env. Any
 reset in the first 100 steps (before the metrics start) fails the row. It
-trains nothing and changes no task.
+trains nothing and changes no task. The yaw command is fixed at 0, so on the
+steer task every env rides straight with the heading hold on, as in the ride.
 
 Which feet are deck-side and floor-side comes from the task's contact sensors:
 the geoms of `deck_feet_contact` (narrowed to the `foot_ids` of a termination
@@ -322,7 +323,13 @@ def run_row(
     configure_row(env_cfg, row, found["sides"])
 
   raw, env, policy = load_policy(
-    task, policy_path, speed, num_envs=num_envs, seed=seed, configure=configure
+    task,
+    policy_path,
+    speed,
+    num_envs=num_envs,
+    seed=seed,
+    configure=configure,
+    yaw_rate=0.0,
   )
   sides = found["sides"]
   robot, board = raw.scene["robot"], raw.scene["board"]

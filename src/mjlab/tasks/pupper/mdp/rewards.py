@@ -204,11 +204,29 @@ def joint_deviation_l2(
   return torch.sum(torch.square(asset.data.joint_pos[:, ids]), dim=1)
 
 
+def carve_yaw_target(
+  cmd_wz: torch.Tensor, carve_threshold: float | None, carve_gain: float
+) -> torch.Tensor:
+  """The yaw rate [rad/s] a yaw command asks for, with the skate carve mapping.
+
+  The skate steer task sends two kinds of yaw command on one channel: the
+  heading hold's correction, at most its clip in magnitude, and a carve, above
+  ``carve_threshold``. A correction asks for itself; a carve asks for
+  ``carve_gain`` times itself, the board's turn rate. With ``carve_threshold``
+  None there is no mapping and the command is returned as it is.
+  """
+  if carve_threshold is None:
+    return cmd_wz
+  return torch.where(cmd_wz.abs() <= carve_threshold, cmd_wz, carve_gain * cmd_wz)
+
+
 def track_yaw_velocity(
   env: "ManagerBasedRlEnv",
   sigma: float,
   command_name: str,
   asset_cfg: SceneEntityCfg = _ROBOT,
+  carve_threshold: float | None = None,
+  carve_gain: float = 1.0,
 ) -> torch.Tensor:
   """Yaw-rate tracking, ``exp(-(cmd_yaw - yaw_rate)^2 / sigma)``.
 
@@ -225,12 +243,16 @@ def track_yaw_velocity(
   * **``sigma`` divides the error directly**, not squared -- matching the
     reference's ``exp(-error / tracking_sigma)``. It is deliberately not called
     ``std``, since it is not one.
+
+  ``carve_threshold`` and ``carve_gain`` map a skate carve command to the yaw
+  rate it asks for (see :func:`carve_yaw_target`); by default there is none.
   """
   asset: Entity = env.scene[asset_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None, f"Command '{command_name}' not found."
+  target = carve_yaw_target(command[:, 2], carve_threshold, carve_gain)
   yaw_rate = asset.data.root_link_ang_vel_b[:, 2]
-  return torch.exp(-torch.square(command[:, 2] - yaw_rate) / sigma)
+  return torch.exp(-torch.square(target - yaw_rate) / sigma)
 
 
 def forward_speed(

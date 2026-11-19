@@ -48,8 +48,12 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  STEER_CARVE_COMMAND_RANGE,
+  STEER_CARVE_GAIN,
+  STEER_CARVE_THRESHOLD,
+  STEER_STRAIGHT_SHARE,
   STEER_TRUCK_STIFFNESS_SCALE,
-  STEER_YAW_RATE_RANGE,
+  STEER_YAW_MIN_SPEED,
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
   pupper_skate_split_steer_env_cfg,
@@ -1050,7 +1054,7 @@ def test_board_lateral_offset_is_in_the_board_heading_frame():
 
 
 ##
-# The steer task: the split ride plus a board yaw-rate command.
+# The steer task: the split ride plus a carve command.
 ##
 
 
@@ -1076,10 +1080,102 @@ def test_track_board_yaw_rate_peaks_at_the_command():
 
 
 def test_steer_constants():
-  assert STEER_YAW_RATE_RANGE == (-0.08, 0.08)
-  # 12 to 30 N*m/rad on the 30 N*m/rad nominal truck.
-  assert STEER_TRUCK_STIFFNESS_SCALE == (0.4, 1.0)
+  assert STEER_CARVE_COMMAND_RANGE == (0.4, 0.6)
+  assert STEER_CARVE_GAIN == 0.1
+  assert STEER_CARVE_THRESHOLD == 0.35
+  assert (STEER_STRAIGHT_SHARE, STEER_YAW_MIN_SPEED) == (0.4, 0.1)
+  # A carve clears the hold's yaw threshold and clip; the carve threshold sits
+  # between the clip and the smallest carve.
+  assert GAIT_HEADING_HOLD_CLIP < STEER_CARVE_THRESHOLD < STEER_CARVE_COMMAND_RANGE[0]
+  # 9 to 18 N*m/rad on the 30 N*m/rad nominal truck.
+  assert STEER_TRUCK_STIFFNESS_SCALE == (0.3, 0.6)
   assert SkateboardParams().roll_stiffness == 30.0
+
+
+def test_carve_yaw_target_scales_only_carves():
+  cmd = torch.tensor([0.0, 0.2, -0.3, 0.35, 0.5, -0.4, -0.6])
+  target = mdp.carve_yaw_target(cmd, STEER_CARVE_THRESHOLD, STEER_CARVE_GAIN)
+  # Hold-range commands pass through; carves are scaled, sign kept.
+  expected = torch.tensor([0.0, 0.2, -0.3, 0.35, 0.05, -0.04, -0.06])
+  torch.testing.assert_close(target, expected)
+  # No mapping by default.
+  assert mdp.carve_yaw_target(cmd, None, STEER_CARVE_GAIN) is cmd
+
+
+_CARVE = {"carve_threshold": STEER_CARVE_THRESHOLD, "carve_gain": STEER_CARVE_GAIN}
+
+
+def test_track_board_yaw_rate_pays_only_carves_against_the_scaled_target():
+  # Rows: a 0.5 carve with the board at its 0.05 target, at 0 and the wrong
+  # way; a -0.4 carve on target; hold corrections of 0.3 and 0 with the board
+  # on the command, which pay nothing.
+  command = [[0.3, 0.0, w] for w in (0.5, 0.5, 0.5, -0.4, 0.3, 0.0)]
+  env = _fake_yaw_env(command, [0.05, 0.0, -0.05, -0.04, 0.3, 0.0])
+  reward = mdp.track_board_yaw_rate(env, command_name="twist", std=0.04, **_CARVE)
+  expected = [1.0, math.exp(-(0.05**2) / 0.04**2), math.exp(-(0.1**2) / 0.04**2)]
+  expected += [1.0, 0.0, 0.0]
+  torch.testing.assert_close(reward, torch.tensor(expected))
+
+
+def test_board_turn_progress_pays_only_carves_against_the_scaled_target():
+  # Rows: half, all, more and the wrong way of a 0.5 carve's 0.05 target, half
+  # of a -0.6 carve's -0.06, then hold corrections of 0.3 and -0.1 with the
+  # board on the command.
+  command = [[0.3, 0.0, w] for w in (0.5, 0.5, 0.5, 0.5, -0.6, 0.3, -0.1)]
+  env = _fake_yaw_env(command, [0.025, 0.05, 0.08, -0.02, -0.03, 0.3, -0.1])
+  reward = mdp.board_turn_progress(
+    env, command_name="twist", command_threshold=STEER_CARVE_THRESHOLD, **_CARVE
+  )
+  expected = torch.tensor([0.5, 1.0, 1.0, 0.0, 0.5, 0.0, 0.0])
+  torch.testing.assert_close(reward, expected)
+
+
+def test_board_yaw_rate_penalty_skips_carves_only_when_asked():
+  command = [[0.3, 0.0, w] for w in (0.5, -0.4, 0.3, 0.0)]
+  env = _fake_yaw_env(command, [0.05, -0.04, 0.1, 0.02])
+  plain = mdp.board_yaw_rate_l2(env)
+  torch.testing.assert_close(plain, torch.tensor([0.05, -0.04, 0.1, 0.02]) ** 2)
+  gated = mdp.board_yaw_rate_l2(
+    env, command_name="twist", carve_threshold=STEER_CARVE_THRESHOLD
+  )
+  torch.testing.assert_close(gated, torch.tensor([0.0, 0.0, 0.01, 0.0004]))
+
+
+def _fake_robot_yaw_env(command: list[list[float]], yaw_rate: list[float]) -> Any:
+  """Enough of an env for track_yaw_velocity: the robot and the command."""
+  ang_vel = torch.zeros(len(yaw_rate), 3)
+  ang_vel[:, 2] = torch.tensor(yaw_rate)
+  return SimpleNamespace(
+    scene={"robot": SimpleNamespace(data=SimpleNamespace(root_link_ang_vel_b=ang_vel))},
+    command_manager=SimpleNamespace(get_command=lambda name: torch.tensor(command)),
+  )
+
+
+def test_track_yaw_rate_asks_a_carve_for_the_board_rate():
+  # A 0.5 carve with the body at 0.05 and at 0.5; a 0.2 hold correction on it.
+  command = [[0.3, 0.0, w] for w in (0.5, 0.5, 0.2)]
+  env = _fake_robot_yaw_env(command, [0.05, 0.5, 0.2])
+  reward = mdp.track_yaw_velocity(env, sigma=0.05, command_name="twist", **_CARVE)
+  expected = torch.tensor([1.0, math.exp(-(0.45**2) / 0.05), 1.0])
+  torch.testing.assert_close(reward, expected)
+
+
+def test_new_yaw_parameters_leave_the_ride_rewards_unchanged():
+  # The defaults are the old formulas, bit for bit, on carve-sized commands.
+  command = [[0.3, 0.0, w] for w in (0.5, -0.4, 0.3, 0.0, 0.08)]
+  rates = [0.05, -0.2, 0.1, 0.02, 0.5]
+  board = _fake_yaw_env(command, rates)
+  robot = _fake_robot_yaw_env(command, rates)
+  cmd_wz, wz = torch.tensor(command)[:, 2], torch.tensor(rates)
+  assert torch.equal(
+    mdp.track_yaw_velocity(robot, sigma=0.05, command_name="twist"),
+    torch.exp(-torch.square(cmd_wz - wz) / 0.05),
+  )
+  assert torch.equal(
+    mdp.track_board_yaw_rate(board, command_name="twist", std=0.04),
+    torch.exp(-torch.square(cmd_wz - wz) / 0.04**2),
+  )
+  assert torch.equal(mdp.board_yaw_rate_l2(board), torch.square(wz))
 
 
 def test_only_the_steer_trains_on_loosened_trucks():
@@ -1096,49 +1192,72 @@ def test_only_the_steer_trains_on_loosened_trucks():
     assert "board_turn_progress" not in balance.rewards
 
 
-def test_steer_is_the_split_ride_plus_a_yaw_command():
+def test_steer_is_the_split_ride_plus_a_carve_command():
   for play in (False, True):
     ride = pupper_skate_split_ride_env_cfg(play=play)
     steer = pupper_skate_split_steer_env_cfg(play=play)
     expected = _weights(ride)
-    del expected["board_yaw_rate"]
-    del expected["track_yaw_rate"]
     expected["track_board_yaw_rate"] = 2.0
     expected["board_turn_progress"] = 1.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
-    assert term.params == {"command_name": "twist", "std": 0.04}
+    assert term.params == {"command_name": "twist", "std": 0.04, **_CARVE}
     term = steer.rewards["board_turn_progress"]
     assert term.func is mdp.board_turn_progress
-    assert term.params == {"command_name": "twist", "command_threshold": 0.02}
+    assert term.params == {
+      "command_name": "twist",
+      "command_threshold": STEER_CARVE_THRESHOLD,
+      **_CARVE,
+    }
+    # The ride's robot yaw term stays, with the carve mapping on.
+    term = steer.rewards["track_yaw_rate"]
+    assert term.func is mdp.track_yaw_velocity and term.weight == 1.0
+    assert term.params == {"sigma": 0.05, "command_name": "twist", **_CARVE}
+    # The ride's board yaw penalty stays, outside carves only.
+    term = steer.rewards["board_yaw_rate"]
+    assert term.func is mdp.board_yaw_rate_l2 and term.weight == -0.5
+    assert term.params == {
+      "command_name": "twist",
+      "carve_threshold": STEER_CARVE_THRESHOLD,
+    }
+    assert ride.rewards["board_yaw_rate"].params == {}
+    # Board alignment twice as wide sideways; the ride keeps 3 cm.
+    align = steer.rewards["board_alignment"].params
+    ride_align = ride.rewards["board_alignment"].params
+    assert align["std_pos"] == 0.06 and ride_align["std_pos"] == 0.03
+    assert {**align, "std_pos": 0.03} == ride_align
+    changed = ("board_yaw_rate", "track_yaw_rate", "board_alignment")
     for name in ride.rewards:
-      if name not in ("board_yaw_rate", "track_yaw_rate"):
+      if name not in changed:
         assert steer.rewards[name].func is ride.rewards[name].func, name
         assert steer.rewards[name].params == ride.rewards[name].params, name
     assert steer.terminations.keys() == ride.terminations.keys()
+    assert steer.terminations["board_drifted"].params == {"max_drift": 0.06}
     assert steer.events.keys() == ride.events.keys()
     assert steer.observations["critic"].terms.keys() == (
       ride.observations["critic"].terms.keys()
     )
     twist = steer.commands["twist"]
     assert isinstance(twist, mdp.SteerVelocityCommandCfg)
-    assert twist.ranges.ang_vel_z == STEER_YAW_RATE_RANGE
-    assert (twist.rel_straight_envs, twist.yaw_min_speed) == (0.3, 0.1)
-    # Every other stock command field is the split ride's (the heading hold
-    # is the ride's alone, checked below).
+    assert isinstance(twist, mdp.BoardHeadingHoldCommandCfg)
+    assert twist.carve_range == STEER_CARVE_COMMAND_RANGE
+    assert twist.carve_left_share == 0.5
+    assert (twist.rel_straight_envs, twist.yaw_min_speed) == (0.4, 0.1)
+    # The yaw range is the export clip only: it covers the carves.
+    assert twist.ranges.ang_vel_z == (-0.6, 0.6)
+    # Every other command field is the split ride's, heading hold included.
     ride_twist = ride.commands["twist"]
-    assert isinstance(ride_twist, mdp.PupperVelocityCommandCfg)
-    for field in dataclasses.fields(mdp.PupperVelocityCommandCfg):
-      if field.name not in ("ranges", "heading_hold_kp"):
+    assert isinstance(ride_twist, mdp.BoardHeadingHoldCommandCfg)
+    for field in dataclasses.fields(mdp.BoardHeadingHoldCommandCfg):
+      if field.name != "ranges":
         expected = getattr(ride_twist, field.name)
         assert getattr(twist, field.name) == expected, field.name
-    assert twist.ranges == dataclasses.replace(
-      ride_twist.ranges, ang_vel_z=STEER_YAW_RATE_RANGE
-    )
+    assert twist.ranges == dataclasses.replace(ride_twist.ranges, ang_vel_z=(-0.6, 0.6))
     assert twist.ranges.lin_vel_x == RIDE_SPEED_RANGE
     assert twist.rel_forward_envs == 0.0 and twist.rel_turn_envs == 0.0
-    assert twist.heading_hold_kp is None
+    assert twist.heading_hold_kp == GAIT_HEADING_HOLD_KP
+    assert twist.heading_hold_clip == GAIT_HEADING_HOLD_CLIP
 
 
 @pytest.mark.parametrize(
@@ -1193,8 +1312,10 @@ def test_steer_task_builds_and_steps_with_zero_actions(play):
     assert torch.isfinite(reward).all()
   command = env.command_manager.get_command("twist")
   assert command is not None
-  lo, hi = STEER_YAW_RATE_RANGE
-  assert torch.all((command[:, 2] >= lo) & (command[:, 2] <= hi))
+  # Each emitted yaw is a hold correction or a carve.
+  size = command[:, 2].abs()
+  lo, hi = STEER_CARVE_COMMAND_RANGE
+  assert torch.all((size <= GAIT_HEADING_HOLD_CLIP) | ((size >= lo) & (size <= hi)))
   env.close()
 
 
@@ -1208,7 +1329,7 @@ class _Actor(torch.nn.Module):
 
 
 @pytest.mark.slow
-def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
+def test_steer_policy_exports_the_carve_clip_with_heading_hold_on():
   cfg = load_env_cfg(STEER_TASK, play=True)
   cfg.scene.num_envs = 1
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
@@ -1217,10 +1338,10 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
   assert policy["command_clip"] == {
     "vx": list(RIDE_SPEED_RANGE),
     "vy": [0.0, 0.0],
-    "wz": [-0.08, 0.08],
+    "wz": [-0.6, 0.6],
   }
   assert policy["heading_hold"] == {
-    "kp": 0.0,
+    "kp": GAIT_HEADING_HOLD_KP,
     "clip": 0.3,
     "yaw_threshold": 0.1,
     "walk_threshold": 0.05,
@@ -1244,10 +1365,11 @@ def test_board_turn_progress_pays_the_share_of_the_commanded_turn(steer_env):
   env = steer_env
   env.reset()
   board = env.scene["board"]
-  # Rows: half, all and more of a 0.08 rad/s command, the wrong way, a 0.01
-  # command under the threshold, then half, all and the wrong way of -0.06.
-  cmd_wz = [0.08, 0.08, 0.08, 0.08, 0.01, -0.06, -0.06, -0.06]
-  board_wz = [0.04, 0.08, 0.12, -0.04, 0.01, -0.03, -0.09, 0.03]
+  # Rows: half, all and more of a 0.5 carve's 0.05 rad/s target, the wrong
+  # way, a 0.3 hold correction (not a carve), then half, all and the wrong way
+  # of a -0.4 carve's -0.04.
+  cmd_wz = [0.5, 0.5, 0.5, 0.5, 0.3, -0.4, -0.4, -0.4]
+  board_wz = [0.025, 0.05, 0.08, -0.02, 0.3, -0.02, -0.06, 0.02]
   vel = torch.zeros(env.num_envs, 6, device=env.device)
   vel[:, 5] = torch.tensor(board_wz, device=env.device)
   board.write_root_link_velocity_to_sim(vel)
@@ -1278,9 +1400,12 @@ def test_split_ride_holds_heading_with_gait_gains():
     balance = pupper_skate_split_balance_env_cfg(play=play).commands["twist"]
     assert isinstance(balance, mdp.PupperVelocityCommandCfg)
     assert balance.heading_hold_kp is None
+    # The steer task keeps the ride's hold, so a quiet yaw is the ride.
     steer = pupper_skate_split_steer_env_cfg(play=play).commands["twist"]
     assert type(steer) is mdp.SteerVelocityCommandCfg
-    assert steer.heading_hold_kp is None
+    assert isinstance(steer, mdp.BoardHeadingHoldCommandCfg)
+    assert steer.heading_hold_kp == GAIT_HEADING_HOLD_KP
+    assert steer.heading_hold_clip == GAIT_HEADING_HOLD_CLIP
 
 
 def test_split_ride_pays_for_following_the_hold_yaw_command():
@@ -1289,8 +1414,9 @@ def test_split_ride_pays_for_following_the_hold_yaw_command():
     assert term.func is mdp.track_yaw_velocity
     assert term.weight == 1.0
     assert term.params == {"sigma": 0.05, "command_name": "twist"}
-    # The steer task pays the board's yaw rate against that field instead.
-    assert "track_yaw_rate" not in pupper_skate_split_steer_env_cfg(play=play).rewards
+    # The steer task keeps it, with carves mapped to the board's rate.
+    steer = pupper_skate_split_steer_env_cfg(play=play).rewards["track_yaw_rate"]
+    assert steer.func is mdp.track_yaw_velocity and steer.weight == 1.0
 
 
 @pytest.mark.slow
@@ -1325,15 +1451,15 @@ def test_split_ride_alignment_yaw_width():
   assert balance.params["std_yaw"] == 0.3
 
 
-def test_split_heading_hold_exports_the_gait_gains_only_on_the_ride():
-  ride = SimpleNamespace(cfg=pupper_skate_split_ride_env_cfg(play=True))
+def test_split_heading_hold_exports_the_gait_gains_on_the_ride_and_steer():
   balance = SimpleNamespace(cfg=pupper_skate_split_balance_env_cfg(play=True))
-  ride_block = heading_hold_metadata(ride)
   balance_block = heading_hold_metadata(balance)
-  assert ride_block is not None and balance_block is not None
-  assert ride_block["kp"] == GAIT_HEADING_HOLD_KP
-  assert ride_block["clip"] == GAIT_HEADING_HOLD_CLIP
-  assert balance_block["kp"] == 0.0
+  assert balance_block is not None and balance_block["kp"] == 0.0
+  for make_cfg in (pupper_skate_split_ride_env_cfg, pupper_skate_split_steer_env_cfg):
+    block = heading_hold_metadata(SimpleNamespace(cfg=make_cfg(play=True)))
+    assert block is not None
+    assert block["kp"] == GAIT_HEADING_HOLD_KP
+    assert block["clip"] == GAIT_HEADING_HOLD_CLIP
 
 
 @pytest.fixture(scope="module")
@@ -1414,7 +1540,6 @@ def _bare_command(cls, cfg, num_envs: int):
     "is_world_env",
     "is_forward_env",
     "is_turn_env",
-    "is_straight_env",
     "_capture_heading",
   ):
     setattr(term, name, flags.clone())
@@ -1430,15 +1555,19 @@ def _sample_steer(num_envs: int = 20000, seed: int = 0) -> torch.Tensor:
   return term.vel_command_b[~term.is_standing_env]
 
 
-def test_steer_rides_straight_in_30_percent_across_the_speed_range():
+def test_steer_carves_or_rides_straight_across_the_speed_range():
   command = _sample_steer()
   vx, wz = command[:, 0], command[:, 2]
-  lo, hi = STEER_YAW_RATE_RANGE
-  assert torch.all((wz >= lo) & (wz <= hi))
+  lo, hi = STEER_CARVE_COMMAND_RANGE
+  # Every yaw is 0 or a carve, of either sign in about equal shares.
+  carve = wz != 0.0
+  assert torch.all((wz.abs() >= lo) & (wz.abs() <= hi) | ~carve)
+  left = (wz > 0.0).sum() / carve.sum()
+  assert left.item() == pytest.approx(0.5, abs=0.02)
   rolling = vx >= 0.1
-  straight = rolling & (wz == 0.0)
+  straight = rolling & ~carve
   share = straight.sum() / rolling.sum()
-  assert share.item() == pytest.approx(0.3, abs=0.02)
+  assert share.item() == pytest.approx(0.4, abs=0.02)
   # Their speeds fill the rolling range, not pinned at 0.3 m/s.
   speeds = vx[straight]
   assert speeds.min() < 0.11 and speeds.max() > 0.49
@@ -1456,26 +1585,88 @@ def test_steer_gives_no_yaw_below_0_1_m_s():
   assert torch.any(command[~slow, 2] != 0.0)
 
 
-def test_steer_command_with_its_rules_off_samples_like_the_stock_command():
-  # The four existing tasks use the stock class; this checks the subclass adds
-  # nothing (and draws nothing extra) with both rules off.
+def test_steer_command_draws_the_ride_command_then_the_carve():
+  # The speed, lateral and every share are the ride's, draw for draw; only
+  # the yaw channel is new.
   cfg = pupper_skate_split_steer_env_cfg().commands["twist"]
   assert isinstance(cfg, mdp.SteerVelocityCommandCfg)
-  cfg.rel_straight_envs = 0.0
-  cfg.yaw_min_speed = 0.0
-  stock_cfg = mdp.PupperVelocityCommandCfg(
+  ride_cfg = mdp.BoardHeadingHoldCommandCfg(
     **{
       f.name: getattr(cfg, f.name)
-      for f in dataclasses.fields(mdp.PupperVelocityCommandCfg)
+      for f in dataclasses.fields(mdp.BoardHeadingHoldCommandCfg)
     }
   )
-  commands = []
+  terms = []
   for cls, c in (
     (mdp.SteerVelocityCommand, cfg),
-    (mdp.PupperVelocityCommand, stock_cfg),
+    (mdp.BoardHeadingHoldCommand, ride_cfg),
   ):
     term = _bare_command(cls, c, 1000)
     torch.manual_seed(3)
     term._resample_command(torch.arange(1000))
-    commands.append(term.vel_command_b)
-  torch.testing.assert_close(commands[0], commands[1])
+    terms.append(term)
+  steer, ride = terms
+  torch.testing.assert_close(steer.vel_command_b[:, :2], ride.vel_command_b[:, :2])
+  assert torch.equal(steer.is_standing_env, ride.is_standing_env)
+
+
+def test_fixed_carve_fixes_the_sign():
+  cfg = pupper_skate_split_steer_env_cfg().commands["twist"]
+  assert isinstance(cfg, mdp.SteerVelocityCommandCfg)
+  cfg.rel_straight_envs = 0.0
+  cfg.yaw_min_speed = 0.0
+  for share, sign in ((1.0, 1.0), (0.0, -1.0)):
+    cfg.carve_left_share = share
+    term = _bare_command(mdp.SteerVelocityCommand, cfg, 1000)
+    term._resample_command(torch.arange(1000))
+    assert torch.all(torch.sign(term.vel_command_b[:, 2]) == sign)
+
+
+@pytest.fixture(scope="module")
+def steer_hold_env():
+  """The steer task in play, two envs, a fixed walking command and no noise."""
+  cfg = pupper_skate_split_steer_env_cfg(play=True)
+  cfg.scene.num_envs = 2
+  cfg.seed = 0
+  cfg.events["deck_height"].params["ranges"] = (0.0, 0.0)
+  cfg.events.pop("push_robot", None)
+  for name in ("reset_base", "reset_board"):
+    cfg.events[name].params["pose_range"] = {}
+  twist = cfg.commands["twist"]
+  assert isinstance(twist, mdp.SteerVelocityCommandCfg)
+  twist.ranges.lin_vel_x = (0.3, 0.3)
+  twist.rel_standing_envs = 0.0
+  twist.rel_straight_envs = 1.0
+  twist.resampling_time_range = (1e6, 1e6)
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  yield env
+  env.close()
+
+
+@pytest.mark.slow
+def test_steer_emits_the_hold_correction_when_quiet_and_the_carve_raw(steer_hold_env):
+  env = steer_hold_env
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  assert isinstance(term, mdp.SteerVelocityCommand)
+  board = env.scene["board"]
+  # The board yawed 0.5 rad from the robot in both envs: past the hold's clip.
+  pose = board.data.root_link_pose_w.clone()
+  zeros = torch.zeros(2, device=env.device)
+  yaw = torch.full_like(zeros, 0.5)
+  pose[:, 3:7] = quat_mul(pose[:, 3:7], quat_from_euler_xyz(zeros, zeros, yaw))
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  # Env 0 quiet, env 1 carving at -0.5 rad/s; re-arm the hold so it captures
+  # the board's new heading on the next step.
+  term.vel_command_b[:, 2] = torch.tensor([0.0, -0.5], device=env.device)
+  term._hh_prev_active[:] = False
+  env.step(torch.zeros(2, 12, device=env.device))
+  command = env.command_manager.get_command("twist")
+  assert command is not None
+  # Quiet: the clipped correction toward the board's line. Carve: the raw
+  # command.
+  assert command[0, 2].item() == pytest.approx(GAIT_HEADING_HOLD_CLIP)
+  assert command[1, 2].item() == pytest.approx(-0.5)
+  torch.testing.assert_close(command[:, 0], torch.full_like(zeros, 0.3))

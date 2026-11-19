@@ -12,6 +12,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
+  pupper_skate_split_steer_env_cfg,
 )
 
 REPO = Path(__file__).parent.parent
@@ -42,6 +43,7 @@ def _reward_weights_cell() -> str:
     ("Mjlab-Skate-Ride-Pupper-v3", pupper_skate_ride_env_cfg),
     ("Mjlab-SkateSplit-Balance-Pupper-v3", pupper_skate_split_balance_env_cfg),
     ("Mjlab-SkateSplit-Ride-Pupper-v3", pupper_skate_split_ride_env_cfg),
+    ("Mjlab-SkateSplit-Steer-Pupper-v3", pupper_skate_split_steer_env_cfg),
   ],
 )
 def test_reward_weights_match_the_env(task, make_cfg):

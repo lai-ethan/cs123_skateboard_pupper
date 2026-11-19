@@ -284,38 +284,52 @@ cd ~/pupper_gait_deploy
 
 ## Steering: what sim says
 
-Nothing steers yet, and in sim the robot is too light to steer this board.
-Every exported ride policy takes a forward speed only, and heading hold is off
-in every skate export (the robot's yaw correction would fight the stance).
+Nothing steers yet. Every exported ride policy takes a forward speed only. The
+split ride exports with the heading hold on (kp and clip from the gait tasks),
+so the robot keeps itself parallel to the board.
 
-- **Tried: a split-stance steer task.** `Mjlab-SkateSplit-Steer-Pupper-v3` is
-  the split ride plus a commanded board turn rate of up to 0.15 rad/s (a full
-  circle in about 40 s). The reward pays only for the board's turn rate, so the
-  policy was free to turn with its legs, its feet or a lean. Run `jl7i4id0`
-  (1500 iterations) rides well but does not turn: 0.07 of a +0.15 command and
-  0.00 of a -0.15 command. It is not exported.
-- **Why.** Measured on the board model at 0.3 m/s:
-  - The board turns only when the deck tilts: 0.0165 rad/s per degree of tilt.
-    0.15 rad/s needs about 9 degrees; 0.1 rad/s needs about 6.
-  - Holding 9 degrees takes 3 to 5 N m against the modelled truck bushings
-    (30 N m/rad), and 10 to 15 N m at the average stiffness the policy trains
-    on (about 98).
-  - The robot's whole weight (31 N) on the very edge of the deck gives about
-    2.2 N m. That is about 0.07 rad/s on the soft bushing and 0.02 on the
-    average one.
-  - Pushing the board sideways with the legs turns it only through the tilt it
-    causes, or by skidding the wheels. The wheels do not roll sideways.
-- **So steering with the legs instead of leaning does not get around it.**
-  The legs can only turn this board by tilting the deck or by dragging it
-  sideways across the floor.
-- **What decides it: the real trucks.** Measure the real board before any more
-  steer training (`HARDWARE_TEST.md`, test 0). If the real deck tilts 6 degrees
-  or more under the robot's weight at the edge, steering by lean can be
-  trained; narrow `truck_stiffness` to the measured value for the steer task
-  and tighten the reward (`std` 0.1). Loosening the kingpin nuts makes the
-  trucks softer and is worth trying.
-- **Cheapest option for Demo Day.** Ride straight and turn the board by hand
-  between runs.
+- **First try: a split-stance steer task.** `Mjlab-SkateSplit-Steer-Pupper-v3`
+  was the split ride plus a commanded board turn rate of up to 0.15 rad/s.
+  Run `jl7i4id0` (1500 iterations) rode well but did not turn: 0.07 of a
+  +0.15 command and 0.00 of a -0.15 command. A second version (up to 0.08
+  rad/s, heading hold off) did not learn either. With the hold off, the ride
+  policy yawed 0.06 to 0.1 rad off the board and 6 of 8 envs let the board
+  walk out sideways within 8 s. Neither is exported.
+- **Why the board barely turns.** It turns only when the deck tilts: 0.0165
+  rad/s per degree at 0.3 m/s. The tilt comes from the robot's weight off the
+  centre line, against the truck bushings. Measured on the board model at 0.3
+  m/s, with the deck feet 4 cm off the centre line:
+
+  | Truck stiffness (N m/rad) | Board yaw rate (rad/s) |
+  | --- | --- |
+  | 12 | 0.07 |
+  | 20 | 0.04 |
+  | 30 | 0.03 |
+
+  Pushing the board sideways with the legs turns it only through the tilt it
+  causes, or by skidding the wheels. The wheels do not roll sideways.
+- **The steer task now: a carve signal.** The yaw command has two meanings,
+  and the robot's own heading hold tells them apart, so the robot side needs
+  no change.
+  - Yaw 0 is the ride. The heading hold is on and its correction (at most 0.3
+    rad/s) keeps the robot parallel to the board.
+  - A carve is a yaw command of 0.4 to 0.6 rad/s, either sign. It is above the
+    hold's 0.1 rad/s threshold, so the hold lets go and the command reaches
+    the policy. It is above the hold's 0.3 clip, so the policy cannot mistake
+    it for a correction. It asks the board to turn at a tenth of the command,
+    0.04 to 0.06 rad/s, with the robot turning along with it.
+  - When the command goes back to 0, the hold captures the board's new
+    heading and holds that.
+  - The board's turn is paid only during a carve. The board can sit 6 cm off
+    the stance's line before the alignment term charges most of its reward
+    (the ride allows 3 cm), since a lean needs the deck feet about 4 cm off
+    the centre line.
+- **The trucks must be loosened.** The steer task trains on 9 to 18 N m/rad.
+  The ride trains on 15 to 180, since the real bushings are built for a rider
+  about 20 times heavier. Loosen the kingpin nuts on the real board and
+  measure the stiffness (`HARDWARE_TEST.md`, test 0) before any steer test on
+  the robot. Above about 20 N m/rad the robot cannot lean the board into a
+  useful turn without its feet leaving the deck.
 
 ## What changed from v1
 

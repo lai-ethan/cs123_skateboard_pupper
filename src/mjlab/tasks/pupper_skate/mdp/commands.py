@@ -14,46 +14,6 @@ from mjlab.tasks.pupper.mdp.velocity_command import (
 )
 
 
-class SteerVelocityCommand(PupperVelocityCommand):
-  """``PupperVelocityCommand`` with two extra rules on the yaw rate (dim 2).
-
-  After the usual sampling, a ``rel_straight_envs`` share of envs get a yaw
-  rate of exactly 0 and keep their sampled forward speed (unlike
-  ``rel_forward_envs``, which also lifts it to at least 0.3 m/s). Then any env
-  whose forward speed command is under ``yaw_min_speed`` m/s gets yaw 0 too: a
-  board that is not rolling cannot carve. With both at 0 the commands are the
-  parent's, draw for draw.
-  """
-
-  cfg: "SteerVelocityCommandCfg"  # pyright: ignore[reportIncompatibleVariableOverride]
-
-  def __init__(self, cfg: "SteerVelocityCommandCfg", env: ManagerBasedRlEnv):
-    super().__init__(cfg, env)
-    self.is_straight_env = torch.zeros_like(self.is_standing_env)
-
-  def _resample_command(self, env_ids: torch.Tensor) -> None:
-    super()._resample_command(env_ids)
-    if self.cfg.rel_straight_envs > 0.0:
-      r = torch.empty(len(env_ids), device=self.device)
-      straight = r.uniform_(0.0, 1.0) <= self.cfg.rel_straight_envs
-      self.is_straight_env[env_ids] = straight
-      self.vel_command_b[env_ids[straight], 2] = 0.0
-    if self.cfg.yaw_min_speed > 0.0:
-      slow = self.vel_command_b[env_ids, 0] < self.cfg.yaw_min_speed
-      self.vel_command_b[env_ids[slow], 2] = 0.0
-
-
-@dataclass
-class SteerVelocityCommandCfg(PupperVelocityCommandCfg):
-  rel_straight_envs: float = 0.0
-  """Fraction of envs given a zero yaw rate, their sampled speed kept."""
-  yaw_min_speed: float = 0.0
-  """Forward speed command [m/s] under which the yaw rate is set to 0."""
-
-  def build(self, env: ManagerBasedRlEnv) -> SteerVelocityCommand:
-    return SteerVelocityCommand(self, env)
-
-
 class BoardHeadingHoldCommand(PupperVelocityCommand):
   """``PupperVelocityCommand`` whose heading hold captures the board's heading.
 
@@ -80,3 +40,53 @@ class BoardHeadingHoldCommandCfg(PupperVelocityCommandCfg):
 
   def build(self, env: ManagerBasedRlEnv) -> BoardHeadingHoldCommand:
     return BoardHeadingHoldCommand(self, env)
+
+
+class SteerVelocityCommand(BoardHeadingHoldCommand):
+  """The split ride's board heading-hold command, with carve commands on yaw.
+
+  The yaw rate (dim 2) is a carve signal, not a yaw rate to track. After the
+  parent's sampling every env draws a carve: a magnitude from ``carve_range``
+  and a sign, positive with probability ``carve_left_share``. Then a
+  ``rel_straight_envs`` share of envs get yaw 0 and keep their sampled speed
+  (unlike ``rel_forward_envs``, which also lifts it to at least 0.3 m/s), and
+  so does any env whose speed command is under ``yaw_min_speed`` m/s: a board
+  that is not rolling cannot carve. Standing envs are zeroed by the parent.
+
+  A quiet yaw (0) is exactly the ride: the heading hold is on and the emitted
+  yaw is its clipped correction toward the board's line. A carve is above the
+  hold's yaw threshold, so the hold lets go and the raw command reaches the
+  policy, and above the hold's clip, so the policy can tell a carve from a
+  correction. When the carve ends, the hold recaptures the board's heading.
+  The robot runs the same hold, so a carve needs no robot-side change.
+  """
+
+  cfg: "SteerVelocityCommandCfg"  # pyright: ignore[reportIncompatibleVariableOverride]
+
+  def _resample_command(self, env_ids: torch.Tensor) -> None:
+    super()._resample_command(env_ids)
+    n = len(env_ids)
+    magnitude = torch.empty(n, device=self.device).uniform_(*self.cfg.carve_range)
+    left = torch.rand(n, device=self.device) < self.cfg.carve_left_share
+    yaw = torch.where(left, magnitude, -magnitude)
+    if self.cfg.rel_straight_envs > 0.0:
+      straight = torch.rand(n, device=self.device) <= self.cfg.rel_straight_envs
+      yaw[straight] = 0.0
+    if self.cfg.yaw_min_speed > 0.0:
+      yaw[self.vel_command_b[env_ids, 0] < self.cfg.yaw_min_speed] = 0.0
+    self.vel_command_b[env_ids, 2] = yaw
+
+
+@dataclass
+class SteerVelocityCommandCfg(BoardHeadingHoldCommandCfg):
+  carve_range: tuple[float, float] = (0.0, 0.0)
+  """Magnitude range [rad/s] of the carve command drawn for every env."""
+  carve_left_share: float = 0.5
+  """Probability that a carve is positive (a left turn)."""
+  rel_straight_envs: float = 0.0
+  """Fraction of envs given a zero yaw rate, their sampled speed kept."""
+  yaw_min_speed: float = 0.0
+  """Forward speed command [m/s] under which the yaw rate is set to 0."""
+
+  def build(self, env: ManagerBasedRlEnv) -> SteerVelocityCommand:
+    return SteerVelocityCommand(self, env)

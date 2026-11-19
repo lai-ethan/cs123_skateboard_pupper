@@ -8,7 +8,7 @@ interval are shared with it. Two tasks share one scene:
 * balance -- hold the split stance on a board that is free to roll.
 * ride    -- push with the floor-side legs so the board rolls at a commanded
              forward speed.
-* steer   -- the ride plus a commanded board yaw rate.
+* steer   -- the ride plus a carve command that turns the board.
 
 The actor is the stock 48-dim zero-reference frame (IMU, joints, command, last
 action), so policies export and deploy like any gait policy. Everything about
@@ -75,18 +75,28 @@ _GROUND_FOOT_SITES = tuple(
 )
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
-# Steer task: board yaw-rate command range [rad/s]. The board turns only when
-# the deck tilts: 0.0165 rad/s per degree at 0.3 m/s, a 6 m turn radius at 3
-# degrees and 2.6 m at 7. 0.08 rad/s at 0.3 m/s is about 5 degrees of tilt, a
-# 3.75 m radius.
-STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.08, 0.08)
-# Steer task: truck stiffness scale on the nominal 30 N*m/rad, so 12 to 30
-# N*m/rad, loosened trucks that Pupper's weight can tilt (a 20 N edge load turns
-# the board 0.05 to 0.11 rad/s at 15 to 30). The ride keeps 15 to 180.
-STEER_TRUCK_STIFFNESS_SCALE: tuple[float, float] = (0.4, 1.0)
+# Steer task: the yaw command is a carve signal that works with the robot's
+# heading hold. Quiet (0) is the ride: the hold holds the board's line. A carve
+# command is drawn with a magnitude in this range and either sign: above the
+# hold's 0.1 rad/s threshold, so the hold lets go and the command reaches the
+# policy, and above the hold's 0.3 clip, so a carve never looks like a
+# correction.
+STEER_CARVE_COMMAND_RANGE: tuple[float, float] = (0.4, 0.6)
+# The board yaw rate [rad/s] a carve asks for, per unit of carve command: 0.04
+# to 0.06 rad/s. The board turns only when the deck tilts.
+STEER_CARVE_GAIN = 0.1
+# |yaw command| above this is a carve, below it a hold correction. It sits
+# between the hold's clip (0.3) and the smallest carve (0.4).
+STEER_CARVE_THRESHOLD = 0.35
+# Steer task: truck stiffness scale on the nominal 30 N*m/rad, so 9 to 18
+# N*m/rad, loosened trucks that Pupper's weight can tilt. Measured board yaw
+# rate at 0.3 m/s with the deck feet 4 cm off the centre line: 0.07 rad/s at 12
+# N*m/rad, 0.04 at 20, 0.03 at 30, so stiffer trucks cannot reach a carve
+# inside the deck width. The ride keeps 15 to 180.
+STEER_TRUCK_STIFFNESS_SCALE: tuple[float, float] = (0.3, 0.6)
 # Share of envs told to ride straight (yaw 0, sampled speed kept), and the
 # speed command under which yaw is 0: a board that is not rolling cannot carve.
-STEER_STRAIGHT_SHARE = 0.3
+STEER_STRAIGHT_SHARE = 0.4
 STEER_YAW_MIN_SPEED = 0.1
 
 
@@ -595,61 +605,86 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """The split ride plus a commanded board yaw rate: push and lean to steer.
+  """The split ride plus a carve command: push and lean to steer.
+
+  The yaw command is a carve signal that works with the robot's heading hold
+  (see ``SteerVelocityCommand``). At yaw 0 the task is the ride: the hold keeps
+  the robot on the board's line. A carve command (0.4 to 0.6 rad/s, either
+  sign) is above the hold's threshold, so it reaches the policy as it is, and
+  asks for a board yaw rate of STEER_CARVE_GAIN times the command (0.04 to
+  0.06 rad/s) with the robot turning along with the board. When the carve ends
+  the hold recaptures the board's heading.
 
   The board turns only when the deck tilts, so this task trains on loosened
-  trucks (STEER_TRUCK_STIFFNESS_SCALE) that Pupper's weight can tilt. Only the
-  board's yaw rate is rewarded, not how the lean is made (the deck feet on the
-  deck edge, shifting the body, angled pushes): a tight tracking term plus
-  board_turn_progress, which pays from the first bit of turn. They replace the
-  ride's robot yaw-rate tracking. Every other term is the ride's: none of them
-  reads a world-frame heading (forward speed is along the board's own axis,
-  board alignment is in the robot's heading frame, board drift in the board's,
-  foot slide and the shoves are the same in every direction), so they hold once
-  the board has turned.
+  trucks (STEER_TRUCK_STIFFNESS_SCALE) that Pupper's weight can tilt. The
+  board's turn is paid only in carves, not how the lean is made: a tight
+  tracking term plus board_turn_progress, which pays from the first bit of
+  turn. The ride's robot yaw-rate term stays, with a carve asking the body for
+  the board's rate. Board alignment is twice as wide sideways as the ride's,
+  since a lean needs the deck feet about 4 cm off the centre line. Every other
+  term is the ride's: none of them reads a world-frame heading (forward speed
+  is along the board's own axis, board alignment is in the robot's heading
+  frame, board drift in the board's, foot slide and the shoves are the same in
+  every direction), so they hold once the board has turned.
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 
-  # The ride's command with a yaw rate. STEER_STRAIGHT_SHARE of envs ride
-  # straight at their sampled speed (rel_forward_envs would also lift it to
-  # 0.3 m/s, so it stays at the ride's 0), and speed commands under
-  # STEER_YAW_MIN_SPEED get no yaw. The standing share is drawn on its own and
-  # zeroes everything. rel_turn_envs stays 0: it would zero the speed and ask
-  # for 0.5 rad/s, outside this range. Heading hold is off here (the ride
-  # turns it on), and the command is the steer class, not the ride's board
-  # heading-hold class: only the stock command's fields carry over.
+  # The ride's board heading-hold command with carves on the yaw channel.
+  # STEER_STRAIGHT_SHARE of envs ride straight at their sampled speed
+  # (rel_forward_envs would also lift it to 0.3 m/s, so it stays at the ride's
+  # 0), and speed commands under STEER_YAW_MIN_SPEED get no carve. The standing
+  # share is drawn on its own and zeroes everything. rel_turn_envs stays 0: it
+  # would zero the speed. The yaw range is not drawn from; it is the export's
+  # wz clip, so it covers the carves.
   twist = cfg.commands["twist"]
-  assert isinstance(twist, mdp.PupperVelocityCommandCfg)
-  stock = dataclasses.fields(mdp.PupperVelocityCommandCfg)
-  fields = {f.name: getattr(twist, f.name) for f in stock}
+  assert isinstance(twist, mdp.BoardHeadingHoldCommandCfg)
+  fields = {f.name: getattr(twist, f.name) for f in dataclasses.fields(twist)}
   steer = mdp.SteerVelocityCommandCfg(
     **fields,
+    carve_range=STEER_CARVE_COMMAND_RANGE,
     rel_straight_envs=STEER_STRAIGHT_SHARE,
     yaw_min_speed=STEER_YAW_MIN_SPEED,
   )
-  steer.ranges = dataclasses.replace(twist.ranges, ang_vel_z=STEER_YAW_RATE_RANGE)
+  top = STEER_CARVE_COMMAND_RANGE[1]
+  steer.ranges = dataclasses.replace(twist.ranges, ang_vel_z=(-top, top))
   steer.rel_turn_envs = 0.0
-  steer.heading_hold_kp = None
   cfg.commands["twist"] = steer
 
   # Loosened trucks: the ride's stiffer range barely tilts under Pupper.
   stiffness = cfg.events["truck_stiffness"]
   stiffness.params = {**stiffness.params, "ranges": STEER_TRUCK_STIFFNESS_SCALE}
 
+  carve = {
+    "carve_threshold": STEER_CARVE_THRESHOLD,
+    "carve_gain": STEER_CARVE_GAIN,
+  }
   r = cfg.rewards
-  del r["board_yaw_rate"]
-  # The board's yaw rate is paid against the command here, not the robot's.
-  # The tight std makes riding straight under a 0.08 command pay about 2%;
+  # The ride's board yaw penalty, outside carves only.
+  r["board_yaw_rate"].params = {
+    "command_name": "twist",
+    "carve_threshold": STEER_CARVE_THRESHOLD,
+  }
+  # The robot follows the hold's correction as in the ride, and in a carve
+  # turns at the board's target rate.
+  r["track_yaw_rate"].params = {**r["track_yaw_rate"].params, **carve}
+  # The board's yaw rate, paid only in carves. With the tight std, riding
+  # straight under a 0.04 to 0.06 rad/s target pays 37 to 10% of the term;
   # board_turn_progress pays from the first bit of turn.
-  del r["track_yaw_rate"]
   r["track_board_yaw_rate"] = RewardTermCfg(
     func=mdp.track_board_yaw_rate,
     weight=2.0,
-    params={"command_name": "twist", "std": 0.04},
+    params={"command_name": "twist", "std": 0.04, **carve},
   )
   r["board_turn_progress"] = RewardTermCfg(
     func=mdp.board_turn_progress,
     weight=1.0,
-    params={"command_name": "twist", "command_threshold": 0.02},
+    params={
+      "command_name": "twist",
+      "command_threshold": STEER_CARVE_THRESHOLD,
+      **carve,
+    },
   )
+  # A lean needs the deck feet about 4 cm off the centre line, which the
+  # ride's 3 cm width charges 83% of the term for. The yaw width is the ride's.
+  r["board_alignment"].params = {**r["board_alignment"].params, "std_pos": 0.06}
   return cfg

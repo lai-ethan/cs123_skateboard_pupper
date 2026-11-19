@@ -5,10 +5,12 @@ Takes a training checkpoint (`model_*.pt`) or an exported `policy.json`.
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/render_policy.py \\
     Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt \\
-    out/ride.mp4 --speed 0.4 [--yaw-rate 0.2]
+    out/ride.mp4 --speed 0.4 [--yaw-rate 0.5]
 
-`--yaw-rate` commands a board yaw rate in rad/s (steer task); it defaults to
-0, the only yaw rate the other tasks trained on.
+`--yaw-rate` is the yaw command in rad/s; it defaults to 0, the only yaw the
+other tasks trained on. On the steer task 0 rides straight with the heading
+hold on, as in the ride, and a carve command (0.4 to 0.6, either sign) reaches
+the policy as it is and asks the board to turn at a tenth of it.
 """
 
 import argparse
@@ -26,7 +28,7 @@ ap.add_argument("out", type=Path, help="output .mp4; stills are saved next to it
 ap.add_argument("--steps", type=int, default=500, help="50 per second of sim")
 ap.add_argument("--speed", type=float, help="fixed board speed command, m/s (ride)")
 ap.add_argument(
-  "--yaw-rate", type=float, default=0.0, help="board yaw-rate command, rad/s"
+  "--yaw-rate", type=float, default=0.0, help="yaw (steer: carve) command, rad/s"
 )
 ap.add_argument("--azimuth", type=float, default=50.0)
 ap.add_argument("--elevation", type=float, default=-18.0)
@@ -73,4 +75,4 @@ print(
 if args.yaw_rate:
   # Wrapped to (-pi, pi]: a turn of more than half a circle reads short.
   turned = (turned + math.pi) % (2 * math.pi) - math.pi
-  print(f"board heading change {turned:.2f} rad (yaw-rate command {args.yaw_rate})")
+  print(f"board heading change {turned:.2f} rad (yaw command {args.yaw_rate})")

@@ -34,6 +34,7 @@ from .observations import (  # noqa: F401
 from .rewards import (  # noqa: F401
   ang_vel_xy_l2,
   base_height,
+  carve_yaw_target,
   forward_speed,
   heading_deviation,
   joint_deviation_l2,

@@ -13,6 +13,7 @@ import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
+from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 if TYPE_CHECKING:
@@ -102,11 +103,23 @@ def board_speed_l2(
 
 
 def board_yaw_rate_l2(
-  env: ManagerBasedRlEnv, board_cfg: SceneEntityCfg = _BOARD
+  env: ManagerBasedRlEnv,
+  board_cfg: SceneEntityCfg = _BOARD,
+  command_name: str | None = None,
+  carve_threshold: float | None = None,
 ) -> torch.Tensor:
-  """Penalize the board turning: yaw rate squared."""
+  """Penalize the board turning: yaw rate squared.
+
+  With ``command_name`` and ``carve_threshold`` set (steer task), envs whose
+  yaw command is a carve, above ``carve_threshold`` in magnitude, pay nothing.
+  """
   board: Entity = env.scene[board_cfg.name]
-  return torch.square(board.data.root_link_ang_vel_w[:, 2])
+  cost = torch.square(board.data.root_link_ang_vel_w[:, 2])
+  if command_name is None or carve_threshold is None:
+    return cost
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  return cost * (command[:, 2].abs() <= carve_threshold).float()
 
 
 def deck_roll_l2(
@@ -141,18 +154,30 @@ def track_board_yaw_rate(
   command_name: str,
   std: float,
   board_cfg: SceneEntityCfg = _BOARD,
+  carve_threshold: float | None = None,
+  carve_gain: float = 1.0,
 ) -> torch.Tensor:
   """Reward the board turning at the commanded yaw rate (steer task).
 
-  exp(-(cmd_wz - board_wz)^2 / std^2), with ``cmd_wz`` the command's yaw rate
-  (dim 2) and ``board_wz`` the board's yaw rate about world z, the quantity
-  ``board_yaw_rate_l2`` penalizes. How the board is made to turn is left open.
+  exp(-(target - board_wz)^2 / std^2), with ``board_wz`` the board's yaw rate
+  about world z, the quantity ``board_yaw_rate_l2`` penalizes, and ``target``
+  the command's yaw rate (dim 2). How the board is made to turn is left open.
+
+  With ``carve_threshold`` set, the target is the carve mapping's (see
+  ``carve_yaw_target``) and only carves pay: an env whose command is at or
+  under the threshold, the heading hold's correction, gets 0. The correction
+  turns the robot, not the board, and a quiet env then pays what the ride pays.
   """
   board: Entity = env.scene[board_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None
-  error = command[:, 2] - board.data.root_link_ang_vel_w[:, 2]
-  return torch.exp(-torch.square(error) / std**2)
+  cmd_wz = command[:, 2]
+  target = carve_yaw_target(cmd_wz, carve_threshold, carve_gain)
+  error = target - board.data.root_link_ang_vel_w[:, 2]
+  reward = torch.exp(-torch.square(error) / std**2)
+  if carve_threshold is None:
+    return reward
+  return reward * (cmd_wz.abs() > carve_threshold).float()
 
 
 def board_progress(
@@ -182,21 +207,26 @@ def board_turn_progress(
   command_name: str,
   command_threshold: float,
   board_cfg: SceneEntityCfg = _BOARD,
+  carve_threshold: float | None = None,
+  carve_gain: float = 1.0,
 ) -> torch.Tensor:
-  """Reward the board's share of the commanded yaw rate, clamp(board_wz / cmd, 0, 1).
+  """Reward the board's share of the commanded turn, clamp(board_wz / target, 0, 1).
 
   ``board_wz`` is the board's yaw rate about world z, as in
   ``track_board_yaw_rate``. That term is tight and flat far from the target;
   this one grows from the first bit of turn, so a small lean already pays.
   Turning the wrong way pays nothing, and so does a command at or under
-  ``command_threshold`` rad/s in magnitude.
+  ``command_threshold`` rad/s in magnitude. ``target`` is the command's yaw
+  rate, through the carve mapping when ``carve_threshold`` is set (see
+  ``carve_yaw_target``).
   """
   board: Entity = env.scene[board_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None
-  yaw_rate = command[:, 2]
-  active = yaw_rate.abs() > command_threshold
-  share = board.data.root_link_ang_vel_w[:, 2] / torch.where(active, yaw_rate, 1.0)
+  cmd_wz = command[:, 2]
+  active = cmd_wz.abs() > command_threshold
+  target = carve_yaw_target(cmd_wz, carve_threshold, carve_gain)
+  share = board.data.root_link_ang_vel_w[:, 2] / torch.where(active, target, 1.0)
   return torch.clamp(share, 0.0, 1.0) * active.float()
 
 

@@ -155,7 +155,8 @@ print("logger:", LOGGER)
 """
 
 REWARD_CELL = """\
-RIDE = "-Ride-" in TASK or "-Steer-" in TASK
+STEER = "-Steer-" in TASK
+RIDE = "-Ride-" in TASK or STEER
 SPLIT = "SkateSplit" in TASK
 
 # These are the shipped defaults. Change a number, then rerun from here.
@@ -180,6 +181,7 @@ if SPLIT:
     REWARD_WEIGHTS.update({
       "track_board_velocity": 3.0,
       "board_yaw_rate": -0.5,
+      "track_yaw_rate": 1.0,
       "push_stride": 0.5,
       "short_stride": -0.3,
       "feet_slide": -2.0,
@@ -194,6 +196,11 @@ if SPLIT:
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
+  if STEER:
+    REWARD_WEIGHTS.update({
+      "track_board_yaw_rate": 2.0,
+      "board_turn_progress": 1.0,
+    })
 else:
   REWARD_WEIGHTS = {
     "feet_on_deck": 0.5 if RIDE else 1.0,
@@ -284,8 +291,10 @@ out = [
     " on the deck, right feet on the floor) on a board that is free to roll. |\n"
     "| `Mjlab-SkateSplit-Ride-Pupper-v3` | Push with the right legs so the board"
     " rolls at the commanded speed (0 to 0.5 m/s). |\n"
-    "| `Mjlab-SkateSplit-Steer-Pupper-v3` | The split ride plus a commanded board"
-    " yaw rate, so the board steers as well as rolls. |\n\n"
+    "| `Mjlab-SkateSplit-Steer-Pupper-v3` | The split ride plus a carve command"
+    " (0.4 to 0.6 rad/s, either sign) that asks the board to turn at a tenth of"
+    " it, by leaning the deck. At yaw 0 it is the ride, heading hold on. Trains"
+    " on loosened trucks (9 to 18 N m/rad). |\n\n"
     "Train a stance's balance task before its ride task.\n"
   ),
   code(
@@ -294,8 +303,8 @@ out = [
     "#   Mjlab-Skate-Ride-Pupper-v3          centred: tripod, stroke the BR foot\n"
     "#   Mjlab-SkateSplit-Balance-Pupper-v3  split: hold the stance, right feet down\n"
     "#   Mjlab-SkateSplit-Ride-Pupper-v3     split: push with the right legs to ride\n"
-    "#   Mjlab-SkateSplit-Steer-Pupper-v3    split: ride plus a commanded board"
-    " yaw rate\n"
+    "#   Mjlab-SkateSplit-Steer-Pupper-v3    split: ride plus a carve command"
+    " to lean into a turn\n"
     'TASK = "Mjlab-Skate-Balance-Pupper-v3"\n'
     "NUM_ENVS = 4096  # halve it if you hit GPU OOM\n"
     "ITERATIONS = 1500\n"

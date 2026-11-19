@@ -35,15 +35,19 @@ def fix_speed(env_cfg: Any, speed: float) -> None:
 
 
 def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
-  """Command a fixed board yaw rate in rad/s in every env.
+  """Command a fixed yaw rate in rad/s in every env.
 
-  Also turns off the forward-only, turn-only and straight (steer task)
-  command shares, which would zero or replace the yaw rate (and lift or zero
-  the speed) in some envs. The steer task still gives no yaw to speed
-  commands under its `yaw_min_speed`. On
+  Also turns off the forward-only and turn-only command shares, which would
+  zero or replace the yaw rate (and lift or zero the speed) in some envs. On
   the tasks with no yaw command (all but the steer task) a yaw rate of 0 is
   the trained range already, and both shares are already 0, so nothing
   changes.
+
+  On the steer task the yaw command is a carve signal. A yaw rate of 0 makes
+  every env ride straight, so the heading hold is on, as in the ride. Any
+  other value is the raw carve command in every env, with its sign (the task
+  trained on 0.4 to 0.6 rad/s; under 0.1 the hold replaces it). Speed
+  commands under the task's `yaw_min_speed` still get no carve.
   """
   twist = env_cfg.commands["twist"]
   assert isinstance(twist, PupperVelocityCommandCfg)
@@ -51,7 +55,13 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
   twist.rel_forward_envs = 0.0
   twist.rel_turn_envs = 0.0
   if isinstance(twist, SteerVelocityCommandCfg):
-    twist.rel_straight_envs = 0.0
+    # The steer command draws its carve from carve_range, not ang_vel_z.
+    if yaw_rate == 0.0:
+      twist.rel_straight_envs = 1.0
+    else:
+      twist.rel_straight_envs = 0.0
+      twist.carve_range = (abs(yaw_rate), abs(yaw_rate))
+      twist.carve_left_share = 1.0 if yaw_rate > 0.0 else 0.0
 
 
 def load_policy(
