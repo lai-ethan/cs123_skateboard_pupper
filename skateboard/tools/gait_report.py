@@ -38,10 +38,13 @@ board to turn at a tenth of it. The report always prints the board's mean yaw
 rate; when `--yaw-rate` is not 0 it adds the ratio to the board yaw rate the
 command asks for. That line is not part of the verdict. The steer task needs
 a positive `--speed`, like a ride.
-Two more lines are not part of the verdict: the measured resets by
-termination name, and (split tasks) the largest fore-aft slide of the robot
-along the deck over all envs and steps, the quantity `board_slid` ends the
-episode on.
+Three more lines are not part of the verdict: the measured resets by
+termination name and, for split tasks, two about the robot sliding along the
+deck. One is the largest fore-aft slide over all envs and steps, the quantity
+`board_slid` ends the episode on, sampled after the auto-reset (so a reset env
+shows its fresh pose, and the slide that ended the episode is not seen). The
+other is the fastest mean creep rate of any env, from the per-step change of
+that slide, leaving out the steps where the env reset.
 The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
 """
 
@@ -172,6 +175,23 @@ def yaw_rate_ratio(board_yaw_rate: np.ndarray, target: float) -> tuple[float, fl
   return mean, mean / target
 
 
+def fastest_creep(slide: np.ndarray, done: np.ndarray, dt: float) -> tuple[float, int]:
+  """The fastest mean creep along the deck [m/s] and its env.
+
+  `slide` is the [T, envs] `board_slide` after each step and `done` the
+  [T, envs] resets of those steps. The rate is each env's mean per-step change
+  of the slide over `dt`, leaving out the steps where the env reset, so the
+  reset's jump does not count. Negative is towards the nose. "Fastest" is the
+  largest in size; an env that reset on every step has rate 0.
+  """
+  change = np.diff(np.asarray(slide), axis=0)
+  keep = ~np.asarray(done, dtype=bool)[1:]
+  counts = keep.sum(axis=0)
+  rates = np.where(keep, change, 0.0).sum(axis=0) / np.maximum(counts, 1) / dt
+  env = int(np.argmax(np.abs(rates)))
+  return float(rates[env]), env
+
+
 def deck_offset(deck_height: float, nominal: float) -> float:
   """The deck height event's offset in m for a deck top `deck_height` m up."""
   return deck_height - nominal
@@ -244,7 +264,7 @@ def main(argv: list[str] | None = None) -> int:
   obs = obs[0] if isinstance(obs, tuple) else obs
   # Each list gets one [envs, ...] array per measured step.
   joint_vel, torque, deck, ground, board_speed = [], [], [], [], []
-  board_yaw_rate, slide = [], []
+  board_yaw_rate, slide, done_steps = [], [], []
   resets = np.zeros(args.envs, dtype=int)
   terms = raw.termination_manager
   reasons = {name: 0 for name in terms.active_terms}
@@ -254,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
       if step < args.skip:
         continue
       resets += done.cpu().numpy().astype(int)
+      done_steps.append(done.cpu().numpy().astype(bool))
       if done.any():
         for name in reasons:
           reasons[name] += int(terms.get_term(name)[done.bool()].sum().item())
@@ -318,8 +339,14 @@ def main(argv: list[str] | None = None) -> int:
     slide_a = np.abs(np.stack(slide))
     slide_env = int(np.argmax(slide_a.max(axis=0)))
     print(
-      "largest fore-aft slide along the deck (not part of the verdict): "
-      f"{slide_a.max():.3f} m in env {slide_env}"
+      "largest fore-aft slide along the deck, sampled after the auto-reset (not"
+      f" part of the verdict): {slide_a.max():.3f} m in env {slide_env}"
+    )
+    rate, creep_env = fastest_creep(np.stack(slide), np.stack(done_steps), raw.step_dt)
+    way = "towards the nose" if rate < 0 else "towards the tail"
+    print(
+      "fastest mean creep along the deck (not part of the verdict): "
+      f"{abs(rate) * 100:.2f} cm/s {way} in env {creep_env}"
     )
   rows = gait_verdict(per_env)
   duty_env = next(row[5] for row in rows if row[0] == "min_foot_duty")

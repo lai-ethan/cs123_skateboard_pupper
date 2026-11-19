@@ -110,8 +110,21 @@ STEER_YAW_MIN_SPEED = 0.1
 # about 1e-4 per step at these speeds. So the episode ends once the robot is
 # 8 cm along the deck from the keyframe (a fresh reset starts within 6.6 cm),
 # and a 3 cm width pays for staying put long before that.
+# Steer run a9x8z66m trained 3000 iterations with both. The deck feet still
+# crept forward in 14 of 16 envs, at 0 to 0.66 cm/s (mean about 0.3; the run
+# before: 0.6 to 2.4). With board_slid off for 60 s none fell in the first
+# 29 s, then 6 of 16 ran the front left foot off the nose. No randomised value
+# explains the rate (|r| <= 0.25) and a tighter contact solve does not change
+# it, so it is the gait, and the envs that start furthest forward creep
+# fastest. The policy cannot see the board, and the 8 cm end comes 15 to 30 s
+# after the creep starts, far past the 2 s the discount looks ahead. So
+# board_creep charges the creep rate as it happens: averaged over
+# BOARD_CREEP_TAU (the stride is about 2 Hz, so its own back-and-forth cancels)
+# and full cost at BOARD_CREEP_CAP. At weight -1, 0.3 cm/s costs 0.15 a step.
 BOARD_MAX_SLIDE = 0.08
 BOARD_SLIDE_STD = 0.03
+BOARD_CREEP_TAU = 2.0
+BOARD_CREEP_CAP = 0.02
 
 
 def _contact(
@@ -623,6 +636,13 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   )
   r["board_fore_aft"] = RewardTermCfg(
     func=mdp.board_fore_aft, weight=1.0, params={"std": BOARD_SLIDE_STD}
+  )
+  # And the slow slide that leads there, charged while it happens (see the
+  # constants).
+  r["board_creep"] = RewardTermCfg(
+    func=mdp.board_creep,
+    weight=-1.0,
+    params={"tau": BOARD_CREEP_TAU, "rate_cap": BOARD_CREEP_CAP},
   )
   return cfg
 

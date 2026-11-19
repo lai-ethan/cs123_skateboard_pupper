@@ -194,6 +194,7 @@ if SPLIT:
       "joint_acc": -1e-6,
       "swing_height": -5.0,
       "board_fore_aft": 1.0,
+      "board_creep": -1.0,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -377,6 +378,8 @@ out = [
     " the robot (ride: tighter, about 3 cm) |\n"
     "| `board_fore_aft` | n/a | 1.0 | robot holds its place along the deck (3 cm"
     " width) |\n"
+    "| `board_creep` | n/a | -1.0 | robot creeping along the deck, averaged over"
+    " 2 s (full cost at 2 cm/s) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"

@@ -48,6 +48,8 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  BOARD_CREEP_CAP,
+  BOARD_CREEP_TAU,
   BOARD_MAX_SLIDE,
   BOARD_SLIDE_STD,
   STEER_CARVE_COMMAND_RANGE,
@@ -405,6 +407,7 @@ SPLIT_RIDE_WEIGHTS = {
   "joint_acc": -1e-6,
   "swing_height": -5.0,
   "board_fore_aft": 1.0,
+  "board_creep": -1.0,
 }
 
 # The centred configs as they were before the split tasks came back, plus the
@@ -637,6 +640,10 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   fore_aft = cfg.rewards["board_fore_aft"]
   assert fore_aft.func is mdp.board_fore_aft and fore_aft.weight == 1.0
   assert fore_aft.params == {"std": 0.03} and BOARD_SLIDE_STD == 0.03
+  creep = cfg.rewards["board_creep"]
+  assert creep.func is mdp.board_creep and creep.weight == -1.0
+  assert creep.params == {"tau": 2.0, "rate_cap": 0.02}
+  assert BOARD_CREEP_TAU == 2.0 and BOARD_CREEP_CAP == 0.02
   # The termination penalty stays where it was.
   assert cfg.rewards["termination"].weight == -100.0
 
@@ -656,6 +663,7 @@ def test_other_skate_tasks_have_none_of_the_long_ride_changes(make_cfg):
     assert "board_drifted" not in cfg.terminations
     assert "board_slid" not in cfg.terminations
     assert "board_fore_aft" not in cfg.rewards
+    assert "board_creep" not in cfg.rewards
     for name in ("wheel_drag", "deck_foot_friction", "floor_foot_friction"):
       assert name not in cfg.events, name
     events = cfg.events
@@ -1141,6 +1149,98 @@ def test_board_fore_aft_pays_1_at_the_keyframe_and_falls_with_the_slide():
   assert mdp.board_fore_aft(env, std=BOARD_SLIDE_STD).item() == pytest.approx(1.0)
 
 
+_STEP_DT = 0.02
+
+
+def _creep_env(n: int) -> tuple[Any, Any, Any]:
+  """A fake env at the keyframe, the board_creep term on it, and a setter that
+  puts the robot ``x`` [m] along the deck from the keyframe in each env."""
+  env = _fake_board_env([[0.0, 0.0]] * n, [0.0] * n)
+  env.num_envs, env.device, env.step_dt = n, "cpu", _STEP_DT
+  board_pos = env.scene["board"].data.root_link_pos_w
+  start = board_pos[:, 0].clone()
+
+  def set_slide(x: list[float]) -> None:
+    board_pos[:, 0] = start + torch.tensor(x)
+
+  return env, mdp.board_creep(cfg=None, env=env), set_slide  # type: ignore[arg-type]
+
+
+def _creep(term: Any, env: Any) -> torch.Tensor:
+  return term(env, tau=BOARD_CREEP_TAU, rate_cap=BOARD_CREEP_CAP)
+
+
+def test_board_creep_is_0_for_a_robot_that_holds_its_place():
+  env, term, set_slide = _creep_env(2)
+  set_slide([0.0, 0.03])  # Held still, at the keyframe or 3 cm off it.
+  for _ in range(200):
+    assert _creep(term, env).abs().max().item() < 1e-6
+
+
+def test_board_creep_averages_out_the_stride():
+  # Env 0 rocks 2 mm either way at 2 Hz, a peak speed of 2.5 cm/s; env 1 creeps
+  # steadily at that speed. The average leaves about amplitude / tau of the
+  # rocking (1 mm/s, 0.05 of the cap), swinging both ways around 0.
+  env, term, set_slide = _creep_env(2)
+  peak = 0.002 * 2 * math.pi * 2.0
+  rocking, cost = [], torch.zeros(2)
+  for i in range(1, 251):  # 5 s.
+    t = i * _STEP_DT
+    set_slide([0.002 * math.sin(2 * math.pi * 2.0 * t), peak * t])
+    cost = _creep(term, env)
+    if t > 3.0:
+      rocking.append(cost[0].item())
+  assert max(rocking) < 0.07
+  assert sum(rocking) / len(rocking) < 0.05
+  assert cost[1].item() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+def test_board_creep_converges_to_the_creep_over_the_cap(sign):
+  env, term, set_slide = _creep_env(1)
+  cost = torch.zeros(1)
+  for i in range(1, 501):  # 10 s, five tau.
+    set_slide([sign * 0.005 * i * _STEP_DT])
+    cost = _creep(term, env)
+  assert cost.item() == pytest.approx(0.005 / 0.02, abs=0.005)
+
+
+def test_board_creep_is_capped_at_1():
+  env, term, set_slide = _creep_env(1)
+  cost = torch.zeros(1)
+  for i in range(1, 501):
+    set_slide([0.1 * i * _STEP_DT])  # 10 cm/s, five times the cap.
+    cost = _creep(term, env)
+  assert cost.item() == pytest.approx(1.0)
+
+
+def test_board_creep_reset_clears_only_that_env_and_ignores_the_jump():
+  env, term, set_slide = _creep_env(3)
+  before = torch.zeros(3)
+  for i in range(1, 301):
+    set_slide([0.005 * i * _STEP_DT] * 3)
+    before = _creep(term, env)
+  assert before.min().item() > 0.2
+  x = 0.005 * 300 * _STEP_DT
+  term.reset(env_ids=torch.tensor([1]))
+  # The reset moved env 1's robot 5 cm along the deck; the others creep on.
+  step = 0.005 * _STEP_DT
+  set_slide([x + step, x - 0.05, x + step])
+  after = _creep(term, env)
+  assert after[1].item() == 0.0
+  assert after[0].item() == pytest.approx(before[0].item(), abs=1e-3)
+  assert after[2].item() == pytest.approx(before[2].item(), abs=1e-3)
+  # From there env 1 starts from nothing: one step of creep costs a little.
+  set_slide([x + 2 * step, x - 0.05 + step, x + 2 * step])
+  assert _creep(term, env)[1].item() == pytest.approx(
+    0.005 * _STEP_DT / BOARD_CREEP_TAU / BOARD_CREEP_CAP, rel=1e-3
+  )
+  # A full reset clears every env.
+  term.reset(env_ids=None)
+  set_slide([0.0, 0.0, 0.0])
+  assert _creep(term, env).abs().max().item() == 0.0
+
+
 def test_board_fore_aft_offset_is_in_the_board_heading_frame():
   # Board 0.146 m to the robot's left, turned 0.5 rad: the sideways offset
   # swings onto the board's forward axis by the sine.
@@ -1172,6 +1272,31 @@ def test_board_slid_through_the_termination_manager():
   fired = env.termination_manager.get_term("board_slid")
   assert fired.tolist() == [False, False, True, True]
   assert not env.termination_manager.get_term("board_drifted").any()
+  env.close()
+
+
+@pytest.mark.slow
+def test_board_creep_through_the_reward_manager():
+  env = ManagerBasedRlEnv(cfg=_calm_ride_cfg(4), device=get_test_device())
+  env.reset()
+  actions = torch.zeros(4, 12, device=env.device)
+  names = env.reward_manager.active_terms
+  column = names.index("board_creep")
+  for _ in range(20):
+    env.step(actions)
+  # A reset that moves env 1's board 6 cm along the deck pays 0 on the step
+  # after it; reward_manager.reset runs before the scene is forwarded.
+  env.reset(env_ids=torch.tensor([1], device=env.device))
+  board = env.scene["board"]
+  pose = board.data.root_link_pose_w.clone()
+  pose[1, 0] += 0.06
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  env.step(actions)
+  step_cost = env.reward_manager._step_reward[:, column]
+  assert step_cost[1].item() == 0.0
+  assert torch.isfinite(step_cost).all()
+  assert (step_cost <= 0.0).all() and (step_cost >= -1.0).all()
   env.close()
 
 
@@ -1359,6 +1484,9 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     assert steer.terminations["board_slid"].func is mdp.board_slid
     assert steer.terminations["board_slid"].params == {"max_slide": 0.08}
     assert steer.rewards["board_fore_aft"].params == {"std": 0.03}
+    assert steer.rewards["board_creep"].func is mdp.board_creep
+    assert steer.rewards["board_creep"].weight == -1.0
+    assert steer.rewards["board_creep"].params == {"tau": 2.0, "rate_cap": 0.02}
     assert steer.events.keys() == ride.events.keys()
     assert steer.observations["critic"].terms.keys() == (
       ride.observations["critic"].terms.keys()

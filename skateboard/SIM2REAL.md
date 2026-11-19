@@ -340,9 +340,20 @@ so the robot keeps itself parallel to the board.
   was about 1e-4 per step at these speeds. The split ride and steer now end
   the episode once the robot is 8 cm along the deck from where the stance
   puts it, either way (`board_slid`; a reset starts within 6.6 cm of that). A
-  new reward,
-  `board_fore_aft` (weight 1.0, 3 cm width), pays for staying put long before
-  that. Policies trained before this change have neither.
+  new reward, `board_fore_aft` (weight 1.0, 3 cm width), pays for staying put
+  long before that. Policies trained before this change have neither.
+- **Creeping along the deck.** The steer run `a9x8z66m` trained 3000
+  iterations with both. The creep was slower but still there: 14 of 16 envs
+  crept forward at 0 to 0.66 cm/s, about 0.3 on average. With `board_slid`
+  off for 60 s, none fell in the first 29 s, then 6 of 16 ran the front left
+  foot off the nose. No randomised value explains the rate, and a tighter
+  contact solve does not change it, so it comes from the gait. The policy
+  cannot see the board, and the 8 cm end arrives 15 to 30 s after the creep
+  starts, far past the 2 s that training looks ahead. So a new cost,
+  `board_creep` (weight -1.0), charges the creep while it happens: the slide's
+  rate averaged over 2 s, so the stride's own rocking cancels, with full cost
+  at 2 cm/s. 0.3 cm/s costs 0.15 a step. Policies trained before this change
+  do not have it.
 
 ## What changed from v1
 

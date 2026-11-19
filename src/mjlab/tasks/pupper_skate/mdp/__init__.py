@@ -17,6 +17,7 @@ from .observations import (  # noqa: F401
 )
 from .rewards import (  # noqa: F401
   board_alignment,
+  board_creep,
   board_fore_aft,
   board_progress,
   board_speed_l2,

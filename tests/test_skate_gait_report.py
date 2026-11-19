@@ -340,3 +340,33 @@ def test_yaw_rate_ratio_compares_the_board_to_the_command():
   assert mean == pytest.approx(0.1) and ratio == pytest.approx(0.5)
   mean, ratio = gr.yaw_rate_ratio(np.array([-0.3, -0.1]), -0.2)
   assert mean == pytest.approx(-0.2) and ratio == pytest.approx(1.0)
+
+
+def test_fastest_creep_names_the_env_and_its_way():
+  # Env 0 holds still, env 1 creeps towards the nose at 0.5 cm/s, env 2 towards
+  # the tail at 0.3 cm/s.
+  t = np.arange(100)[:, None] * DT
+  slide = t * np.array([0.0, -0.005, 0.003])
+  done = np.zeros_like(slide, dtype=bool)
+  rate, env = gr.fastest_creep(slide, done, DT)
+  assert env == 1 and rate == pytest.approx(-0.005)
+
+
+def test_fastest_creep_leaves_out_the_reset_jump():
+  # Env 0 creeps at 0.2 cm/s and resets 5 cm back at step 50; env 1 is still.
+  t = np.arange(100) * DT
+  slide = np.stack([0.002 * t, np.zeros(100)], axis=1)
+  slide[50:, 0] -= 0.05
+  done = np.zeros_like(slide, dtype=bool)
+  done[50, 0] = True
+  rate, env = gr.fastest_creep(slide, done, DT)
+  assert env == 0 and rate == pytest.approx(0.002)
+  # Counted in, the jump would swamp the creep.
+  rate, _ = gr.fastest_creep(slide, np.zeros_like(done), DT)
+  assert rate < 0
+
+
+def test_fastest_creep_of_an_env_that_always_resets_is_0():
+  slide = np.array([[0.0], [0.05], [-0.05]])
+  done = np.ones_like(slide, dtype=bool)
+  assert gr.fastest_creep(slide, done, DT) == (0.0, 0)
