@@ -74,6 +74,27 @@
 
 ---
 
+### Task 4: Steer task learns to lean on loosened trucks
+
+**Why:** the team needs Pupper to steer the board itself. The board turns only when the deck tilts (0.0165 rad/s per degree at 0.3 m/s; turn radius 6 m at 3 degrees, 2.6 m at 7). Steer run `jl7i4id0` did not turn for three reasons, all in the task: it trained on truck stiffness 15 to 180 N*m/rad (mean about 98), where Pupper's weight tilts the deck under 1 degree; the reward (`std` 0.15) paid about 0.8 for riding straight; and the 0.15 rad/s command was out of reach. At 15 to 30 N*m/rad a 20 N edge load turns the board 0.05 to 0.11 rad/s. This task makes the steer task a lean-steer task for loosened trucks (a hardware condition the team accepts for steering).
+
+**Files:**
+- Modify: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py` (constants near `STEER_YAW_RATE_RANGE`, and `pupper_skate_split_steer_env_cfg`)
+- Modify: `src/mjlab/tasks/pupper_skate/mdp/rewards.py` (one new term)
+- Test: `tests/test_pupper_skate_split.py`
+
+**Requirements:**
+1. `STEER_YAW_RATE_RANGE = (-0.08, 0.08)`; rewrite its comment with the numbers above (0.08 rad/s at 0.3 m/s is about 5 degrees of tilt, a 3.75 m radius). New constant `STEER_TRUCK_STIFFNESS_SCALE: tuple[float, float] = (0.4, 1.0)` with a comment: 12 to 30 N*m/rad, loosened trucks; the ride keeps 15 to 180.
+2. In `pupper_skate_split_steer_env_cfg` only: set the `truck_stiffness` event's `ranges` to `STEER_TRUCK_STIFFNESS_SCALE`. The ride and balance cfgs must keep `(0.5, 6.0)` (build both in a test and check; do not mutate a shared object).
+3. `track_board_yaw_rate` keeps weight 2.0; `std` becomes 0.04 (riding straight under a 0.08 command now pays exp(-4), about 2%).
+4. New reward function `board_turn_progress(env, command_name: str, command_threshold: float, board_cfg=_BOARD) -> torch.Tensor` in `mdp/rewards.py`, written like `board_progress` beside it: `clamp(board_wz / cmd_wz, 0, 1)` where `|cmd_wz| > command_threshold`, else 0, with `board_wz` the board's yaw rate about world z exactly as `track_board_yaw_rate` reads it and `cmd_wz` command dim 2. Turning the wrong way pays nothing. Docstring in the style of `board_progress`: the tight tracking term is flat far from the target, this one grows from the first bit of turn. Add it to the steer cfg as `board_turn_progress`, `weight=1.0`, `params={"command_name": "twist", "command_threshold": 0.02}`.
+5. Update the steer cfg docstring so it stays true (lean steering on loosened trucks; how the lean is made is still left to the policy). Change nothing else: no other weight, no termination, not the ride, balance or centred tasks, not the command class.
+6. Tests (plain functions, the file's style and helpers): the three constants' values; steer cfg `truck_stiffness` ranges equal `STEER_TRUCK_STIFFNESS_SCALE` while ride and balance cfgs still have `(0.5, 6.0)`; steer cfg has `track_board_yaw_rate` std 0.04 weight 2.0 and `board_turn_progress` weight 1.0, and the ride cfg has no `board_turn_progress`; `board_turn_progress` called on a built steer env (few envs, state and command written directly, as the file's existing reward-value tests do) gives 0.5 at half the commanded rate, 1.0 at and above it, 0.0 for the opposite sign, 0.0 for a command of 0.01, and works for a negative command. Fix any existing test that encodes the old steer numbers (0.15, std 0.15) only where the new number is this task's documented value.
+7. Measure and put in the report (not a test): in the built steer env in play mode on CPU (8 envs), the deck roll joint stiffness values the event produced (min and max, expect within 12 to 30); and, holding the robot's default split stance with zero actions for 2 s at k scale 0.5 with the board rolling at 0.3 m/s if that is simple to set up, the deck roll angle and board yaw rate (this shows which way the stance already leans the board). If the second measurement is not simple, say so and skip it.
+8. Run `tests/test_pupper_skate_split.py` and `tests/test_pupper_skate.py` (one per Bash call), `uv run ruff format` + `uv run ruff check --fix` and `uv run pyright` on the touched files. Commit: `feat: steer task trains lean steering on loosened trucks`.
+
+---
+
 ### Task 2 (controller): height sweep, train, judge, document
 
 Not dispatched; run by the controller.
