@@ -350,9 +350,9 @@ so the robot keeps itself parallel to the board.
   contact solve does not change it, so it comes from the gait. The policy
   cannot see the board, and the 8 cm end arrives 15 to 30 s after the creep
   starts, far past the 2 s that training looks ahead. So a new cost,
-  `board_creep` (weight -1.0), charges the creep while it happens: the slide's
-  rate averaged over 2 s, so the stride's own rocking cancels, with full cost
-  at 2 cm/s. 0.3 cm/s costs 0.15 a step. Policies trained before this change
+  `board_creep` (weight -1.0), charges the creep while it happens, with full
+  cost at 2 cm/s. The slide's rate goes through two 1 s averages in a row, so
+  the stride's own rocking cancels and only a steady creep is left. 0.3 cm/s costs 0.15 a step. Policies trained before this change
   do not have it.
 
 ## What changed from v1

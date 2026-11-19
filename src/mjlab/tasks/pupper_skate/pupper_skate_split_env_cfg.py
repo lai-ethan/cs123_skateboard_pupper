@@ -118,12 +118,15 @@ STEER_YAW_MIN_SPEED = 0.1
 # it, so it is the gait, and the envs that start furthest forward creep
 # fastest. The policy cannot see the board, and the 8 cm end comes 15 to 30 s
 # after the creep starts, far past the 2 s the discount looks ahead. So
-# board_creep charges the creep rate as it happens: averaged over
-# BOARD_CREEP_TAU (the stride is about 2 Hz, so its own back-and-forth cancels)
-# and full cost at BOARD_CREEP_CAP. At weight -1, 0.3 cm/s costs 0.15 a step.
+# board_creep charges the creep rate as it happens, with full cost at
+# BOARD_CREEP_CAP. At weight -1, 0.3 cm/s costs 0.15 a step. The rate goes
+# through two averages in a row, BOARD_CREEP_TAU each (about 2 s of lag in all),
+# to cancel the stride's own back-and-forth (about 2 Hz): one average leaves
+# about amplitude / tau of it, two leave about amplitude / (omega * tau^2),
+# roughly six times less.
 BOARD_MAX_SLIDE = 0.08
 BOARD_SLIDE_STD = 0.03
-BOARD_CREEP_TAU = 2.0
+BOARD_CREEP_TAU = 1.0
 BOARD_CREEP_CAP = 0.02
 
 

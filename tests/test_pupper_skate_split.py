@@ -642,8 +642,8 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   assert fore_aft.params == {"std": 0.03} and BOARD_SLIDE_STD == 0.03
   creep = cfg.rewards["board_creep"]
   assert creep.func is mdp.board_creep and creep.weight == -1.0
-  assert creep.params == {"tau": 2.0, "rate_cap": 0.02}
-  assert BOARD_CREEP_TAU == 2.0 and BOARD_CREEP_CAP == 0.02
+  assert creep.params == {"tau": 1.0, "rate_cap": 0.02}
+  assert BOARD_CREEP_TAU == 1.0 and BOARD_CREEP_CAP == 0.02
   # The termination penalty stays where it was.
   assert cfg.rewards["termination"].weight == -100.0
 
@@ -1178,20 +1178,20 @@ def test_board_creep_is_0_for_a_robot_that_holds_its_place():
 
 
 def test_board_creep_averages_out_the_stride():
-  # Env 0 rocks 2 mm either way at 2 Hz, a peak speed of 2.5 cm/s; env 1 creeps
-  # steadily at that speed. The average leaves about amplitude / tau of the
-  # rocking (1 mm/s, 0.05 of the cap), swinging both ways around 0.
+  # Env 0 rocks 1 cm either way at 2 Hz, a peak speed of 12.6 cm/s; env 1 creeps
+  # steadily at that speed. Two averages leave about amplitude / (omega tau^2)
+  # of the rocking (0.8 mm/s, 0.04 of the cap; one 2 s average left about
+  # 0.25), swinging both ways around 0.
   env, term, set_slide = _creep_env(2)
-  peak = 0.002 * 2 * math.pi * 2.0
+  omega = 2 * math.pi * 2.0
   rocking, cost = [], torch.zeros(2)
-  for i in range(1, 251):  # 5 s.
+  for i in range(1, 501):  # 10 s.
     t = i * _STEP_DT
-    set_slide([0.002 * math.sin(2 * math.pi * 2.0 * t), peak * t])
+    set_slide([0.01 * math.sin(omega * t), 0.01 * omega * t])
     cost = _creep(term, env)
-    if t > 3.0:
+    if t > 6.0:
       rocking.append(cost[0].item())
-  assert max(rocking) < 0.07
-  assert sum(rocking) / len(rocking) < 0.05
+  assert max(rocking) < 0.08
   assert cost[1].item() == pytest.approx(1.0)
 
 
@@ -1232,8 +1232,10 @@ def test_board_creep_reset_clears_only_that_env_and_ignores_the_jump():
   assert after[2].item() == pytest.approx(before[2].item(), abs=1e-3)
   # From there env 1 starts from nothing: one step of creep costs a little.
   set_slide([x + 2 * step, x - 0.05 + step, x + 2 * step])
+  # One step through both averages: (dt / tau)^2 of the rate.
+  gain = _STEP_DT / BOARD_CREEP_TAU
   assert _creep(term, env)[1].item() == pytest.approx(
-    0.005 * _STEP_DT / BOARD_CREEP_TAU / BOARD_CREEP_CAP, rel=1e-3
+    gain**2 * 0.005 / BOARD_CREEP_CAP, rel=1e-3
   )
   # A full reset clears every env.
   term.reset(env_ids=None)
@@ -1486,7 +1488,7 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     assert steer.rewards["board_fore_aft"].params == {"std": 0.03}
     assert steer.rewards["board_creep"].func is mdp.board_creep
     assert steer.rewards["board_creep"].weight == -1.0
-    assert steer.rewards["board_creep"].params == {"tau": 2.0, "rate_cap": 0.02}
+    assert steer.rewards["board_creep"].params == {"tau": 1.0, "rate_cap": 0.02}
     assert steer.events.keys() == ride.events.keys()
     assert steer.observations["critic"].terms.keys() == (
       ride.observations["critic"].terms.keys()

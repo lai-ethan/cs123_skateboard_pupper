@@ -116,13 +116,15 @@ class board_creep:
   """Cost of a slow, steady slide along the deck, in [0, 1].
 
   The rate is the per-step change of ``board_slide`` over the control step,
-  smoothed by an exponential average with time constant ``tau`` [s] so the
-  stride's own back-and-forth cancels out and only a steady drift is left. The
-  cost is ``min(|average|, rate_cap) / rate_cap``. ``board_fore_aft`` pays for
+  smoothed by two exponential averages in a row, each with time constant
+  ``tau`` [s], so the stride's own back-and-forth cancels out and only a steady
+  drift is left. One average would leave about amplitude / tau of the stride;
+  two leave about amplitude / (omega * tau^2). The cost is
+  ``min(|average|, rate_cap) / rate_cap``. ``board_fore_aft`` pays for
   where the robot is; this pays for where it is heading, while it is heading
   there, long before ``board_slid`` ends the episode.
 
-  Keeps the last slide and the average per env. A reset zeroes the average and
+  Keeps the last slide and both averages per env. A reset zeroes them and
   marks the env, and the env's first call after it only records the slide and
   costs 0: the reward manager resets before the scene is forwarded, so the
   fresh pose is not readable in ``reset``, and the reset jump must not read as
@@ -131,14 +133,16 @@ class board_creep:
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg  # Unused.
-    self._ema = torch.zeros(env.num_envs, device=env.device)
+    self._ema1 = torch.zeros(env.num_envs, device=env.device)
+    self._ema2 = torch.zeros(env.num_envs, device=env.device)
     self._prev = torch.zeros(env.num_envs, device=env.device)
     self._fresh = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
 
   def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
     if env_ids is None:
       env_ids = slice(None)
-    self._ema[env_ids] = 0.0
+    self._ema1[env_ids] = 0.0
+    self._ema2[env_ids] = 0.0
     self._fresh[env_ids] = True
 
   def __call__(
@@ -152,10 +156,12 @@ class board_creep:
     slide = board_slide(env, robot_cfg, board_cfg)
     prev = torch.where(self._fresh, slide, self._prev)
     rate = (slide - prev) / env.step_dt
-    self._ema = self._ema + (env.step_dt / tau) * (rate - self._ema)
+    gain = env.step_dt / tau
+    self._ema1 = self._ema1 + gain * (rate - self._ema1)
+    self._ema2 = self._ema2 + gain * (self._ema1 - self._ema2)
     self._prev = slide.clone()
     self._fresh[:] = False
-    return torch.clamp(self._ema.abs(), max=rate_cap) / rate_cap
+    return torch.clamp(self._ema2.abs(), max=rate_cap) / rate_cap
 
 
 def board_speed_l2(
