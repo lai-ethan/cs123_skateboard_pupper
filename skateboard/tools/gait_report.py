@@ -38,6 +38,10 @@ board to turn at a tenth of it. The report always prints the board's mean yaw
 rate; when `--yaw-rate` is not 0 it adds the ratio to the board yaw rate the
 command asks for. That line is not part of the verdict. The steer task needs
 a positive `--speed`, like a ride.
+Two more lines are not part of the verdict: the measured resets by
+termination name, and (split tasks) the largest fore-aft slide of the robot
+along the deck over all envs and steps, the quantity `board_slid` ends the
+episode on.
 The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
 """
 
@@ -207,6 +211,7 @@ def main(argv: list[str] | None = None) -> int:
   )
   from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import PUPPER_EFFORT_LIMIT
   from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
+  from mjlab.tasks.pupper_skate.mdp import board_slide
   from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import JOINT_SPEED_LIMIT
   from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
     STEER_CARVE_GAIN,
@@ -239,14 +244,19 @@ def main(argv: list[str] | None = None) -> int:
   obs = obs[0] if isinstance(obs, tuple) else obs
   # Each list gets one [envs, ...] array per measured step.
   joint_vel, torque, deck, ground, board_speed = [], [], [], [], []
-  board_yaw_rate = []
+  board_yaw_rate, slide = [], []
   resets = np.zeros(args.envs, dtype=int)
+  terms = raw.termination_manager
+  reasons = {name: 0 for name in terms.active_terms}
   with torch.no_grad():
     for step in range(args.steps):
       obs, _, done, _ = env.step(policy(obs))
       if step < args.skip:
         continue
       resets += done.cpu().numpy().astype(int)
+      if done.any():
+        for name in reasons:
+          reasons[name] += int(terms.get_term(name)[done.bool()].sum().item())
       joint_vel.append(robot.data.joint_vel.cpu().numpy())
       torque.append(robot.data.actuator_force.cpu().numpy())
       deck.append((deck_feet.data.found > 0).float().cpu().numpy())
@@ -255,6 +265,8 @@ def main(argv: list[str] | None = None) -> int:
       board_speed.append(board.data.root_link_lin_vel_b[:, 0].cpu().numpy())
       # Same quantity as the steer reward track_board_yaw_rate.
       board_yaw_rate.append(board.data.root_link_ang_vel_w[:, 2].cpu().numpy())
+      # Read after the step, so a reset env shows its fresh pose here.
+      slide.append(board_slide(raw).cpu().numpy())
 
   split = is_split(args.task)
   joint_vel_a, torque_a = np.stack(joint_vel), np.stack(torque)
@@ -302,6 +314,13 @@ def main(argv: list[str] | None = None) -> int:
     "largest joint speed (not part of the verdict): "
     f"{per_env[fastest]['max_joint_speed']:.2f} rad/s in env {fastest}"
   )
+  if split:
+    slide_a = np.abs(np.stack(slide))
+    slide_env = int(np.argmax(slide_a.max(axis=0)))
+    print(
+      "largest fore-aft slide along the deck (not part of the verdict): "
+      f"{slide_a.max():.3f} m in env {slide_env}"
+    )
   rows = gait_verdict(per_env)
   duty_env = next(row[5] for row in rows if row[0] == "min_foot_duty")
   floor = floor_share(ground_a[:, duty_env], floor_feet(args.task))
@@ -316,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
       f"  env {worst}"
     )
   if resets.any():
+    by_reason = ", ".join(f"{k} {v}" for k, v in reasons.items() if v)
+    print(f"resets by reason (not part of the verdict): {by_reason or '-'}")
     fell = ", ".join(str(i) for i in np.flatnonzero(resets))
     print(
       f"FAIL  {int(resets.sum())} resets while measuring (envs {fell}): a policy"

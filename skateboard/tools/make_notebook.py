@@ -193,6 +193,7 @@ if SPLIT:
       "action_acc": -0.02,
       "joint_acc": -1e-6,
       "swing_height": -5.0,
+      "board_fore_aft": 1.0,
     })
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
@@ -374,6 +375,8 @@ out = [
     " only) |\n"
     "| `board_alignment` | 1.0 | 2.0 | board under the left feet, parallel to"
     " the robot (ride: tighter, about 3 cm) |\n"
+    "| `board_fore_aft` | n/a | 1.0 | robot holds its place along the deck (3 cm"
+    " width) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
     "| `board_still` | -2.0 | n/a | board moving (balance only) |\n"
     "| `track_board_velocity` | n/a | 3.0 | board speed matches the command |\n"
@@ -400,7 +403,7 @@ out = [
     " (per metre over) |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board"
-    " (ride: also the board 6 cm sideways out of place) |\n"
+    " (ride: also the board 6 cm sideways or 8 cm along out of place) |\n"
   ),
   code(REWARD_CELL),
   md(dr_md),

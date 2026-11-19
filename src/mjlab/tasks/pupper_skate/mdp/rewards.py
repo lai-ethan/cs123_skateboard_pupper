@@ -14,6 +14,7 @@ from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
+from mjlab.tasks.pupper_skate.mdp.terminations import board_slide
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 if TYPE_CHECKING:
@@ -92,6 +93,22 @@ def board_alignment(
   )
   yaw_error = torch.square(wrap_to_pi(board_yaw - robot_yaw))
   return torch.exp(-pos_error / std_pos**2 - yaw_error / std_yaw**2)
+
+
+def board_fore_aft(
+  env: ManagerBasedRlEnv,
+  std: float,
+  robot_cfg: SceneEntityCfg = _ROBOT,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the robot staying put along the deck: ``exp(-(slide / std)^2)``.
+
+  ``slide`` is ``board_slide``, the board's fore-aft offset from the robot in the
+  board's heading frame minus the keyframe's, the quantity ``board_slid`` ends
+  the episode on.
+  """
+  slide = board_slide(env, robot_cfg, board_cfg)
+  return torch.exp(-torch.square(slide / std))
 
 
 def board_speed_l2(

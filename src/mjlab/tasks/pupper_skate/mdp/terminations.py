@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import torch
 
@@ -96,6 +96,43 @@ def board_lateral_offset(
   return quat_apply_inverse(yaw_quat(board_quat), rel)[:, 1]
 
 
+def board_fore_aft_offset(
+  board_pos: torch.Tensor, board_quat: torch.Tensor, robot_pos: torch.Tensor
+) -> torch.Tensor:
+  """The board centre's fore-aft offset from the robot base [m], shape ``[B]``.
+
+  As ``board_lateral_offset``, along the board's own forward axis instead.
+  """
+  rel = board_pos - robot_pos
+  return quat_apply_inverse(yaw_quat(board_quat), rel)[:, 0]
+
+
+def _offset_from_nominal(
+  env: ManagerBasedRlEnv,
+  offset: Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor],
+  robot_cfg: SceneEntityCfg,
+  board_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+  """``offset`` of the board from the robot, minus its value in the keyframe.
+
+  The nominal is the same offset between the two entities' default root states,
+  the keyframe the scene spawns, so it follows the stance instead of a typed
+  number.
+  """
+  robot: Entity = env.scene[robot_cfg.name]
+  board: Entity = env.scene[board_cfg.name]
+  current = offset(
+    board.data.root_link_pos_w,
+    board.data.root_link_quat_w,
+    robot.data.root_link_pos_w,
+  )
+  board_default = board.data.default_root_state
+  nominal = offset(
+    board_default[:, :3], board_default[:, 3:7], robot.data.default_root_state[:, :3]
+  )
+  return current - nominal
+
+
 def board_drifted(
   env: ManagerBasedRlEnv,
   max_drift: float,
@@ -105,19 +142,34 @@ def board_drifted(
   """Terminate when the board has slid sideways under the robot.
 
   Fires when ``board_lateral_offset`` is more than ``max_drift`` [m] from its
-  nominal value. The nominal is the same offset between the two entities'
-  default root states, the keyframe the scene spawns, so it follows the
-  stance instead of a typed number.
+  nominal value, the keyframe's (see ``_offset_from_nominal``).
   """
-  robot: Entity = env.scene[robot_cfg.name]
-  board: Entity = env.scene[board_cfg.name]
-  lateral = board_lateral_offset(
-    board.data.root_link_pos_w,
-    board.data.root_link_quat_w,
-    robot.data.root_link_pos_w,
-  )
-  board_default = board.data.default_root_state
-  nominal = board_lateral_offset(
-    board_default[:, :3], board_default[:, 3:7], robot.data.default_root_state[:, :3]
-  )
-  return torch.abs(lateral - nominal) > max_drift
+  drift = _offset_from_nominal(env, board_lateral_offset, robot_cfg, board_cfg)
+  return torch.abs(drift) > max_drift
+
+
+def board_slide(
+  env: ManagerBasedRlEnv,
+  robot_cfg: SceneEntityCfg = _ROBOT,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """How far the robot has slid along the deck [m], shape ``[B]``.
+
+  ``board_fore_aft_offset`` minus the keyframe's. Negative when the robot has
+  moved towards the nose (the board centre is then further behind it).
+  """
+  return _offset_from_nominal(env, board_fore_aft_offset, robot_cfg, board_cfg)
+
+
+def board_slid(
+  env: ManagerBasedRlEnv,
+  max_slide: float,
+  robot_cfg: SceneEntityCfg = _ROBOT,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Terminate when the robot has slid along the deck, either way.
+
+  The fore-aft twin of ``board_drifted``: fires when ``board_slide`` is more
+  than ``max_slide`` [m].
+  """
+  return torch.abs(board_slide(env, robot_cfg, board_cfg)) > max_slide

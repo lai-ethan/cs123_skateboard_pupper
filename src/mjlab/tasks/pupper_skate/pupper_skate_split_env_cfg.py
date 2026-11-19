@@ -100,6 +100,20 @@ STEER_STRAIGHT_SHARE = 0.4
 STEER_YAW_MIN_SPEED = 0.1
 
 
+# Split ride and steer: the robot holds its place along the deck. The steer
+# policy of run 188eygof fell in 4 of 16 envs over 30 s, every fall the same
+# way: the deck feet crept forward along the deck at 0.6 to 2.4 cm/s, all of it
+# in contact, until the front left foot ran off the nose (29.2 cm ahead of the
+# board centre; episodes start with it 3 to 14 cm ahead) and the base pitched
+# nose down. The falls came 17 to 22 cm from the start, a median 21 s in.
+# board_drifted reads only the sideways offset, and deck_feet_slide charges
+# about 1e-4 per step at these speeds. So the episode ends once the robot is
+# 8 cm along the deck from the keyframe (a fresh reset starts within 6.6 cm),
+# and a 3 cm width pays for staying put long before that.
+BOARD_MAX_SLIDE = 0.08
+BOARD_SLIDE_STD = 0.03
+
+
 def _contact(
   name: str, feet: str, on_deck: bool, track_air_time: bool = False
 ) -> ContactSensorCfg:
@@ -601,6 +615,15 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.terminations["board_drifted"] = TerminationTermCfg(
     func=mdp.board_drifted, params={"max_drift": 0.06}
   )
+  # The fore-aft twin: the robot slid BOARD_MAX_SLIDE along the deck, either way
+  # (see the constant). board_fore_aft pays for staying put before that, with
+  # a tighter width than board_alignment's, which also reads this axis.
+  cfg.terminations["board_slid"] = TerminationTermCfg(
+    func=mdp.board_slid, params={"max_slide": BOARD_MAX_SLIDE}
+  )
+  r["board_fore_aft"] = RewardTermCfg(
+    func=mdp.board_fore_aft, weight=1.0, params={"std": BOARD_SLIDE_STD}
+  )
   return cfg
 
 
@@ -624,8 +647,8 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   since a lean needs the deck feet about 4 cm off the centre line. Every other
   term is the ride's: none of them reads a world-frame heading (forward speed
   is along the board's own axis, board alignment is in the robot's heading
-  frame, board drift in the board's, foot slide and the shoves are the same in
-  every direction), so they hold once the board has turned.
+  frame, board drift and slide in the board's, foot slide and the shoves are
+  the same in every direction), so they hold once the board has turned.
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 

@@ -48,6 +48,8 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  BOARD_MAX_SLIDE,
+  BOARD_SLIDE_STD,
   STEER_CARVE_COMMAND_RANGE,
   STEER_CARVE_GAIN,
   STEER_CARVE_THRESHOLD,
@@ -402,6 +404,7 @@ SPLIT_RIDE_WEIGHTS = {
   "action_acc": -0.02,
   "joint_acc": -1e-6,
   "swing_height": -5.0,
+  "board_fore_aft": 1.0,
 }
 
 # The centred configs as they were before the split tasks came back, plus the
@@ -627,6 +630,13 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   assert drifted.func is mdp.board_drifted
   assert drifted.params == {"max_drift": 0.06}
   assert not drifted.time_out
+  slid = cfg.terminations["board_slid"]
+  assert slid.func is mdp.board_slid
+  assert slid.params == {"max_slide": 0.08} and BOARD_MAX_SLIDE == 0.08
+  assert not slid.time_out
+  fore_aft = cfg.rewards["board_fore_aft"]
+  assert fore_aft.func is mdp.board_fore_aft and fore_aft.weight == 1.0
+  assert fore_aft.params == {"std": 0.03} and BOARD_SLIDE_STD == 0.03
   # The termination penalty stays where it was.
   assert cfg.rewards["termination"].weight == -100.0
 
@@ -644,6 +654,8 @@ def test_other_skate_tasks_have_none_of_the_long_ride_changes(make_cfg):
     cfg = make_cfg(play=play)
     assert "deck_feet_slide" not in cfg.rewards
     assert "board_drifted" not in cfg.terminations
+    assert "board_slid" not in cfg.terminations
+    assert "board_fore_aft" not in cfg.rewards
     for name in ("wheel_drag", "deck_foot_friction", "floor_foot_friction"):
       assert name not in cfg.events, name
     events = cfg.events
@@ -1053,6 +1065,116 @@ def test_board_lateral_offset_is_in_the_board_heading_frame():
   assert lateral.tolist() == pytest.approx([0.146, 0.146 * math.cos(0.5)])
 
 
+def _fake_board_env(shift: list[list[float]], yaw: list[float]) -> Any:
+  """The split keyframe with the board moved by ``shift`` (x, y) and turned
+  ``yaw`` about its own centre, world frame. The robot stays at its default."""
+  n = len(shift)
+  robot_default = torch.zeros(n, 13)
+  robot_default[:, 2] = SKATE_SPLIT_HEIGHT
+  robot_default[:, 3] = 1.0
+  board_default = torch.zeros(n, 13)
+  board_default[:, :2] = torch.tensor(SKATE_SPLIT_BOARD_OFFSET)
+  board_default[:, 3] = 1.0
+  zeros = torch.zeros(n)
+  board_pos = board_default[:, :3].clone()
+  board_pos[:, :2] += torch.tensor(shift)
+  board_quat = quat_from_euler_xyz(zeros, zeros, torch.tensor(yaw))
+  robot = SimpleNamespace(
+    data=SimpleNamespace(
+      root_link_pos_w=robot_default[:, :3], default_root_state=robot_default
+    )
+  )
+  board = SimpleNamespace(
+    data=SimpleNamespace(
+      root_link_pos_w=board_pos,
+      root_link_quat_w=board_quat,
+      default_root_state=board_default,
+    )
+  )
+  return SimpleNamespace(scene={"robot": robot, "board": board})
+
+
+def test_board_slid_ends_a_slide_beyond_8_cm_either_way():
+  # Board along the robot: keyframe, 7.9 cm either way, 8.1 cm either way.
+  along = [0.0, 0.079, -0.079, 0.081, -0.081]
+  env = _fake_board_env([[x, 0.0] for x in along], [0.0] * 5)
+  assert mdp.board_slide(env).tolist() == pytest.approx(along, abs=1e-6)
+  fired = mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE)
+  assert fired.tolist() == [False, False, False, True, True]
+  # A slide along the deck does not trip the sideways check.
+  assert not mdp.board_drifted(env, max_drift=0.06).any()
+
+
+def test_board_slid_ignores_a_sideways_offset():
+  env = _fake_board_env([[0.0, 0.07], [0.0, -0.07], [0.0, 0.2]], [0.0] * 3)
+  assert not mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE).any()
+  assert mdp.board_slide(env).abs().max() < 1e-6
+  assert mdp.board_drifted(env, max_drift=0.06).all()
+
+
+def test_board_slid_never_fires_on_a_fresh_reset():
+  # Every corner of the split ride's resets: board +-3 cm along, +-2 cm aside,
+  # +-0.15 rad; robot +-1 cm both ways (moved here onto the board instead).
+  corners = [
+    (dx, dy, yaw)
+    for dx in (-0.04, 0.04)
+    for dy in (-0.03, 0.03)
+    for yaw in (-0.15, 0.15)
+  ]
+  env = _fake_board_env([[dx, dy] for dx, dy, _ in corners], [y for *_, y in corners])
+  slide = mdp.board_slide(env)
+  # The largest is 6.6 cm: 4 cm along plus the turn swinging the 0.146 m
+  # sideways offset onto the board's forward axis.
+  assert slide.abs().max().item() == pytest.approx(0.066, abs=5e-4)
+  assert not mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE).any()
+
+
+def test_board_fore_aft_pays_1_at_the_keyframe_and_falls_with_the_slide():
+  along = [0.0, 0.03, -0.03, 0.06, 0.08]
+  env = _fake_board_env([[x, 0.0] for x in along], [0.0] * 5)
+  reward = mdp.board_fore_aft(env, std=BOARD_SLIDE_STD)
+  expected = [math.exp(-((x / 0.03) ** 2)) for x in along]
+  assert reward.tolist() == pytest.approx(expected, rel=1e-5)
+  assert reward[0].item() == pytest.approx(1.0)
+  # A sideways offset costs nothing here (board_alignment pays for that).
+  env = _fake_board_env([[0.0, 0.05]], [0.0])
+  assert mdp.board_fore_aft(env, std=BOARD_SLIDE_STD).item() == pytest.approx(1.0)
+
+
+def test_board_fore_aft_offset_is_in_the_board_heading_frame():
+  # Board 0.146 m to the robot's left, turned 0.5 rad: the sideways offset
+  # swings onto the board's forward axis by the sine.
+  board_pos = torch.tensor([[0.0, 0.146, 0.0], [0.0, 0.146, 0.0]])
+  robot_pos = torch.zeros(2, 3)
+  zeros = torch.zeros(2)
+  quat = quat_from_euler_xyz(zeros, zeros, torch.tensor([0.0, 0.5]))
+  along = mdp.board_fore_aft_offset(board_pos, quat, robot_pos)
+  assert along.tolist() == pytest.approx([0.0, 0.146 * math.sin(0.5)], abs=1e-7)
+
+
+@pytest.mark.slow
+def test_board_slid_through_the_termination_manager():
+  env = ManagerBasedRlEnv(cfg=_calm_ride_cfg(4), device=get_test_device())
+  env.reset()
+  actions = torch.zeros(4, 12, device=env.device)
+  for _ in range(50):  # The keyframe held for 1 s never counts as slid.
+    env.step(actions)
+    assert not env.termination_manager.get_term("board_slid").any()
+  env.reset()
+  # Envs: keyframe; 6 cm along; 9 cm either way.
+  board = env.scene["board"]
+  pose = board.data.root_link_pose_w.clone()
+  pose[:, 0] += torch.tensor([0.0, 0.06, 0.09, -0.09], device=env.device)
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  assert mdp.board_slid(env, max_slide=0.08).tolist() == [False, False, True, True]
+  env.step(actions)
+  fired = env.termination_manager.get_term("board_slid")
+  assert fired.tolist() == [False, False, True, True]
+  assert not env.termination_manager.get_term("board_drifted").any()
+  env.close()
+
+
 ##
 # The steer task: the split ride plus a carve command.
 ##
@@ -1234,6 +1356,9 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
         assert steer.rewards[name].params == ride.rewards[name].params, name
     assert steer.terminations.keys() == ride.terminations.keys()
     assert steer.terminations["board_drifted"].params == {"max_drift": 0.06}
+    assert steer.terminations["board_slid"].func is mdp.board_slid
+    assert steer.terminations["board_slid"].params == {"max_slide": 0.08}
+    assert steer.rewards["board_fore_aft"].params == {"std": 0.03}
     assert steer.events.keys() == ride.events.keys()
     assert steer.observations["critic"].terms.keys() == (
       ride.observations["critic"].terms.keys()

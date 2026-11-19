@@ -17,6 +17,7 @@ from .observations import (  # noqa: F401
 )
 from .rewards import (  # noqa: F401
   board_alignment,
+  board_fore_aft,
   board_progress,
   board_speed_l2,
   board_turn_progress,
@@ -41,7 +42,10 @@ from .rewards import (  # noqa: F401
 from .terminations import (  # noqa: F401
   base_near_deck,
   board_drifted,
+  board_fore_aft_offset,
   board_lateral_offset,
+  board_slid,
+  board_slide,
   contact_held,
   contact_lost,
 )

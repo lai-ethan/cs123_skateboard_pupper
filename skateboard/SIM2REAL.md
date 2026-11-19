@@ -330,6 +330,19 @@ so the robot keeps itself parallel to the board.
   measure the stiffness (`HARDWARE_TEST.md`, test 0) before any steer test on
   the robot. Above about 20 N m/rad the robot cannot lean the board into a
   useful turn without its feet leaving the deck.
+- **Sliding along the deck.** The steer policy `188eygof` fell in 4 of 16
+  envs over 30 s. Every fall had the same cause. The deck feet crept forward
+  along the deck at 0.6 to 2.4 cm/s while touching it, until the front left
+  foot ran off the nose (29.2 cm ahead of the board centre) and the body
+  pitched nose down. The falls came 17 to 22 cm from the start, a median 21 s
+  in, so 7 of 16 came after the 20 s training episode. Training never saw it:
+  the drift check read only the sideways offset, and the deck foot slip charge
+  was about 1e-4 per step at these speeds. The split ride and steer now end
+  the episode once the robot is 8 cm along the deck from where the stance
+  puts it, either way (`board_slid`; a reset starts within 6.6 cm of that). A
+  new reward,
+  `board_fore_aft` (weight 1.0, 3 cm width), pays for staying put long before
+  that. Policies trained before this change have neither.
 
 ## What changed from v1
 
