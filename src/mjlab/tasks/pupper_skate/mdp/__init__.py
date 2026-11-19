@@ -19,6 +19,7 @@ from .rewards import (  # noqa: F401
   board_alignment,
   board_progress,
   board_speed_l2,
+  board_turn_progress,
   board_yaw_rate_l2,
   contact_count,
   deck_feet_slide,

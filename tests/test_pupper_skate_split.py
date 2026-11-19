@@ -48,6 +48,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  STEER_TRUCK_STIFFNESS_SCALE,
   STEER_YAW_RATE_RANGE,
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
@@ -1074,6 +1075,27 @@ def test_track_board_yaw_rate_peaks_at_the_command():
   assert reward[1] < reward[2] < reward[3]
 
 
+def test_steer_constants():
+  assert STEER_YAW_RATE_RANGE == (-0.08, 0.08)
+  # 12 to 30 N*m/rad on the 30 N*m/rad nominal truck.
+  assert STEER_TRUCK_STIFFNESS_SCALE == (0.4, 1.0)
+  assert SkateboardParams().roll_stiffness == 30.0
+
+
+def test_only_the_steer_trains_on_loosened_trucks():
+  for play in (False, True):
+    steer = pupper_skate_split_steer_env_cfg(play=play)
+    ride = pupper_skate_split_ride_env_cfg(play=play)
+    balance = pupper_skate_split_balance_env_cfg(play=play)
+    term = steer.events["truck_stiffness"]
+    assert term.func is dr.joint_stiffness
+    assert term.params["ranges"] == STEER_TRUCK_STIFFNESS_SCALE
+    for cfg in (ride, balance):
+      assert cfg.events["truck_stiffness"].params["ranges"] == (0.5, 6.0)
+    assert "board_turn_progress" not in ride.rewards
+    assert "board_turn_progress" not in balance.rewards
+
+
 def test_steer_is_the_split_ride_plus_a_yaw_command():
   for play in (False, True):
     ride = pupper_skate_split_ride_env_cfg(play=play)
@@ -1082,10 +1104,14 @@ def test_steer_is_the_split_ride_plus_a_yaw_command():
     del expected["board_yaw_rate"]
     del expected["track_yaw_rate"]
     expected["track_board_yaw_rate"] = 2.0
+    expected["board_turn_progress"] = 1.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
-    assert term.params == {"command_name": "twist", "std": 0.15}
+    assert term.params == {"command_name": "twist", "std": 0.04}
+    term = steer.rewards["board_turn_progress"]
+    assert term.func is mdp.board_turn_progress
+    assert term.params == {"command_name": "twist", "command_threshold": 0.02}
     for name in ride.rewards:
       if name not in ("board_yaw_rate", "track_yaw_rate"):
         assert steer.rewards[name].func is ride.rewards[name].func, name
@@ -1097,7 +1123,6 @@ def test_steer_is_the_split_ride_plus_a_yaw_command():
     )
     twist = steer.commands["twist"]
     assert isinstance(twist, mdp.SteerVelocityCommandCfg)
-    assert STEER_YAW_RATE_RANGE == (-0.15, 0.15)
     assert twist.ranges.ang_vel_z == STEER_YAW_RATE_RANGE
     assert (twist.rel_straight_envs, twist.yaw_min_speed) == (0.3, 0.1)
     # Every other stock command field is the split ride's (the heading hold
@@ -1192,7 +1217,7 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
   assert policy["command_clip"] == {
     "vx": list(RIDE_SPEED_RANGE),
     "vy": [0.0, 0.0],
-    "wz": [-0.15, 0.15],
+    "wz": [-0.08, 0.08],
   }
   assert policy["heading_hold"] == {
     "kp": 0.0,
@@ -1201,6 +1226,41 @@ def test_steer_policy_exports_the_yaw_clip_with_heading_hold_off():
     "walk_threshold": 0.05,
   }
   assert "gait_reference" in policy
+
+
+@pytest.fixture(scope="module")
+def steer_env():
+  cfg = pupper_skate_split_steer_env_cfg(play=True)
+  cfg.scene.num_envs = 8
+  cfg.seed = 0
+  env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
+  env.reset()
+  yield env
+  env.close()
+
+
+@pytest.mark.slow
+def test_board_turn_progress_pays_the_share_of_the_commanded_turn(steer_env):
+  env = steer_env
+  env.reset()
+  board = env.scene["board"]
+  # Rows: half, all and more of a 0.08 rad/s command, the wrong way, a 0.01
+  # command under the threshold, then half, all and the wrong way of -0.06.
+  cmd_wz = [0.08, 0.08, 0.08, 0.08, 0.01, -0.06, -0.06, -0.06]
+  board_wz = [0.04, 0.08, 0.12, -0.04, 0.01, -0.03, -0.09, 0.03]
+  vel = torch.zeros(env.num_envs, 6, device=env.device)
+  vel[:, 5] = torch.tensor(board_wz, device=env.device)
+  board.write_root_link_velocity_to_sim(vel)
+  env.sim.forward()
+  wz = board.data.root_link_ang_vel_w[:, 2]
+  torch.testing.assert_close(wz, vel[:, 5], atol=1e-5, rtol=0)
+  command = env.command_manager.get_command("twist")
+  assert command is not None
+  command[:, 2] = torch.tensor(cmd_wz, device=env.device)
+  term = env.reward_manager.get_term_cfg("board_turn_progress")
+  reward = term.func(env, **term.params)
+  expected = torch.tensor([0.5, 1.0, 1.0, 0.0, 0.0, 0.5, 1.0, 0.0], device=env.device)
+  torch.testing.assert_close(reward, expected, atol=1e-4, rtol=0)
 
 
 ##

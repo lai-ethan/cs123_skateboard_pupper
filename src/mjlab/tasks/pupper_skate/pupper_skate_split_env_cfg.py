@@ -75,11 +75,15 @@ _GROUND_FOOT_SITES = tuple(
 )
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
-# Steer task: board yaw-rate command range [rad/s]. The sim trucks turn 0.577
-# rad per rad of deck tilt on a 0.364 m wheelbase, so 0.3 rad/s at 0.3 m/s
-# would need about 18 degrees of tilt, past the board_tipped limit (0.3 rad);
-# 0.15 rad/s needs about 8 degrees at 0.3 m/s.
-STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.15, 0.15)
+# Steer task: board yaw-rate command range [rad/s]. The board turns only when
+# the deck tilts: 0.0165 rad/s per degree at 0.3 m/s, a 6 m turn radius at 3
+# degrees and 2.6 m at 7. 0.08 rad/s at 0.3 m/s is about 5 degrees of tilt, a
+# 3.75 m radius.
+STEER_YAW_RATE_RANGE: tuple[float, float] = (-0.08, 0.08)
+# Steer task: truck stiffness scale on the nominal 30 N*m/rad, so 12 to 30
+# N*m/rad, loosened trucks that Pupper's weight can tilt (a 20 N edge load turns
+# the board 0.05 to 0.11 rad/s at 15 to 30). The ride keeps 15 to 180.
+STEER_TRUCK_STIFFNESS_SCALE: tuple[float, float] = (0.4, 1.0)
 # Share of envs told to ride straight (yaw 0, sampled speed kept), and the
 # speed command under which yaw is 0: a board that is not rolling cannot carve.
 STEER_STRAIGHT_SHARE = 0.3
@@ -591,15 +595,18 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
 
 def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
-  """The split ride plus a commanded board yaw rate: push and turn the board.
+  """The split ride plus a commanded board yaw rate: push and lean to steer.
 
-  Only the yaw rate is rewarded, not how it is made (angled pushes, the deck
-  feet on the deck edge, leaning), and it replaces the ride's robot yaw-rate
-  tracking. Every other term is the ride's: none of them reads a world-frame
-  heading (forward speed is along the board's own axis, board alignment is in
-  the robot's heading frame, board drift in the board's, foot slide and the
-  shoves are the same in every direction), so they hold once the board has
-  turned.
+  The board turns only when the deck tilts, so this task trains on loosened
+  trucks (STEER_TRUCK_STIFFNESS_SCALE) that Pupper's weight can tilt. Only the
+  board's yaw rate is rewarded, not how the lean is made (the deck feet on the
+  deck edge, shifting the body, angled pushes): a tight tracking term plus
+  board_turn_progress, which pays from the first bit of turn. They replace the
+  ride's robot yaw-rate tracking. Every other term is the ride's: none of them
+  reads a world-frame heading (forward speed is along the board's own axis,
+  board alignment is in the robot's heading frame, board drift in the board's,
+  foot slide and the shoves are the same in every direction), so they hold once
+  the board has turned.
   """
   cfg = pupper_skate_split_ride_env_cfg(play=play)
 
@@ -625,13 +632,24 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   steer.heading_hold_kp = None
   cfg.commands["twist"] = steer
 
+  # Loosened trucks: the ride's stiffer range barely tilts under Pupper.
+  stiffness = cfg.events["truck_stiffness"]
+  stiffness.params = {**stiffness.params, "ranges": STEER_TRUCK_STIFFNESS_SCALE}
+
   r = cfg.rewards
   del r["board_yaw_rate"]
   # The board's yaw rate is paid against the command here, not the robot's.
+  # The tight std makes riding straight under a 0.08 command pay about 2%;
+  # board_turn_progress pays from the first bit of turn.
   del r["track_yaw_rate"]
   r["track_board_yaw_rate"] = RewardTermCfg(
     func=mdp.track_board_yaw_rate,
     weight=2.0,
-    params={"command_name": "twist", "std": 0.15},
+    params={"command_name": "twist", "std": 0.04},
+  )
+  r["board_turn_progress"] = RewardTermCfg(
+    func=mdp.board_turn_progress,
+    weight=1.0,
+    params={"command_name": "twist", "command_threshold": 0.02},
   )
   return cfg

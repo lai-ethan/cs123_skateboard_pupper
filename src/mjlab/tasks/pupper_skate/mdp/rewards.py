@@ -177,6 +177,29 @@ def board_progress(
   return torch.clamp(share, 0.0, 1.0) * active.float()
 
 
+def board_turn_progress(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  command_threshold: float,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the board's share of the commanded yaw rate, clamp(board_wz / cmd, 0, 1).
+
+  ``board_wz`` is the board's yaw rate about world z, as in
+  ``track_board_yaw_rate``. That term is tight and flat far from the target;
+  this one grows from the first bit of turn, so a small lean already pays.
+  Turning the wrong way pays nothing, and so does a command at or under
+  ``command_threshold`` rad/s in magnitude.
+  """
+  board: Entity = env.scene[board_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  yaw_rate = command[:, 2]
+  active = yaw_rate.abs() > command_threshold
+  share = board.data.root_link_ang_vel_w[:, 2] / torch.where(active, yaw_rate, 1.0)
+  return torch.clamp(share, 0.0, 1.0) * active.float()
+
+
 def joint_speed_over_limit(
   env: ManagerBasedRlEnv, limit: float, asset_cfg: SceneEntityCfg = _ROBOT
 ) -> torch.Tensor:
