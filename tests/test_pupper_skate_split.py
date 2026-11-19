@@ -19,6 +19,7 @@ from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardP
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
   PUPPER_EFFORT_LIMIT,
+  PUPPER_MUJOCO_OPTIONS,
   SKATE_SPLIT_BOARD_OFFSET,
   SKATE_SPLIT_HEIGHT,
   SKATE_SPLIT_KEYFRAME,
@@ -29,6 +30,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp import dr
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.sim import MujocoCfg
 from mjlab.tasks.pupper_gait.export import (
   export_pupper_gait_policy_from_env,
   heading_hold_metadata,
@@ -52,6 +54,8 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   BOARD_CREEP_TAU,
   BOARD_MAX_SLIDE,
   BOARD_SLIDE_STD,
+  SPLIT_CONTACT_CONE,
+  SPLIT_CONTACT_IMPRATIO,
   STEER_CARVE_COMMAND_RANGE,
   STEER_CARVE_GAIN,
   STEER_CARVE_THRESHOLD,
@@ -790,6 +794,53 @@ def test_registered_skate_tasks_build(task):
   assert isinstance(actor, torch.Tensor) and actor.shape == (1, 48 * 20)
   assert torch.isfinite(reward).all()
   env.close()
+
+
+##
+# Contact options: strict friction on the split tasks only.
+##
+
+_SPLIT_CFGS = (
+  pupper_skate_split_balance_env_cfg,
+  pupper_skate_split_ride_env_cfg,
+  pupper_skate_split_steer_env_cfg,
+)
+
+
+def test_split_contact_constants():
+  assert SPLIT_CONTACT_CONE == "elliptic"
+  assert SPLIT_CONTACT_IMPRATIO == 10.0
+
+
+@pytest.mark.parametrize("make_cfg", _SPLIT_CFGS)
+def test_split_tasks_use_the_elliptic_cone(make_cfg):
+  opts = make_cfg().sim.mujoco
+  assert opts.cone == "elliptic"
+  assert opts.impratio == 10.0
+
+
+@pytest.mark.parametrize("make_cfg", _SPLIT_CFGS)
+def test_split_tasks_keep_the_other_mujoco_options(make_cfg):
+  got = dataclasses.asdict(make_cfg().sim.mujoco)
+  want = dataclasses.asdict(MujocoCfg(**PUPPER_MUJOCO_OPTIONS))
+  for key in ("cone", "impratio"):
+    got.pop(key)
+    want.pop(key)
+  assert got == want
+
+
+@pytest.mark.parametrize(
+  "make_cfg", [pupper_skate_balance_env_cfg, pupper_skate_ride_env_cfg]
+)
+def test_centred_skate_tasks_keep_the_default_contacts(make_cfg):
+  assert make_cfg().sim.mujoco == MujocoCfg(**PUPPER_MUJOCO_OPTIONS)
+  assert make_cfg().sim.mujoco.cone == "pyramidal"
+
+
+def test_walking_task_keeps_the_default_contacts():
+  opts = pupper_velocity_fs_env_cfg().sim.mujoco
+  assert opts.cone == PUPPER_MUJOCO_OPTIONS["cone"] == "pyramidal"
+  assert opts.impratio == PUPPER_MUJOCO_OPTIONS["impratio"]
 
 
 def test_foot_sites_follow_the_ground_sensor_feet():

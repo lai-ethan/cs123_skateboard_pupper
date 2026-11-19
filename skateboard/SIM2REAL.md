@@ -354,6 +354,24 @@ so the robot keeps itself parallel to the board.
   cost at 2 cm/s. The slide's rate goes through two 1 s averages in a row, so
   the stride's own rocking cancels and only a steady creep is left. 0.3 cm/s costs 0.15 a step. Policies trained before this change
   do not have it.
+- **Slipping on the deck.** `board_creep` did not cut the creep in 3000
+  iterations (run `8tklg4k7`: 0.68 cm/s straight, 1.89 in a left carve).
+  More solver iterations did not help, but a different friction cone did.
+  MuJoCo's soft contacts let a loaded foot slip slowly under a steady sideways
+  load, and real grip tape holds. The tasks already use impratio 10, so the
+  change is the cone alone. With `a9x8z66m`, 16 envs, 30 s, 0.3 m/s, yaw 0:
+
+  | MuJoCo contact options | `board_slid` resets | mean creep (cm/s) | mean size |
+  | --- | --- | --- | --- |
+  | task default (pyramidal cone) | 12 | +0.29 (to the nose) | 0.31 |
+  | solver iterations 30 | 12 | +0.27 | 0.31 |
+  | elliptic cone | 4 | -0.13 | 0.16 |
+
+  About half of the creep was this slip, and the policy learned a bias against
+  it. The split balance, ride and steer now use the elliptic cone with
+  impratio 10 (`SPLIT_CONTACT_CONE`, `SPLIT_CONTACT_IMPRATIO`). The centred
+  tasks and the walking tasks keep the shared options. Earlier split policies
+  were trained with the default contacts.
 
 ## What changed from v1
 

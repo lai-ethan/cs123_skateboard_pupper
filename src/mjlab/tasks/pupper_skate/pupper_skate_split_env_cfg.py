@@ -129,6 +129,16 @@ BOARD_SLIDE_STD = 0.03
 BOARD_CREEP_TAU = 1.0
 BOARD_CREEP_CAP = 0.02
 
+# Split tasks: strict friction on the contacts. MuJoCo's soft contacts let a
+# loaded foot slip slowly under a steady sideways load; real grip tape holds.
+# The a9x8z66m steer policy over 30 s at 0.3 m/s (16 envs): with the shared
+# pyramidal cone, 12 board_slid resets and a mean creep of +0.29 cm/s; 30
+# solver iterations, 12 and +0.27; the elliptic cone, 4 and -0.13. About half
+# of the creep was this slip. PUPPER_MUJOCO_OPTIONS already sets impratio 10;
+# it is pinned here too so the split tasks keep it if the shared value moves.
+SPLIT_CONTACT_CONE = "elliptic"
+SPLIT_CONTACT_IMPRATIO = 10.0
+
 
 def _contact(
   name: str, feet: str, on_deck: bool, track_air_time: bool = False
@@ -234,9 +244,14 @@ def pupper_skate_split_balance_env_cfg(play: bool = False) -> ManagerBasedRlEnvC
   )
   cfg.scene.entities = {"robot": robot, "board": board}
   # Two bodies in contact with each other and the floor: more contact slots.
-  cfg.sim = SimulationCfg(
-    nconmax=80, njmax=800, mujoco=MujocoCfg(**PUPPER_MUJOCO_OPTIONS)
+  mujoco = MujocoCfg(
+    **{
+      **PUPPER_MUJOCO_OPTIONS,
+      "cone": SPLIT_CONTACT_CONE,
+      "impratio": SPLIT_CONTACT_IMPRATIO,
+    }
   )
+  cfg.sim = SimulationCfg(nconmax=80, njmax=800, mujoco=mujoco)
 
   ##
   # Sensors. The stock feet_ground_contact (all four feet vs floor) stays for
