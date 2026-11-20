@@ -185,7 +185,7 @@ if SPLIT:
       "push_stride": 0.5,
       "short_stride": -0.3,
       "feet_slide": -2.0,
-      "deck_feet_slide": -2.0,
+      "deck_feet_slide": -20.0,
       "push_leg_pose": 0.3,
       "joint_vel_l2": -0.001,
       "joint_speed_limit": -0.3,
@@ -376,8 +376,8 @@ out = [
     " only) |\n"
     "| `board_alignment` | 1.0 | 2.0 | board under the left feet, parallel to"
     " the robot (ride: tighter, about 3 cm) |\n"
-    "| `board_fore_aft` | n/a | 1.0 | robot holds its place along the deck (3 cm"
-    " width) |\n"
+    "| `board_fore_aft` | n/a | 1.0 | robot holds its place along the deck, measured"
+    " from where the episode started (3 cm width) |\n"
     "| `board_creep` | n/a | -1.0 | robot creeping along the deck, averaged twice"
     " over 1 s (full cost at 2 cm/s) |\n"
     "| `deck_flat` | -5.0 | -5.0 | deck leaning on its trucks |\n"
@@ -390,7 +390,7 @@ out = [
     "| `short_stride` | n/a | -0.3 | a right foot lands after a shorter stance"
     " than `push_stride` asks for; a tap with no stance costs the full weight |\n"
     "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
-    "| `deck_feet_slide` | n/a | -2.0 | a left foot slides over the deck (measured"
+    "| `deck_feet_slide` | n/a | -20.0 | a left foot slides over the deck (measured"
     " against the deck, which moves) |\n"
     "| `push_foot_idle` | n/a | -0.5 | a right foot held in the air for more than"
     " 0.5 s |\n"
@@ -406,7 +406,8 @@ out = [
     " (per metre over) |\n"
     "| `joint_torques_l2` | -2e-4 | -2e-4 | effort |\n"
     "| `termination` | -100 | -100 | falling, leaving the deck, tipping the board"
-    " (ride: also the board 6 cm sideways or 8 cm along out of place) |\n"
+    " (ride: also the board 6 cm sideways out of place, or the robot 8 cm along"
+    " the deck from its start or 12 cm from the keyframe) |\n"
   ),
   code(REWARD_CELL),
   md(dr_md),

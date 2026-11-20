@@ -43,9 +43,12 @@ own clip: a `policy.json`'s `heading_hold` block, or `--hold-clip` for a
 checkpoint (steer v5 trained with 0.3; the steer task now uses 0.1).
 Three more lines are not part of the verdict: the measured resets by
 termination name and, for split tasks, two about the robot sliding along the
-deck. One is the largest fore-aft slide over all envs and steps, the quantity
-`board_slid` ends the episode on, sampled after the auto-reset (so a reset env
-shows its fresh pose, and the slide that ended the episode is not seen). The
+deck. One is the largest fore-aft slide over all envs and steps, measured
+from the keyframe (`board_slide`), sampled after the auto-reset (so a reset env
+shows its fresh pose, and the slide that ended the episode is not seen).
+`board_slid` ends the episode on the slide since the episode's start, or once
+this slide passes 12 cm, so the two can differ by where a reset put the robot.
+The
 other is the fastest mean creep rate of any env, from the per-step change of
 that slide, leaving out the steps where the env reset.
 The last line is `GAIT: PASS` or `GAIT: FAIL`. The exit code is always 0.
