@@ -25,6 +25,7 @@ at that speed) and `_125.png` (the still at that frame).
 | `split_ride_v7` | `gkk9a6bj` | `Mjlab-SkateSplit-Ride-Pupper-v3` | Traced deck, pays for the heading hold. Fails 9 ride audit rows. |
 | `split_steer_v2` | `188eygof` | `Mjlab-SkateSplit-Steer-Pupper-v3` | First carve signal run. Steers both ways; the deck feet creep off the nose. |
 | `split_steer_v3` | `a9x8z66m` | `Mjlab-SkateSplit-Steer-Pupper-v3` | Adds `board_slid` and `board_fore_aft`. Creeps slower, still fails 6 audit rows. |
+| `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. Carves both ways, fails 2 of 16 audit rows. Candidate for the first steering test. |
 
 `split_balance_v2` and `split_ride_v0` were trained before the split stance had
 its own task ids, so they ran under the ids the centred stance uses now.

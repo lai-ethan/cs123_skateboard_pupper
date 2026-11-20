@@ -3,7 +3,8 @@
 Date: ________  People: ________________________
 
 Tests 1 to 3 use policies that pass the gait check in sim on the 103 mm deck. Test 4
-uses one that fails one limit. None has run on the robot. Sim first, then robot.
+uses one that fails one limit. Test 5 steers: it passes the gait check but fails 2
+of 16 ride audit rows. None has run on the robot. Sim first, then robot.
 
 ## Safety, before any power
 
@@ -38,6 +39,11 @@ says"). Takes five minutes.
   train steering on this board.
 - Tilt at 1 / 2 / 3 kg, stock: ______ / ______ / ______ degrees
 - Tilt at 1 / 2 / 3 kg, loosened: ______ / ______ / ______ degrees
+- Stiffness k = m x 9.81 x d / tilt, with m in kg, d the weight's distance from
+  the centre line in m and the tilt in rad. 3 kg on the edge (d about 0.078 m)
+  is 2.3 N·m, so 9 to 18 N·m/rad, the range test 5 needs, is about 7 to 15
+  degrees at 3 kg.
+- k at 3 kg, loosened: ______ N·m/rad
 
 ## 1. Split balance
 
@@ -105,3 +111,38 @@ says"). Takes five minutes.
   foot slips toward the edge, the body tips toward the lifted foot, fast
   tapping, or the robot drops onto the deck.
 - Notes: ____________________________________________
+
+## 5. Split steer, lean carving (candidate: Ethan decides)
+
+- Policy: `policies/split_steer_v5_max0.3_policy.json` (runs `qqm2917n`, then
+  `bxke67fj` for the last 150 iterations). It clips speed at 0.3 m/s and yaw
+  at 0.6 rad/s. Install it like the capped file in test 3.
+- This is a candidate for the first steering test, not a fully passing policy.
+  Gait check: `GAIT: PASS` at yaw 0, +0.5 and -0.5 with no resets. Ride audit:
+  `FAIL` on 2 of 16 rows. In a 30 s ride the robot slid 8 cm along the deck
+  on 2 of 16 sim boards, about 1 in 8.
+- Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
+- Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
+  policy trained only on that range. Stock trucks are far stiffer and the
+  board will not turn.
+- Fit a foot stop or a small ridge on the deck in front of and behind the left
+  feet. In sim the left feet slowly slide along the deck toward the nose or
+  tail. Keep each run short, about 10 s.
+- Placement: left feet on the deck, right feet on the floor, as in test 3.
+- This file has the heading hold on (kp 1.0, clip 0.3 rad/s). At yaw 0 it keeps
+  the robot lined up with the board. The other skate files have it off.
+- Speed: the forward stick, clipped at 0.3 m/s. Sim checked only 0.3 m/s.
+- First ride straight at yaw 0. Then carve: a yaw command of 0.4 to 0.6 rad/s,
+  either way. Below 0.4 is not a carve; the policy never trained between 0.1
+  and 0.4. Back to yaw 0 holds the new heading.
+- Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6 m
+  radius at 0.3 m/s. In sim, 10 s of carving turned the board 0.50 rad left
+  and 0.44 rad right.
+- Watch: the robot leans its weight toward one deck edge; the board turns that
+  way; left feet stay put on the deck.
+- Pass: the board turns each way for a few seconds with no fall, then rides
+  straight again at yaw 0. Stop: a left foot slides toward the nose or tail or
+  off the deck, the robot turns but the board does not, or fast stamping legs.
+- Notes straight: ____________________________________________
+- Notes carve left: ____________________________________________
+- Notes carve right: ____________________________________________

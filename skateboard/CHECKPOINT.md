@@ -1,4 +1,4 @@
-# Checkpoint summary: Tuesday Nov 17 (updated Nov 18)
+# Checkpoint summary: Tuesday Nov 17 (updated Nov 19)
 
 Pupper v3 on a mini cruiser (deck top 103 mm), two stances, each with a balance
 and a ride policy. Everything below is simulation only. Nothing has run on the
@@ -22,7 +22,8 @@ no resets.
 - Split balance: peak joint speed 0.58 rad/s, right feet on the floor 100% of
   the time, no resets.
 - Split ride v4: passes at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`.
-- Heading hold is off in all skate exports (kp 0).
+- Heading hold is off in every skate export (kp 0) except split steer v5.
+- File names map to W&B runs in [`policies/README.md`](policies/README.md).
 
 ## What does not work
 
@@ -37,8 +38,16 @@ no resets.
 - Earlier centred ride runs stood still (`vrn7pp8n`, `2kmu10gl`), lay on the
   deck (`xtbenpi4`), skittered (`9c33unfu`) or took one stride too many
   (`zvx4xc24`). The history is in `SIM2REAL.md`.
-- **Steering.** The steer run `jl7i4id0` does not turn the board. In sim the
-  robot is too light to tilt the deck far enough (`SIM2REAL.md`, "Steering").
+- **Steering is a candidate, not a pass.** Split steer v5 (runs `qqm2917n`,
+  then `bxke67fj`) leans to steer on trucks loosened to 9 to 18 N·m/rad. On
+  the 103 mm deck at 0.3 m/s it prints `GAIT: PASS` at yaw 0, +0.5 and -0.5
+  with no resets. Carving, the board turns at 0.92 (left) and 0.84 (right) of
+  the asked 0.050 rad/s, about 3 degrees per second. It fails the ride audit
+  on 2 of 16 rows: in 30 s rides 2 of 16 boards reset on `board_slid`, and 2
+  reset with trucks 4 times stiffer. So about 1 board in 8 slides off in 30 s.
+  Policy: `policies/split_steer_v5_max0.3_policy.json`. Videos:
+  `media/split_steer_v5_*_0.3ms.mp4`. Earlier steer runs did not turn
+  (`jl7i4id0`) or slid off the deck (`SIM2REAL.md`, "Steering").
 - Centred balance has little sideways room: it fails 7 of 21 stance audit rows
   (board 2 cm off-centre, shoves, soft trucks). Place it within about 1 cm.
 - The 12 rad/s joint speed limit is an estimate (motor spec is about 30 rad/s
@@ -53,6 +62,9 @@ no resets.
 3. Run the session from [`HARDWARE_TEST.md`](HARDWARE_TEST.md): board tilt
    (test 0), split balance, centred balance, split ride at 0.2 then 0.3 m/s.
 4. Measure truck stiffness and wheel drag (still guesses).
+5. Steering test with split steer v5 (`HARDWARE_TEST.md`, test 5): trucks
+   loosened to 9 to 18 N·m/rad, a foot stop on the deck, short runs. Needs
+   Ethan's OK and a TA sign-off first.
 
 ## What changed from the Nov 17 version
 
@@ -60,9 +72,15 @@ no resets.
   provisional candidate.
 - Added the steering result and the tilt test.
 
+## What changed on Nov 19
+
+- Split steer v5 exported as the candidate for the first steering test.
+- Policies and media renamed to `<stance>_<skill>_v<N>`, with a table of runs.
+
 ## Accounting
 
 - Skipped: anything on the robot; a stance audit for the ride policies.
 - Assumed: the 12 rad/s joint speed limit; truck stiffness 30 N·m/rad.
-- Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); the robot-side loader has not run
-  a skate policy.
+- Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); split
+  steer v5 fails 2 of 16 ride audit rows; the robot-side loader has not run a skate
+  policy.

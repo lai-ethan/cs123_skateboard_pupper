@@ -1,8 +1,8 @@
 # Sim2real: will Pupper stay balanced on the board?
 
 The TA's concern after the checkpoint report: "I doubt if Pupper can remain balanced
-at this pose on the board." This note is the answer so far. It is version 4,
-written 2026-11-18, from simulation only. Nothing here has been tried on the robot.
+at this pose on the board." This note is the answer so far. It is version 5,
+written 2026-11-19, from simulation only. Nothing here has been tried on the robot.
 
 ## Short answer
 
@@ -12,6 +12,7 @@ written 2026-11-18, from simulation only. Nothing here has been tried on the rob
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Yes, with care (see below) |
 | Split ride v4 | `iznjwbka` | pass | pass at 0.2, 0.3, 0.4 m/s | not run | Yes, after both balance tests |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
+| Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Candidate for the first steering test, loosened trucks |
 
 - **Split stance** (left feet on the deck, right feet on the floor): the balance
   policy holds every condition we tried, including soft trucks and several errors
@@ -29,6 +30,9 @@ written 2026-11-18, from simulation only. Nothing here has been tried on the rob
   foot on the floor. It holds the commanded speed with no falls, slow joints
   and at most 1.5 strides per second. It fails `min_foot_duty`: the push foot
   is on the floor only 20% of the time (see "Riding: where it stands").
+- **Split steer v5 steers in sim but is not a full pass.** It carves both ways
+  on loosened trucks with no resets in the gait check, but in 30 s rides about
+  1 board in 8 slides off (see "Steering: what sim says").
 
 ## The board, as measured
 
@@ -134,7 +138,8 @@ would fix it.
 - Gains and action scale in `policy.json` are the lab's (kp 5.5, kd 0.25, action
   scale 0.75). Balance policies clip the speed command to zero.
 - Sensor and motor latency are modelled the same way as the walking tasks.
-- Heading hold is off in all skate exports (kp 0).
+- Heading hold is off in every skate export (kp 0) except split steer v5,
+  which has it on (kp 1.0, clip 0.3 rad/s).
 - In the gait check on the real deck height both balance policies stay far inside
   the motor limits: peak joint speed 0.58 rad/s (split) and 2.63 rad/s (centred)
   against a limit of 12, with no torque saturation.
@@ -182,6 +187,8 @@ signs off before the first powered run (PLAN Task 12).
    Start at 0.2 m/s, then 0.3 m/s. It passes the gait check at both.
 8. **Centred ride `7fyt12i1`, hand held,** last, and only if Ethan accepts
    that it fails the push foot duty limit (`HARDWARE_TEST.md`, test 4).
+9. **Split steer v5, hand held,** only after step 7, on trucks loosened to 9
+   to 18 N·m/rad, with a foot stop on the deck (`HARDWARE_TEST.md`, test 5).
 
 The test sheet for this session is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
@@ -284,9 +291,11 @@ cd ~/pupper_gait_deploy
 
 ## Steering: what sim says
 
-Nothing steers yet. Every exported ride policy takes a forward speed only. The
-split ride exports with the heading hold on (kp and clip from the gait tasks),
-so the robot keeps itself parallel to the board.
+Split steer v5 is the first policy that steers the board by leaning. It is a
+candidate for the first hardware steering test (`HARDWARE_TEST.md`, test 5),
+not a fully passing policy. Its export has the heading hold on (kp 1.0, clip
+0.3 rad/s), so at yaw 0 the robot keeps itself parallel to the board. The
+other skate exports have it off (kp 0). The runs below show how it got there.
 
 - **First try: a split-stance steer task.** `Mjlab-SkateSplit-Steer-Pupper-v3`
   was the split ride plus a commanded board turn rate of up to 0.15 rad/s.
@@ -346,14 +355,14 @@ so the robot keeps itself parallel to the board.
   iterations with both. The creep was slower but still there: 14 of 16 envs
   crept forward at 0 to 0.66 cm/s, about 0.3 on average. With `board_slid`
   off for 60 s, none fell in the first 29 s, then 6 of 16 ran the front left
-  foot off the nose. No randomised value explains the rate, and a tighter
-  contact solve does not change it, so it comes from the gait. The policy
-  cannot see the board, and the 8 cm end arrives 15 to 30 s after the creep
-  starts, far past the 2 s that training looks ahead. So a new cost,
-  `board_creep` (weight -1.0), charges the creep while it happens, with full
-  cost at 2 cm/s. The slide's rate goes through two 1 s averages in a row, so
-  the stride's own rocking cancels and only a steady creep is left. 0.3 cm/s costs 0.15 a step. Policies trained before this change
-  do not have it.
+  foot off the nose. No randomised value explains the rate, and more solver
+  iterations do not change it, so it comes from the gait. The policy cannot
+  see the board, and the 8 cm end arrives 15 to 30 s after the creep starts,
+  far past the 2 s that training looks ahead. So a new cost, `board_creep`
+  (weight -1.0), charges the creep while it happens, with full cost at 2 cm/s.
+  The slide's rate goes through two 1 s averages in a row, so the stride's own
+  rocking mostly cancels and only a steady creep is left. 0.3 cm/s costs 0.15
+  a step. Policies trained before this change do not have it.
 - **Slipping on the deck.** `board_creep` did not cut the creep in 3000
   iterations (run `8tklg4k7`: 0.68 cm/s straight, 1.89 in a left carve).
   More solver iterations did not help, but a different friction cone did.
@@ -365,13 +374,45 @@ so the robot keeps itself parallel to the board.
   | --- | --- | --- | --- |
   | task default (pyramidal cone) | 12 | +0.29 (to the nose) | 0.31 |
   | solver iterations 30 | 12 | +0.27 | 0.31 |
-  | elliptic cone | 4 | -0.13 | 0.16 |
+  | elliptic cone | 4 | -0.13 (to the tail) | 0.16 |
 
   About half of the creep was this slip, and the policy learned a bias against
   it. The split balance, ride and steer now use the elliptic cone with
   impratio 10 (`SPLIT_CONTACT_CONE`, `SPLIT_CONTACT_IMPRATIO`). The centred
   tasks and the walking tasks keep the shared options. Earlier split policies
   were trained with the default contacts.
+- **Steer v5 (`qqm2917n`, then `bxke67fj`).** Resumed from v4 `8tklg4k7`, and
+  the first steer run trained with the elliptic cone (commit `63ed76a`).
+  `qqm2917n` crashed at iteration 23850 when the Colab runtime dropped;
+  `bxke67fj` ran the last 150 iterations, to `model_23999.pt`. Gait check on
+  the 103 mm deck at 0.3 m/s, 16 boards:
+
+  | Yaw command | Gait check | Resets | Board yaw rate / asked | Worst fore-aft slide | Fastest creep |
+  | --- | --- | --- | --- | --- | --- |
+  | 0 | pass | 0 | not asked | 6.6 cm | 0.29 cm/s |
+  | +0.5 (carve left) | pass | 0 | 0.92 of 0.050 rad/s | 7.0 cm | 0.21 cm/s |
+  | -0.5 (carve right) | pass | 0 | 0.84 of 0.050 rad/s | 6.7 cm | 0.35 cm/s |
+
+  The slide limit is 8 cm. v4 for comparison: 3 to 4 resets per gait report,
+  and 0.39 of the asked rate carving left. In a 10 s render there were no
+  resets, and the board's heading changed +0.50 rad carving left and -0.44 rad
+  carving right. Videos: `media/split_steer_v5_straight_0.3ms.mp4`,
+  `media/split_steer_v5_carve_left_0.3ms.mp4` and
+  `media/split_steer_v5_carve_right_0.3ms.mp4`.
+- **Steer v5 ride audit: fail on 2 of 16 rows** (yaw 0, 0.3 m/s, deck 103 mm).
+  In `nominal_30s`, 2 of 16 boards reset on `board_slid`. In `truck_x4`, 2
+  reset; those trucks are 4 times stiffer, outside the range steering needs
+  anyway. The other 14 rows pass, 13 of them with no reset (`shove_fwd_0.5`
+  had 1). v3 `a9x8z66m` failed 6 rows. Log:
+  `policies/split_steer_v5_audit.txt`.
+- **What that means for the robot.** v5 is a candidate for the first hardware
+  steering test, not a fully passing policy. In sim about 1 board in 8 slides
+  8 cm along the deck within 30 s, so fit a foot stop or a ridge on the deck
+  and keep runs short. Loosen the trucks to about 9 to 18 N·m/rad first. A
+  hardware run needs Ethan's OK and a TA sign-off; neither has been given.
+  Policy: `policies/split_steer_v5_max0.3_policy.json` (speed 0 to 0.3 m/s,
+  yaw clipped at 0.6 rad/s). Checkpoint:
+  `policies/split_steer_v5_model_23999.pt`.
 
 ## What changed from v1
 
@@ -407,6 +448,14 @@ so the robot keeps itself parallel to the board.
 - The steer run `jl7i4id0` and the tilt measurement are in the steering
   section.
 
+## What changed from v4
+
+- Split steer v5 (`qqm2917n`, then `bxke67fj`) steers by leaning and is the
+  candidate for the first steering test. The steering section has its gait
+  check, render and ride audit.
+- Policy and media files have descriptive names now; the name to run table is
+  [`policies/README.md`](policies/README.md).
+
 ## Accounting
 
 - **Skipped:** any hardware test; a stance audit for the ride policies; shoves
@@ -416,5 +465,6 @@ so the robot keeps itself parallel to the board.
   that lowered trucks put the deck at 68 to 83 mm.
 - **Issues:** centred ride has no passing policy yet (`7fyt12i1` fails the
   push foot duty limit); the centred stance fails 7 audit rows from lack of sideways room;
+  split steer v5 fails 2 of 16 ride audit rows;
   hand-placing the robot in the split stance, the robot-side loader and how the
   ride speed is commanded on the robot are unverified.
