@@ -5,8 +5,8 @@ Date: ________  People: ________________________
 Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. Test 3's
 policy passed it on an older task and resets on sideways drift on the current one. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
-one sim board in 48 slid off on left carves. None has run on the robot. Sim first, then
-robot.
+one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
+hard right carves. None has run on the robot. Sim first, then robot.
 
 ## Safety, before any power
 
@@ -140,6 +140,14 @@ says"). Takes five minutes.
 - Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
   yaw stick only. It trained only on full carves and fails 2 of 16 ride
   audit rows. Its heading hold clip is 0.3, not 0.1.
+- If the robot slides along the deck with v6: try
+  `policies/split_steer_v7_max0.3_policy.json` (run `n5m2zsks`, resumed
+  from v6). Keep the stick within ±0.3; the file clips yaw at ±0.3 rad/s
+  anyway. It passes the validator and all 16 ride audit rows, and no sim
+  board slid out in 27 gait runs. But it pulls right, gentle right carves
+  turn up to twice what they ask, and hard right carves (stick -0.5, -0.6)
+  fail in sim on every seed, so it does not get the full stick. Same heading
+  hold as v6 (kp 1.0, clip 0.1). Same placement and trucks.
 - Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
   policy trained only on that range. The stock trucks have not been
@@ -176,3 +184,4 @@ says"). Takes five minutes.
 - Notes carve left, small stick: ____________________________________________
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
+- Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________

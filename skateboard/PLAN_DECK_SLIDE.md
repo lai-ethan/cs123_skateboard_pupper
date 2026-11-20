@@ -88,3 +88,75 @@ Resume from v6 (`hfd3qhwr`, `model_26998.pt`) for 2000 iterations.
 - If it misses on creep: add a deck-foot minimum-load penalty (3 N floor,
   weight -0.5) and run again. If turning got worse: v6 stays the candidate.
 - Videos, export, validator, docs, as for v6.
+
+## Results (steer v7, 2026-11-20)
+
+v7 is run `n5m2zsks`: v6 `hfd3qhwr` resumed for 2000 iterations on Task 1's
+code (commit `6318e2c`), to `model_28997.pt`. Evaluation as in Task 3: 16
+boards, 0.3 m/s, 500 steps, 103 mm deck.
+
+**Verdict: v7 misses the pass bar (2 of 4). It fixes the slide but hurts
+turning. v6 stays the steering candidate.**
+
+| Bar | v7 | v6 | Met? |
+| --- | --- | --- | --- |
+| No `board_slid` reset, any seed | 0 in 27 gait runs | 1 board (env 12) on +0.3, +0.5, +0.6, seed 0 | yes |
+| `kp_transplant` creep under 0.1 cm/s | mean 0.21, max 0.31 cm/s; 0 of 16 slid out | mean 0.42, max 0.89 cm/s; 4 of 16 slid out | no |
+| Ride audit 16 of 16 | 16 of 16 | 16 of 16 | yes |
+| Turn no worse than v6 by > 0.1 of asked | +0.5, +0.6, -0.6 (seed 0) and +0.3 (seed 2) are worse | | no |
+
+What got better:
+
+- No `board_slid` reset anywhere in the gait check (3 seeds, 9 sticks).
+- With env 12's soft leg gains in every env, no board slid out and the creep
+  halved. It is still twice the 0.1 cm/s target, and every transplanted env
+  still creeps towards the nose.
+- The ride audit still passes 16 of 16. `nominal_30s` and `deck_113mm` had 1
+  `board_slid` reset each, inside the audit's 1-in-16 allowance.
+
+What got worse:
+
+- v7 pulls right. At stick 0 the mean board yaw rate is -0.013 rad/s (v6:
+  -0.003).
+- Hard right carves fail. Stick -0.5 and -0.6 fail the gait check on every
+  seed, on `board_drifted` (the board drifts sideways more than 6 cm), 1 to 4
+  boards in 16. v6 passed both on seed 0.
+- Left carves are weaker at high stick: +0.5 turns 0.56 of asked (v6: 0.67),
+  +0.6 turns 0.58 (v6: 0.80), seed 0.
+- Gentle right carves overshoot: 2.12 times the asked rate at -0.15 and 1.32
+  at -0.3 (v6: 0.82 and 0.63), seed 0.
+
+Turn as a fraction of the asked board yaw rate, seed 0:
+
+| Stick | v7 | v6 |
+| --- | --- | --- |
+| +0.15 | 0.79 | 0.84 |
+| -0.15 | 2.12 | 0.82 |
+| +0.3 | 0.62 | 0.58 |
+| -0.3 | 1.32 | 0.63 |
+| +0.5 | 0.56 | 0.67 |
+| -0.5 | 0.99, **fail** (`board_drifted`) | 0.86 |
+| +0.6 | 0.58 | 0.80 |
+| -0.6 | 0.72, **fail** (`board_drifted`) | 0.86 |
+
+Decision:
+
+- v6 stays the candidate for the steering test over the full stick range.
+- v7 is kept as the low-slide alternative for riding straight and gentle
+  carves, stick within ±0.3. Try it on the robot if v6 slides along the deck.
+  Its export clips yaw at ±0.3 rad/s, so the robot cannot send it a hard
+  carve.
+- The plan's fallback for missed creep (a deck-foot minimum-load penalty) was
+  not run. The cause of the right pull is not known yet; it should be
+  understood before another retrain.
+- Neither v6 nor v7 has run on the robot.
+
+Files: `policies/split_steer_v7_model_28997.pt`,
+`policies/split_steer_v7_max0.3_policy.json`, `policies/split_steer_v7_audit.txt`,
+`media/split_steer_v7_*_0.3ms.mp4`. The full write-up is in `SIM2REAL.md`,
+"Steering: what sim says".
+
+- Skipped: the minimum-load penalty retrain; a deck height sweep for v7.
+- Assumed: the `kp_transplant` setup (env 12's gains in every env) is a fair
+  stress test of the slide.
+- Issues: the right pull is not diagnosed; creep is still above target.

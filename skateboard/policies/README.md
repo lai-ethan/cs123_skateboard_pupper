@@ -29,6 +29,7 @@ centred push reference open loop, with no trained policy, so it has no run.
 | `split_steer_v3` | `a9x8z66m` | `Mjlab-SkateSplit-Steer-Pupper-v3` | Adds `board_slid` and `board_fore_aft`. Creeps slower, still fails 6 audit rows. |
 | `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. First steer run to pass all three gait reports with zero resets; fails 2 of 16 audit rows. Fallback for the first steering test. Trained only on full carves (yaw 0.4 to 0.6, hold clip 0.3), so use the full yaw stick. |
 | `split_steer_v6` | `hfd3qhwr` (resumes `bxke67fj`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Partial turns (yaw 0.1 to 0.6, hold clip 0.1). Passes 16 of 16 audit rows; 1 board in 48 slides off on left carves. Candidate for the first steering test. |
+| `split_steer_v7` | `n5m2zsks` (resumes `hfd3qhwr`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Deck-foot scuff penalty -20 (was -2), slide counted from the episode start. No `board_slid` in 27 gait runs; 16 of 16 audit rows. Pulls right; fails hard right carves (-0.5, -0.6). Fallback if v6 slides; export clips yaw at ±0.3. |
 
 `split_steer_v6` trained on the current steer task: partial turns (yaw 0.1 to
 0.6) with the hold clip at 0.1. Its media names give the stick, as in
@@ -36,6 +37,13 @@ centred push reference open loop, with no trained policy, so it has no run.
 deck for any steer test, so sliding along the deck is an open risk: in sim
 1 of 48 v6 boards slid 8 cm on left carves. Keep runs short and reset the
 robot to its marks between runs.
+
+`split_steer_v7` is v6 retrained to stop that slide
+([`../PLAN_DECK_SLIDE.md`](../PLAN_DECK_SLIDE.md)). Its `_max0.3_policy.json`
+clips both speed (0 to 0.3 m/s) and yaw (±0.3 rad/s); v6's clips yaw at ±0.6.
+`split_steer_v7_right_stick0.6_0.3ms.mp4` is a carve the export cannot send.
+It shows one board that did not reset; in the gait check 1 to 4 boards in 16
+drift off sideways at that stick.
 
 `split_balance_v2` and `split_ride_v0` were trained before the split stance had
 its own task ids, so they ran under the ids the centred stance uses now.

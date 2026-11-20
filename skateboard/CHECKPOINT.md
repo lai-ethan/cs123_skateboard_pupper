@@ -26,7 +26,7 @@ no resets.
   passed on the current task: on 2026-11-18 its checkpoint reset on
   `board_drifted` in the gait check, and its retrain v7 (`gkk9a6bj`) fails 9
   ride audit rows. Not rerun since `board_slid` and the elliptic cone.
-- Heading hold is off in every skate export (kp 0) except split steer v5 and v6.
+- Heading hold is off in every skate export (kp 0) except split steer v5, v6 and v7.
 - File names map to W&B runs in [`policies/README.md`](policies/README.md).
 
 ## What does not work
@@ -66,11 +66,23 @@ no resets.
   than v5 (0.67 of asked, against 0.92). Policy:
   `policies/split_steer_v6_max0.3_policy.json`. Videos:
   `media/split_steer_v6_*_0.3ms.mp4`.
+- **v7 slides less but turns worse.** Split steer v7 (`n5m2zsks`) resumed
+  from v6 for 2000 iterations with the deck-foot scuff penalty at -20 (was
+  -2) and the slide counted from the episode start. No `board_slid` reset in
+  27 gait runs, and under soft leg gains 0 of 16 boards slid out (v6: 4 of
+  16) with half the creep (0.21 cm/s, target 0.1). Ride audit 16 of 16. But
+  it pulls right: hard right carves (stick -0.5, -0.6) fail on every seed on
+  `board_drifted`, +0.6 turns 0.58 of asked (v6: 0.80), and -0.15 turns 2.1
+  times asked. It missed the plan's pass bar, so v6 stays the candidate. v7
+  is the fallback for straight riding and gentle carves (stick within ±0.3)
+  if v6 slides along the deck. The right pull is not diagnosed. Policy:
+  `policies/split_steer_v7_max0.3_policy.json` (yaw clipped at ±0.3).
+  Videos: `media/split_steer_v7_*_0.3ms.mp4`.
 - **No foot stop.** The team will not fit a foot stop or ridge on the deck,
   so staying on the board has to come from the policy. Sliding along the deck
   is the main open risk: in sim v5 lets 2 of 16 boards slide 8 cm within 30 s,
-  and v6 lets 1 in 48 slide that far on left carves. Runs must be short, with
-  the robot reset to its marks between runs.
+  and v6 lets 1 in 48 slide that far on left carves. v7 lets none, but turns
+  worse. Runs must be short, with the robot reset to its marks between runs.
 - Centred balance has little sideways room: it fails 7 of 21 stance audit rows
   (board 2 cm off-centre, shoves, soft trucks). Place it within about 1 cm.
 - The 12 rad/s joint speed limit is an estimate (motor spec is about 30 rad/s
@@ -87,8 +99,10 @@ no resets.
 4. Measure truck stiffness and wheel drag (still guesses).
 5. Steering test with split steer v6 (`HARDWARE_TEST.md`, test 5): trucks
    loosened to 9 to 18 N·m/rad, start with a small stick, short runs, robot
-   reset to its marks between runs. v5 with full stick is the fallback.
+   reset to its marks between runs. If the robot slides along the deck, try
+   v7 with the stick within ±0.3. v5 with full stick is the fallback.
    Needs Ethan's OK and a TA sign-off first.
+6. Find the cause of v7's right pull before any further steer retrain.
 
 ## What changed from the Nov 17 version
 
@@ -109,6 +123,9 @@ no resets.
 - Later the same day: split steer v6 (`hfd3qhwr`) trained and evaluated. It
   is the new steering candidate since partial stick works; v5 is the
   fallback. The steering test now uses the v6 file.
+- Later still: split steer v7 (`n5m2zsks`) trained to stop the deck slide
+  ([`PLAN_DECK_SLIDE.md`](PLAN_DECK_SLIDE.md)). It stops the slide but hurts
+  turning, so v6 stays the candidate and v7 is the fallback if v6 slides.
 
 ## Accounting
 
@@ -117,5 +134,6 @@ no resets.
 - Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); split
   steer v6 lets 1 board in 48 slide off on left carves and turns about 0.6 of asked
   at mid stick; with no foot stop, sliding along the deck is an open risk; a stick
-  right at 0.1 sits between the heading hold and the smallest carve; the robot-side
-  loader has not run a skate policy.
+  right at 0.1 sits between the heading hold and the smallest carve; v7 pulls right and
+  fails hard right carves, cause unknown; the robot-side loader has not run a skate
+  policy.
