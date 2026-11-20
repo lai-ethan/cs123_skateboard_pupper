@@ -52,7 +52,11 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
 
   Raises ValueError on the steer task for a yaw rate outside the task's
   command clip (its `ang_vel_z` range, the export's `wz` clip): the robot
-  would clip it, so the sim must not run it.
+  would clip it, so the sim must not run it. Also raises for a yaw rate from
+  the hold's threshold up to its clip in size when the clip is above the
+  threshold (a policy trained with the 0.3 clip, such as steer v5, after
+  `fix_hold_clip`): there the stick looks exactly like a hold correction, so
+  that policy never trained on it as a carve.
   """
   twist = env_cfg.commands["twist"]
   assert isinstance(twist, PupperVelocityCommandCfg)
@@ -61,6 +65,14 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
     if not low <= yaw_rate <= high:
       raise ValueError(
         f"yaw rate {yaw_rate} rad/s is outside the command clip {low} to {high}"
+      )
+    threshold = twist.heading_hold_yaw_threshold
+    clip = twist.heading_hold_clip
+    if clip > threshold and threshold <= abs(yaw_rate) <= clip:
+      raise ValueError(
+        f"yaw rate {yaw_rate} rad/s is inside the heading hold's clip {clip}: "
+        "a policy with this clip cannot tell it from a hold correction; use 0 "
+        f"or a carve above {clip} in size"
       )
   twist.ranges.ang_vel_z = (yaw_rate, yaw_rate)
   twist.rel_forward_envs = 0.0
@@ -75,6 +87,41 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
       twist.carve_left_share = 1.0 if yaw_rate > 0.0 else 0.0
 
 
+def policy_hold_clip(policy_path: Path, hold_clip: float | None) -> float | None:
+  """The heading-hold clip [rad/s] a policy file trained with, or None.
+
+  An exported `policy.json` carries it in its `heading_hold` block (a block
+  with kp 0 has the hold off, so None). A checkpoint (`model_*.pt`) carries
+  none, so `hold_clip` (the tools' `--hold-clip`) supplies it; None keeps the
+  task's own. Raises ValueError when both are given and disagree.
+  """
+  if not str(policy_path).endswith(".json"):
+    return hold_clip
+  block = json.loads(Path(policy_path).read_text()).get("heading_hold")
+  if not block or block.get("kp", 0.0) <= 0.0:
+    return hold_clip
+  clip = float(block["clip"])
+  if hold_clip is not None and hold_clip != clip:
+    raise ValueError(
+      f"--hold-clip {hold_clip} disagrees with the {clip} in {policy_path}"
+    )
+  return clip
+
+
+def fix_hold_clip(env_cfg: Any, clip: float) -> None:
+  """Clip the heading hold's correction at `clip` rad/s, as the policy trained.
+
+  The steer task changed its clip from 0.3 to 0.1 after steer v5, so a v5
+  replay must put 0.3 back to reproduce its logged numbers and to match the
+  robot, which runs the clip in the policy's JSON. Tasks without the hold are
+  left alone.
+  """
+  twist = env_cfg.commands["twist"]
+  assert isinstance(twist, PupperVelocityCommandCfg)
+  if twist.heading_hold_kp is not None:
+    twist.heading_hold_clip = clip
+
+
 def load_policy(
   task: str,
   policy_path: Path,
@@ -86,6 +133,7 @@ def load_policy(
   num_envs: int = 1,
   seed: int | None = None,
   yaw_rate: float | None = None,
+  hold_clip: float | None = None,
 ) -> tuple[ManagerBasedRlEnv, RslRlVecEnvWrapper, Callable]:
   """Play-mode envs, their rsl_rl wrapper, and `policy(obs) -> actions`.
 
@@ -94,7 +142,10 @@ def load_policy(
   `speed` fixes the board speed command in m/s (ride) and turns off standing
   commands (see `fix_speed`); None keeps the task's range and standing share.
   `yaw_rate` fixes the board yaw-rate command in rad/s (see `fix_yaw_rate`);
-  None keeps the task's yaw range.
+  None keeps the task's yaw range. The heading hold's clip is the policy's
+  own (see `policy_hold_clip` and `fix_hold_clip`): a `policy.json`'s
+  `heading_hold` block, or `hold_clip` for a checkpoint; it is set before the
+  yaw rate is checked.
   `render_mode` and `viewer` (attributes set on the env's viewer config) are
   only needed for rendering. `configure(env_cfg)`, if given, edits the env
   config after the edits above and before the env is built.
@@ -108,6 +159,9 @@ def load_policy(
     setattr(env_cfg.viewer, key, value)
   if speed is not None:
     fix_speed(env_cfg, speed)
+  clip = policy_hold_clip(policy_path, hold_clip)
+  if clip is not None:
+    fix_hold_clip(env_cfg, clip)
   if yaw_rate is not None:
     fix_yaw_rate(env_cfg, yaw_rate)
   if configure is not None:

@@ -38,7 +38,9 @@ either sign) asks the board to turn at a tenth of it. The report always
 prints the board's mean yaw rate; for any carve it adds the ratio to the
 board yaw rate the command asks for (on the other tasks, for any non-zero
 `--yaw-rate`). That line is not part of the verdict. The steer task needs
-a positive `--speed`, like a ride.
+a positive `--speed`, like a ride. The heading hold runs with the policy's
+own clip: a `policy.json`'s `heading_hold` block, or `--hold-clip` for a
+checkpoint (steer v5 trained with 0.3; the steer task now uses 0.1).
 Three more lines are not part of the verdict: the measured resets by
 termination name and, for split tasks, two about the robot sliding along the
 deck. One is the largest fore-aft slide over all envs and steps, the quantity
@@ -68,6 +70,10 @@ GAIT_LIMITS: tuple[tuple[str, str, float], ...] = (
   ("max_stride_rate", "max", 2.0),
   ("board_speed_ratio", "min", 0.5),
   ("board_speed_ratio", "max", 1.5),
+)
+HOLD_CLIP_HELP = (
+  "heading-hold clip in rad/s for a model_*.pt (steer v5: 0.3); a policy.json"
+  " carries its own"
 )
 # Column order of both foot contact sensors in the centred tasks.
 FOOT_ORDER = ("FR", "FL", "BR", "BL")
@@ -233,6 +239,7 @@ def main(argv: list[str] | None = None) -> int:
   parser.add_argument(
     "--yaw-rate", type=float, default=0.0, help="yaw (steer: carve) command, rad/s"
   )
+  parser.add_argument("--hold-clip", type=float, help=HOLD_CLIP_HELP)
   args = parser.parse_args(argv)
   if args.steps <= args.skip:
     parser.error(f"--steps ({args.steps}) must be greater than --skip ({args.skip})")
@@ -275,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     seed=args.seed,
     configure=configure,
     yaw_rate=args.yaw_rate,
+    hold_clip=args.hold_clip,
   )
   robot = raw.scene["robot"]
   deck_feet = raw.scene["deck_feet_contact"]

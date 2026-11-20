@@ -1637,11 +1637,14 @@ def test_steer_task_builds_and_steps_with_zero_actions(play):
     assert torch.isfinite(reward).all()
   command = env.command_manager.get_command("twist")
   assert command is not None
-  # Each emitted yaw is a hold correction or a carve.
-  size = command[:, 2].abs()
-  lo, hi = STEER_CARVE_COMMAND_RANGE
-  hold = size <= STEER_HEADING_HOLD_CLIP
-  assert torch.all(hold | ((size >= lo) & (size <= hi)))
+  # Each emitted yaw is the raw carve, or a hold correction within the steer
+  # clip where the raw yaw is quiet.
+  term = env.command_manager.get_term("twist")
+  assert isinstance(term, mdp.SteerVelocityCommand)
+  raw = term.vel_command_b[:, 2]
+  carve = raw != 0.0
+  torch.testing.assert_close(command[carve, 2], raw[carve])
+  assert torch.all(command[~carve, 2].abs() <= STEER_HEADING_HOLD_CLIP + 1e-6)
   env.close()
 
 

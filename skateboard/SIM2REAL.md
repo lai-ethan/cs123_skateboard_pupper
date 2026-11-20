@@ -535,6 +535,11 @@ The runs below show how it got there.
   risk instead (see "What that means for the robot").
 - The tools now accept any yaw inside the steer command clip, and the gait
   report prints the asked board yaw rate for any carve.
+- The sim tools replay a `policy.json` with the heading-hold clip in its own
+  `heading_hold` block, so v5's file runs with 0.3, as on the robot. For a
+  checkpoint, pass `--hold-clip 0.3` to replay v5. With a 0.3 clip the tools
+  refuse a yaw of 0.1 to 0.3, where v5 cannot tell the stick from a
+  correction.
 
 ## Accounting
 

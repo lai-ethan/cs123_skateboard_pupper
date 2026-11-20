@@ -309,6 +309,7 @@ def run_row(
   row: Row,
   num_envs: int,
   seed: int,
+  hold_clip: float | None = None,
 ) -> dict[str, Any]:
   """Roll out one row and return its metrics (raises NotApplicable)."""
   import torch
@@ -330,6 +331,7 @@ def run_row(
     seed=seed,
     configure=configure,
     yaw_rate=0.0,
+    hold_clip=hold_clip,
   )
   sides = found["sides"]
   robot, board = raw.scene["robot"], raw.scene["board"]
@@ -424,6 +426,11 @@ def main(argv: list[str] | None = None) -> int:
   )
   parser.add_argument("--steps", type=int, help="replace every row's step count")
   parser.add_argument("--json", type=Path, help="write all rows and metrics here")
+  parser.add_argument(
+    "--hold-clip",
+    type=float,
+    help="heading-hold clip, rad/s, for a model_*.pt (steer v5: 0.3)",
+  )
   args = parser.parse_args(argv)
   names = [name for name in args.rows.split(",") if name]
   unknown = [name for name in names if name not in ROWS]
@@ -454,7 +461,13 @@ def main(argv: list[str] | None = None) -> int:
     start = time.time()
     try:
       metrics = run_row(
-        args.task, args.policy, args.speed, row, args.num_envs, args.seed
+        args.task,
+        args.policy,
+        args.speed,
+        row,
+        args.num_envs,
+        args.seed,
+        args.hold_clip,
       )
     except NotApplicable as reason:
       results[name] = {"verdict": "n/a", "reason": str(reason)}

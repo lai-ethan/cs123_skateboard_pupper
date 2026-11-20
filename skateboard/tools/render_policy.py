@@ -30,6 +30,11 @@ ap.add_argument("--speed", type=float, help="fixed board speed command, m/s (rid
 ap.add_argument(
   "--yaw-rate", type=float, default=0.0, help="yaw (steer: carve) command, rad/s"
 )
+ap.add_argument(
+  "--hold-clip",
+  type=float,
+  help="heading-hold clip, rad/s, for a model_*.pt (steer v5: 0.3)",
+)
 ap.add_argument("--azimuth", type=float, default=50.0)
 ap.add_argument("--elevation", type=float, default=-18.0)
 ap.add_argument("--distance", type=float, default=1.3)
@@ -53,6 +58,7 @@ raw, env, policy = load_policy(
   render_mode="rgb_array",
   viewer=viewer,
   yaw_rate=args.yaw_rate,
+  hold_clip=args.hold_clip,
 )
 
 obs = env.get_observations()
