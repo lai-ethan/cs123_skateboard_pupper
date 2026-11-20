@@ -18,6 +18,9 @@ from mjlab.tasks.pupper_skate.mdp import (
   PupperVelocityCommandCfg,
   SteerVelocityCommandCfg,
 )
+from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  STEER_CARVE_THRESHOLD,
+)
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
 
@@ -48,9 +51,22 @@ def fix_yaw_rate(env_cfg: Any, yaw_rate: float) -> None:
   other value is the raw carve command in every env, with its sign (the task
   trained on 0.4 to 0.6 rad/s; under 0.1 the hold replaces it). Speed
   commands under the task's `yaw_min_speed` still get no carve.
+
+  Raises ValueError on the steer task for a yaw rate between the hold's
+  threshold (0.1) and STEER_CARVE_THRESHOLD (0.35) in size: the raw value
+  reaches the policy there, but it is neither a hold correction nor a carve,
+  so the policy never trained on it.
   """
   twist = env_cfg.commands["twist"]
   assert isinstance(twist, PupperVelocityCommandCfg)
+  if isinstance(twist, SteerVelocityCommandCfg):
+    low = twist.heading_hold_yaw_threshold
+    if low <= abs(yaw_rate) <= STEER_CARVE_THRESHOLD:
+      raise ValueError(
+        f"yaw rate {yaw_rate} rad/s is in the untrained band {low} to "
+        f"{STEER_CARVE_THRESHOLD}; use 0 to ride straight or a carve of "
+        "0.4 to 0.6 in size"
+      )
   twist.ranges.ang_vel_z = (yaw_rate, yaw_rate)
   twist.rel_forward_envs = 0.0
   twist.rel_turn_envs = 0.0

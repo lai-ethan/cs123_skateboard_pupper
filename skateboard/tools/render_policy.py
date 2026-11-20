@@ -34,6 +34,10 @@ ap.add_argument("--azimuth", type=float, default=50.0)
 ap.add_argument("--elevation", type=float, default=-18.0)
 ap.add_argument("--distance", type=float, default=1.3)
 args = ap.parse_args()
+if ("Ride" in args.task or "Steer" in args.task) and not (
+  args.speed is not None and args.speed > 0
+):
+  ap.error("a ride or steer task needs a positive --speed, for example --speed 0.3")
 
 viewer = {
   "width": 960,

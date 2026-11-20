@@ -114,7 +114,7 @@ STEER_YAW_MIN_SPEED = 0.1
 # crept forward in 14 of 16 envs, at 0 to 0.66 cm/s (mean about 0.3; the run
 # before: 0.6 to 2.4). With board_slid off for 60 s none fell in the first
 # 29 s, then 6 of 16 ran the front left foot off the nose. No randomised value
-# explains the rate (|r| <= 0.25) and a tighter contact solve does not change
+# explains the rate (|r| <= 0.25) and more solver iterations do not change
 # it, so it is the gait, and the envs that start furthest forward creep
 # fastest. The policy cannot see the board, and the 8 cm end comes 15 to 30 s
 # after the creep starts, far past the 2 s the discount looks ahead. So
@@ -641,8 +641,10 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
 
   # The board slid out from under the feet: its sideways offset from the robot,
   # in the board's heading frame, is more than 6 cm from the keyframe's. The
-  # deck feet stand on the deck's centre line, 8 cm from either edge, so this
-  # ends the ride before they slip off. Ends the episode in play too.
+  # deck feet stand near the deck's centre line; the traced deck is at most
+  # 7.9 cm from it to either edge and narrower toward the ends
+  # (deck_half_width_at), so this ends the ride before they slip off. Ends the
+  # episode in play too.
   cfg.terminations["board_drifted"] = TerminationTermCfg(
     func=mdp.board_drifted, params={"max_drift": 0.06}
   )
