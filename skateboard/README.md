@@ -30,7 +30,7 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 
 ## Status
 
-As of 2026-11-19. Nothing has run on the robot.
+As of 2026-11-20. Nothing has run on the robot.
 
 | Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
 | --- | --- | --- | --- | --- | --- |
@@ -38,14 +38,15 @@ As of 2026-11-19. Nothing has run on the robot.
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
 | Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready: Ethan's call, short runs only |
 | Centred ride (tripod) | `7fyt12i1` | pass | fail on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
-| Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Steering candidate, loosened trucks, Ethan's call |
+| Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Steering candidate, loosened trucks, Ethan's call |
+| Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Steering fallback, full stick only |
 
 - Done: board model on the measured board, both stances, five tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
 - Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passed the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s on 2026-11-17, on the old box deck and before the `board_drifted` and `board_slid` checks existed. It has not passed on the current task: on 2026-11-18 its checkpoint reset on `board_drifted` (sideways drift off the feet) in the gait check, and its retrain, split ride v7 `gkk9a6bj`, fails 9 ride audit rows. Not rerun since `board_slid` and the elliptic cone. Policy: `policies/split_ride_v4_policy.json`.
 - Centred ride is a tripod ride now: three feet on the deck, the back right foot pushing on the floor. Run `7fyt12i1` rides at 0.1 to 0.3 m/s with no resets and passes every gait limit but one: the push foot is on the floor 20% of the time (limit 40%). Provisional policy: `policies/centred_ride_v9_max0.3_policy.json`. Video: `media/centred_ride_v9.mp4`. The run history is in [`SIM2REAL.md`](SIM2REAL.md).
-- Steering: split steer v5 (runs `qqm2917n`, then `bxke67fj`) is the candidate for the first hardware steering test, not a fully passing policy. It leans to steer on trucks loosened to 9 to 18 N·m/rad. At 0.3 m/s it passes the gait check at yaw 0, +0.5 and -0.5 with no resets, and the board turns at 0.84 to 0.92 of the asked rate. It fails 2 of 16 ride audit rows: in sim 2 of 16 boards slide 8 cm within 30 s. There will be no foot stop or ridge on the deck, so sliding is an open risk: the test uses short runs and resets the robot to its marks between runs. v5 trained only on full carves, so the test uses the full yaw stick only. A v6 that trains on partial turns is planned and not trained yet. Policy: `policies/split_steer_v5_max0.3_policy.json`. Test sheet: [`HARDWARE_TEST.md`](HARDWARE_TEST.md), tests 0 and 5. A hardware run needs Ethan's OK and a TA sign-off.
-- Heading hold is off in every skate export (kp 0) except split steer v5 (kp 1.0, clip 0.3 rad/s).
+- Steering: split steer v6 (`hfd3qhwr`, resumed from v5) is the candidate for the first hardware steering test, not a fully passing policy. It leans to steer on trucks loosened to 9 to 18 N·m/rad and trained on partial turns, so it turns in proportion to the stick. At 0.3 m/s it passes all 16 ride audit rows. In the gait check (seed 0) the board turns 0.82 to 0.86 of the asked rate at stick ±0.15 and ±0.6, but only 0.58 to 0.63 at ±0.3. One of 16 boards, the same one each time, slides past the 8 cm limit on left carves of 0.3 to 0.6; on two more seeds there was no reset, so 1 board in 48. There will be no foot stop or ridge on the deck, so sliding is the main open risk: the test uses short runs, starts with a small stick and resets the robot to its marks between runs. Policy: `policies/split_steer_v6_max0.3_policy.json`. Split steer v5 (`bxke67fj`) is the fallback: it trained only on full carves, so it needs the full yaw stick, and it fails 2 of 16 ride audit rows. Test sheet: [`HARDWARE_TEST.md`](HARDWARE_TEST.md), tests 0 and 5. A hardware run needs Ethan's OK and a TA sign-off.
+- Heading hold is off in every skate export (kp 0) except split steer v6 (kp 1.0, clip 0.1 rad/s) and v5 (kp 1.0, clip 0.3 rad/s).
 - Not done: a centred ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md); the test sheet is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
 Five tasks are registered:
@@ -56,7 +57,7 @@ Five tasks are registered:
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
 - `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet, each stance as long as a 10 cm stroke takes at the command (0.25 to 0.5 s). `action_rate_l2`, `action_acc`, `joint_acc` and `swing_height` charge for snaps at lift-off and touchdown and for swings higher than 3 cm, and the joint speed penalty starts at 5 rad/s (PLAN Task 31).
 
-- `Mjlab-SkateSplit-Steer-Pupper-v3`: the split ride on loosened trucks (9 to 18 N·m/rad) plus a carve signal. Yaw 0 rides straight with the heading hold on; a yaw command above 0.1 and up to 0.6 rad/s, either sign, asks the board to turn at a tenth of it, so a partial stick is a partial turn. The task clips the hold's correction at 0.1 rad/s (the ride keeps 0.3), so a command of 0.1 or less is a correction and a larger one is the stick. Split steer v5 trained on an earlier version with carves of 0.4 to 0.6 only and the 0.3 clip; v6, on the current task, is not trained yet. `track_board_yaw_rate` and `board_turn_progress` pay for the board's turn. Split steer v5 is the first steer run to pass all three gait reports (yaw 0, +0.5, -0.5) with zero resets; v2 to v4 also turned the board both ways but reset.
+- `Mjlab-SkateSplit-Steer-Pupper-v3`: the split ride on loosened trucks (9 to 18 N·m/rad) plus a carve signal. Yaw 0 rides straight with the heading hold on; a yaw command above 0.1 and up to 0.6 rad/s, either sign, asks the board to turn at a tenth of it, so a partial stick is a partial turn. The task clips the hold's correction at 0.1 rad/s (the ride keeps 0.3), so a command of 0.1 or less is a correction and a larger one is the stick. Split steer v5 trained on an earlier version with carves of 0.4 to 0.6 only and the 0.3 clip; v6 (`hfd3qhwr`) trained on the current task. `track_board_yaw_rate` and `board_turn_progress` pay for the board's turn. Split steer v5 is the first steer run to pass all three gait reports (yaw 0, +0.5, -0.5) with zero resets; v2 to v4 also turned the board both ways but reset.
 
 The reward tables are in section 4 of the notebook.
 
@@ -141,8 +142,8 @@ when a run fails is in Tasks 9 and 11 of the plan.
 
 Saved policies are in [`policies/`](policies/), so no W&B login is needed. The
 current ones are `split_balance_v3_*`, `centred_balance_v2_*`,
-`split_ride_v4_*` and `split_steer_v5_*`. Each name maps to its W&B run in
-[`policies/README.md`](policies/README.md).
+`split_ride_v4_*`, `split_steer_v6_*` and `split_steer_v5_*` (fallback). Each
+name maps to its W&B run in [`policies/README.md`](policies/README.md).
 `split_balance_v2_*` and `split_ride_v0_*` are from the first split stance on a
 guessed board; the commands below use them only to show the tools. From the repo
 root:

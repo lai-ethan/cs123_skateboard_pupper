@@ -1,4 +1,4 @@
-# Checkpoint summary: Tuesday Nov 17 (updated Nov 19)
+# Checkpoint summary: Tuesday Nov 17 (updated Nov 20)
 
 Pupper v3 on a mini cruiser (deck top 103 mm), two stances, each with a balance
 and a ride policy. Everything below is simulation only. Nothing has run on the
@@ -26,7 +26,7 @@ no resets.
   passed on the current task: on 2026-11-18 its checkpoint reset on
   `board_drifted` in the gait check, and its retrain v7 (`gkk9a6bj`) fails 9
   ride audit rows. Not rerun since `board_slid` and the elliptic cone.
-- Heading hold is off in every skate export (kp 0) except split steer v5.
+- Heading hold is off in every skate export (kp 0) except split steer v5 and v6.
 - File names map to W&B runs in [`policies/README.md`](policies/README.md).
 
 ## What does not work
@@ -42,24 +42,35 @@ no resets.
 - Earlier centred ride runs stood still (`vrn7pp8n`, `2kmu10gl`), lay on the
   deck (`xtbenpi4`), skittered (`9c33unfu`) or took one stride too many
   (`zvx4xc24`). The history is in `SIM2REAL.md`.
-- **Steering is a candidate, not a pass.** Split steer v5 (runs `qqm2917n`,
-  then `bxke67fj`) leans to steer on trucks loosened to 9 to 18 N·m/rad. On
-  the 103 mm deck at 0.3 m/s it prints `GAIT: PASS` at yaw 0, +0.5 and -0.5
-  with no resets. Carving, the board turns at 0.92 (left) and 0.84 (right) of
-  the asked 0.050 rad/s, about 3 degrees per second. It fails the ride audit
+- **Steering is a candidate, not a pass.** Split steer v6 (`hfd3qhwr`) is
+  now the candidate and v5 is the fallback (see the next two items). Split
+  steer v5 (runs `qqm2917n`, then `bxke67fj`) leans to steer on trucks
+  loosened to 9 to 18 N·m/rad. On the 103 mm deck at 0.3 m/s it prints
+  `GAIT: PASS` at yaw 0, +0.5 and -0.5 with no resets. Carving, the board
+  turns at 0.92 (left) and 0.84 (right) of the asked 0.050 rad/s, about 3
+  degrees per second. It fails the ride audit
   on 2 of 16 rows: in 30 s rides 2 of 16 boards reset on `board_slid`, and 2
   reset with trucks 4 times stiffer. So about 1 board in 8 slides off in 30 s.
   Policy: `policies/split_steer_v5_max0.3_policy.json`. Videos:
   `media/split_steer_v5_*_0.3ms.mp4`. Earlier steer runs did not turn
   (`jl7i4id0`) or slid off the deck (`SIM2REAL.md`, "Steering").
 - **v5 steers on full stick only.** It trained only on full carves (yaw 0.4
-  to 0.6 rad/s), so the operator must push the yaw stick all the way. A v6
-  that trains on partial turns (yaw 0.1 to 0.6) is planned and not trained
-  yet.
+  to 0.6 rad/s), so the operator must push the yaw stick all the way.
+- **v6 turns on partial stick.** Split steer v6 (`hfd3qhwr`) resumed from v5
+  for 3000 iterations on partial turns (yaw 0.1 to 0.6). It passes all 16
+  ride audit rows. On the 103 mm deck at 0.3 m/s (seed 0) the board turns
+  0.82 to 0.86 of the asked rate at stick ±0.15 and ±0.6, but only 0.58 to
+  0.63 at ±0.3. One of 16 boards, the same one each time, resets on
+  `board_slid` on left carves of 0.3 to 0.6, so those gait reports fail; on
+  two more seeds there was no reset (1 board in 48). At +0.5 it is weaker
+  than v5 (0.67 of asked, against 0.92). Policy:
+  `policies/split_steer_v6_max0.3_policy.json`. Videos:
+  `media/split_steer_v6_*_0.3ms.mp4`.
 - **No foot stop.** The team will not fit a foot stop or ridge on the deck,
   so staying on the board has to come from the policy. Sliding along the deck
-  is an open risk: in sim 2 of 16 boards slide 8 cm within 30 s. Runs must be
-  short, with the robot reset to its marks between runs.
+  is the main open risk: in sim v5 lets 2 of 16 boards slide 8 cm within 30 s,
+  and v6 lets 1 in 48 slide that far on left carves. Runs must be short, with
+  the robot reset to its marks between runs.
 - Centred balance has little sideways room: it fails 7 of 21 stance audit rows
   (board 2 cm off-centre, shoves, soft trucks). Place it within about 1 cm.
 - The 12 rad/s joint speed limit is an estimate (motor spec is about 30 rad/s
@@ -74,10 +85,10 @@ no resets.
 3. Run the session from [`HARDWARE_TEST.md`](HARDWARE_TEST.md): board tilt
    (test 0), split balance, centred balance, split ride at 0.2 then 0.3 m/s.
 4. Measure truck stiffness and wheel drag (still guesses).
-5. Steering test with split steer v5 (`HARDWARE_TEST.md`, test 5): trucks
-   loosened to 9 to 18 N·m/rad, full yaw stick only, short runs, robot reset
-   to its marks between runs. Needs Ethan's OK and a TA sign-off first.
-6. Train steer v6 on partial turns (the steer task already has the change).
+5. Steering test with split steer v6 (`HARDWARE_TEST.md`, test 5): trucks
+   loosened to 9 to 18 N·m/rad, start with a small stick, short runs, robot
+   reset to its marks between runs. v5 with full stick is the fallback.
+   Needs Ethan's OK and a TA sign-off first.
 
 ## What changed from the Nov 17 version
 
@@ -95,12 +106,16 @@ no resets.
 - Two new constraints: the yaw stick can send any value, and there is no
   foot stop on the deck. The steer task now trains partial turns for a v6
   (not trained yet). Foot stop advice is gone; sliding is an open risk.
+- Later the same day: split steer v6 (`hfd3qhwr`) trained and evaluated. It
+  is the new steering candidate since partial stick works; v5 is the
+  fallback. The steering test now uses the v6 file.
 
 ## Accounting
 
 - Skipped: anything on the robot; a stance audit for the ride policies.
 - Assumed: the 12 rad/s joint speed limit; truck stiffness 30 N·m/rad.
 - Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); split
-  steer v5 fails 2 of 16 ride audit rows; with no foot stop, sliding along the deck
-  is an open risk; steer v6 is not trained; the robot-side loader has not run a skate
-  policy.
+  steer v6 lets 1 board in 48 slide off on left carves and turns about 0.6 of asked
+  at mid stick; with no foot stop, sliding along the deck is an open risk; a stick
+  right at 0.1 sits between the heading hold and the smallest carve; the robot-side
+  loader has not run a skate policy.

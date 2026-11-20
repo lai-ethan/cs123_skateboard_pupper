@@ -4,8 +4,9 @@ Date: ________  People: ________________________
 
 Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. Test 3's
 policy passed it on an older task and resets on sideways drift on the current one. Test
-4 uses one that fails one limit. Test 5 steers: it passes the gait check but fails 2 of
-16 ride audit rows. None has run on the robot. Sim first, then robot.
+4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
+one sim board in 48 slid off on left carves. None has run on the robot. Sim first, then
+robot.
 
 ## Safety, before any power
 
@@ -127,48 +128,51 @@ says"). Takes five minutes.
 
 ## 5. Split steer, lean carving (candidate: Ethan decides)
 
-- Policy: `policies/split_steer_v5_max0.3_policy.json` (runs `qqm2917n`, then
-  `bxke67fj` for the last 150 iterations). It clips speed at 0.3 m/s and yaw
-  at 0.6 rad/s. Install it like the capped file in test 3.
+- Policy: `policies/split_steer_v6_max0.3_policy.json` (run `hfd3qhwr`,
+  resumed from v5). It clips speed at 0.3 m/s and yaw at 0.6 rad/s, and
+  passes the robot-side validator (`download_policy.py --validate-only`).
+  Install it like the capped file in test 3.
 - This is a candidate for the first steering test, not a fully passing policy.
-  Gait check: `GAIT: PASS` at yaw 0, +0.5 and -0.5 with no resets. Ride audit:
-  `FAIL` on 2 of 16 rows. In a 30 s ride the robot slid 8 cm along the deck
-  on 2 of 16 sim boards, about 1 in 8.
+  Ride audit: `PASS` on 16 of 16 rows. Gait check: `GAIT: PASS` at yaw 0,
+  ±0.15, -0.3, -0.5 and -0.6. Left carves of +0.3, +0.5 and +0.6 fail on one
+  sim board in 16 (the same one each time), which slid 8 cm along the deck.
+  On two more seeds those left carves had no reset: 1 board in 48 in all.
+- Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
+  yaw stick only. It trained only on full carves and fails 2 of 16 ride
+  audit rows. Its heading hold clip is 0.3, not 0.1.
 - Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
   policy trained only on that range. The stock trucks have not been
   measured; they are assumed much stiffer, and then the board will not turn.
 - There is no foot stop or ridge on the deck, and none will be fitted.
   Staying on the board comes from the policy alone. Sliding along the deck is
-  an open risk: in sim the left feet slowly slide toward the nose or tail, and
-  2 of 16 boards slide 8 cm within 30 s. Keep each run short, about 10 s, and
+  the main open risk: in sim the left feet slowly slide toward the nose or
+  tail, up to 8.0 cm on left carves. Keep each run short, about 10 s, and
   reset the robot to its marks between runs.
 - Placement: left feet on the deck, right feet on the floor, as in test 3.
   Place the robot square to the board, body parallel to the deck.
-- This file has the heading hold on (kp 1.0, clip 0.3 rad/s). On the robot the
+- This file has the heading hold on (kp 1.0, clip 0.1 rad/s). On the robot the
   hold keeps the robot's own IMU yaw, not the board's heading: it cannot see
   the board. Any yaw between robot and board when the hold captures stays
   locked in. After each carve, check the body is still parallel to the board
   before the next run. The other skate files have the hold off.
 - Speed: the forward stick, clipped at 0.3 m/s. Sim checked only 0.3 m/s.
-- First ride straight at yaw 0. Then carve: a yaw command of 0.4 to 0.6 rad/s,
-  either way. The file clips yaw at 0.6, so a carve is the full yaw stick.
-  Push the yaw stick all the way, quickly; to stop the carve, let it go fully.
-  Do not hold it part way or move it slowly: v5 trained only on full carves,
-  and 0.1 to 0.35 rad/s reaches the policy where it never trained. Back to
-  yaw 0 holds the new heading (the robot's own, see above).
-- Partial turns: a steer v6 that trains on any stick value (carves of 0.1 to
-  0.6 rad/s, hold clip 0.1) is planned and not trained yet. Until it exists,
-  this test is full stick only.
-- Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6.5
-  to 7 m radius at 0.3 m/s (sim board yaw rate 0.046 rad/s left, 0.042
-  right). In sim, 10 s of carving turned the board 0.50 rad left and 0.44 rad
-  right.
+- First ride straight at yaw 0. Then carve with a small stick, about 0.15
+  rad/s, each way. Only then try more stick, up to full (0.6). Partial stick
+  is allowed: v6 trained on carves of 0.1 to 0.6 rad/s, and a half stick asks
+  for about half the turn. Do not hold the stick right at 0.1: that sits
+  between the heading hold and the smallest carve. Back to yaw 0 holds the
+  new heading (the robot's own, see above).
+- Expect a slow lean turn. In sim the board turned about 0.8 of what it asks
+  at stick 0.15 and 0.6, but only about 0.6 at stick 0.3. In 10 s renders
+  the board's heading changed +0.17 rad at stick 0.15, +0.63 rad at stick
+  0.6 and -0.20 rad at stick -0.3.
 - Watch: the robot leans its weight toward one deck edge; the board turns that
   way; left feet stay put on the deck.
 - Pass: the board turns each way for a few seconds with no fall, then rides
   straight again at yaw 0. Stop: a left foot slides toward the nose or tail or
   off the deck, the robot turns but the board does not, or fast stamping legs.
 - Notes straight: ____________________________________________
-- Notes carve left: ____________________________________________
-- Notes carve right: ____________________________________________
+- Notes carve left, small stick: ____________________________________________
+- Notes carve right, small stick: ____________________________________________
+- Notes carve, more stick: ____________________________________________
