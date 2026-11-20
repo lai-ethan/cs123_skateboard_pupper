@@ -278,7 +278,16 @@ SKATE_TASKS = (
 )
 
 
-@pytest.mark.parametrize("task", SKATE_TASKS)
+# The skate tasks that train with the board heading hold, and the clip each
+# exports: the steer task's equals the hold's yaw threshold, so a correction
+# never looks like a carve.
+HOLD_SKATE_TASKS = {
+  "Mjlab-SkateSplit-Ride-Pupper-v3": 0.3,
+  "Mjlab-SkateSplit-Steer-Pupper-v3": 0.1,
+}
+
+
+@pytest.mark.parametrize("task", [t for t in SKATE_TASKS if t not in HOLD_SKATE_TASKS])
 def test_skate_exports_turn_heading_hold_off(task):
   # The robot runs heading hold for any policy with a gait_reference block
   # unless the JSON has kp <= 0. Its parser reads all four keys.
@@ -291,12 +300,23 @@ def test_skate_exports_turn_heading_hold_off(task):
   }
 
 
+@pytest.mark.parametrize("task", sorted(HOLD_SKATE_TASKS))
+def test_skate_hold_exports_stamp_the_task_clip(task):
+  env = SimpleNamespace(cfg=load_env_cfg(task))
+  assert heading_hold_metadata(env) == {
+    "kp": 1.0,
+    "clip": HOLD_SKATE_TASKS[task],
+    "yaw_threshold": 0.1,
+    "walk_threshold": 0.05,
+  }
+
+
 @pytest.mark.parametrize("task", SKATE_TASKS)
 def test_skate_exports_clip_yaw_to_the_trained_range(task):
   # Only the steer task trains on a yaw-rate command; the other four clip the
   # robot's yaw command to zero, as before it existed.
   env = SimpleNamespace(cfg=load_env_cfg(task, play=True))
-  wz = (-0.15, 0.15) if "Steer" in task else (0.0, 0.0)
+  wz = (-0.6, 0.6) if "Steer" in task else (0.0, 0.0)
   clip = command_clip_from_env(env)
   assert clip is not None
   assert clip["wz"] == pytest.approx(wz)

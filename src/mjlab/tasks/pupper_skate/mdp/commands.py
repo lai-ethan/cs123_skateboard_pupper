@@ -56,8 +56,9 @@ class SteerVelocityCommand(BoardHeadingHoldCommand):
   A quiet yaw (0) is exactly the ride: the heading hold is on and the emitted
   yaw is its clipped correction toward the board's line. A carve is above the
   hold's yaw threshold, so the hold lets go and the raw command reaches the
-  policy, and above the hold's clip, so the policy can tell a carve from a
-  correction. When the carve ends, the hold recaptures the board's heading.
+  policy. With ``heading_hold_clip`` at or under the carve's smallest
+  magnitude (the steer task sets both to 0.1), the policy can tell a carve
+  from a correction. When the carve ends, the hold recaptures the board's heading.
   The robot runs the same hold, so a carve needs no robot-side change.
   """
 

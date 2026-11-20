@@ -294,7 +294,7 @@ out = [
     "| `Mjlab-SkateSplit-Ride-Pupper-v3` | Push with the right legs so the board"
     " rolls at the commanded speed (0 to 0.5 m/s). |\n"
     "| `Mjlab-SkateSplit-Steer-Pupper-v3` | The split ride plus a carve command"
-    " (0.4 to 0.6 rad/s, either sign) that asks the board to turn at a tenth of"
+    " (0.1 to 0.6 rad/s, either sign) that asks the board to turn at a tenth of"
     " it, by leaning the deck. At yaw 0 it is the ride, heading hold on. Trains"
     " on loosened trucks (9 to 18 N m/rad). |\n\n"
     "Train a stance's balance task before its ride task.\n"

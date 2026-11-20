@@ -314,7 +314,8 @@ def heading_hold_metadata(env) -> dict[str, float] | None:
   The split ride and steer tasks train with the hold (its sim target is the
   board's heading; the robot's is the IMU yaw with the robot placed parallel to
   the board). The steer task's carve commands are above the hold's yaw
-  threshold, so the robot passes them through unchanged. The other skate
+  threshold, so the robot passes them through unchanged, and its clip is the
+  task's own (0.1 on the steer task, 0.3 on the ride). The other skate
   tasks (the only scenes with a ``board``) train without it, but the robot
   turns it on for any policy with a ``gait_reference`` block unless the
   JSON says otherwise. Their block carries kp 0, which turns it off.

@@ -9,7 +9,7 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
 
 `--yaw-rate` is the yaw command in rad/s; it defaults to 0, the only yaw the
 other tasks trained on. On the steer task 0 rides straight with the heading
-hold on, as in the ride, and a carve command (0.4 to 0.6, either sign) reaches
+hold on, as in the ride, and a carve command (0.1 to 0.6, either sign) reaches
 the policy as it is and asks the board to turn at a tenth of it.
 """
 

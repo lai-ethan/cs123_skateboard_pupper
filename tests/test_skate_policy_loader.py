@@ -35,7 +35,7 @@ def test_fix_speed_pins_the_command_and_turns_off_standing():
 
 
 def test_fix_yaw_rate_pins_a_raw_carve_on_the_steer_task():
-  for yaw_rate, share in ((0.5, 1.0), (-0.4, 0.0)):
+  for yaw_rate, share in ((0.5, 1.0), (-0.4, 0.0), (0.2, 1.0), (-0.15, 0.0)):
     cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
     twist = cfg.commands["twist"]
     assert isinstance(twist, pl.SteerVelocityCommandCfg)
@@ -72,11 +72,12 @@ def test_zero_yaw_rate_leaves_the_other_skate_commands_alone():
     assert repr(cfg.commands["twist"]) == before, task
 
 
-def test_fix_yaw_rate_rejects_the_untrained_band_on_the_steer_task():
-  for yaw_rate in (0.1, 0.2, -0.3, 0.35):
-    cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
-    with pytest.raises(ValueError, match="untrained band"):
-      pl.fix_yaw_rate(cfg, yaw_rate)
-  for yaw_rate in (0.0, 0.05, 0.4, -0.6):
+def test_fix_yaw_rate_rejects_only_values_outside_the_steer_command_clip():
+  # Partial turns are trained now: every value inside the 0.6 clip is accepted.
+  for yaw_rate in (0.0, 0.05, 0.1, 0.2, -0.3, 0.35, 0.4, -0.6, 0.6):
     cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
     pl.fix_yaw_rate(cfg, yaw_rate)
+  for yaw_rate in (0.61, -0.7, 1.0):
+    cfg = load_env_cfg("Mjlab-SkateSplit-Steer-Pupper-v3", play=True)
+    with pytest.raises(ValueError, match="outside the command clip"):
+      pl.fix_yaw_rate(cfg, yaw_rate)

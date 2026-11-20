@@ -342,6 +342,23 @@ def test_yaw_rate_ratio_compares_the_board_to_the_command():
   assert mean == pytest.approx(-0.2) and ratio == pytest.approx(1.0)
 
 
+def test_board_yaw_target_covers_every_steer_carve():
+  steer = "Mjlab-SkateSplit-Steer-Pupper-v3"
+
+  def target(task, yaw_rate):
+    return gr.board_yaw_target(task, yaw_rate, 0.1, 0.1)
+
+  # Partial and full carves, either sign, ask for a tenth of themselves.
+  for yaw_rate in (0.15, 0.2, -0.3, 0.5, -0.6):
+    assert target(steer, yaw_rate) == pytest.approx(0.1 * yaw_rate), yaw_rate
+  # 0 and anything up to the threshold are the hold's: no target.
+  for yaw_rate in (0.0, 0.05, -0.1, 0.1):
+    assert target(steer, yaw_rate) is None, yaw_rate
+  # The other tasks ask for the command itself.
+  assert target("Mjlab-SkateSplit-Ride-Pupper-v3", 0.2) == 0.2
+  assert target("Mjlab-SkateSplit-Ride-Pupper-v3", 0.0) is None
+
+
 def test_fastest_creep_names_the_env_and_its_way():
   # Env 0 holds still, env 1 creeps towards the nose at 0.5 cm/s, env 2 towards
   # the tail at 0.3 cm/s.

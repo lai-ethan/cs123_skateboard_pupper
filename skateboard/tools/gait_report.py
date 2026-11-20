@@ -33,10 +33,11 @@ share is reported as 1.0 and passes. Any episode reset in any env in the
 measured steps fails the gait: a policy that falls is not a passing gait.
 `--yaw-rate` is the yaw command in rad/s (default 0, the only yaw the other
 tasks trained on). On the steer task 0 rides straight with the heading hold
-on, as in the ride, and a carve command (0.4 to 0.6, either sign) asks the
-board to turn at a tenth of it. The report always prints the board's mean yaw
-rate; when `--yaw-rate` is not 0 it adds the ratio to the board yaw rate the
-command asks for. That line is not part of the verdict. The steer task needs
+on, as in the ride, and a carve command (above 0.1 and up to 0.6 in size,
+either sign) asks the board to turn at a tenth of it. The report always
+prints the board's mean yaw rate; for any carve it adds the ratio to the
+board yaw rate the command asks for (on the other tasks, for any non-zero
+`--yaw-rate`). That line is not part of the verdict. The steer task needs
 a positive `--speed`, like a ride.
 Three more lines are not part of the verdict: the measured resets by
 termination name and, for split tasks, two about the robot sliding along the
@@ -175,6 +176,26 @@ def yaw_rate_ratio(board_yaw_rate: np.ndarray, target: float) -> tuple[float, fl
   return mean, mean / target
 
 
+def board_yaw_target(
+  task: str, yaw_rate: float, carve_threshold: float, carve_gain: float
+) -> float | None:
+  """The board yaw rate [rad/s] a `--yaw-rate` command asks for, or None.
+
+  None for a yaw rate of 0. On the steer task a carve (|yaw_rate| above
+  `carve_threshold`) asks for `carve_gain` times itself, a partial carve as
+  much as a full one; a smaller command is the heading hold's to replace, so
+  it asks the board for nothing (None). On the other tasks the target is the
+  command itself.
+  """
+  if yaw_rate == 0.0:
+    return None
+  if "Steer" not in task:
+    return yaw_rate
+  if abs(yaw_rate) <= carve_threshold:
+    return None
+  return carve_gain * yaw_rate
+
+
 def fastest_creep(slide: np.ndarray, done: np.ndarray, dt: float) -> tuple[float, int]:
   """The fastest mean creep along the deck [m/s] and its env.
 
@@ -230,7 +251,6 @@ def main(argv: list[str] | None = None) -> int:
     SkateboardParams,
   )
   from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import PUPPER_EFFORT_LIMIT
-  from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
   from mjlab.tasks.pupper_skate.mdp import board_slide
   from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import JOINT_SPEED_LIMIT
   from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
@@ -320,13 +340,11 @@ def main(argv: list[str] | None = None) -> int:
     f" {np.mean(board_yaw_rate_a):.3f} rad/s, mean size"
     f" {np.mean(np.abs(board_yaw_rate_a)):.3f} rad/s over all envs"
   )
-  if args.yaw_rate:
-    # The board yaw rate the command asks for: a tenth of a steer carve.
-    target = args.yaw_rate
-    if "Steer" in args.task:
-      target = carve_yaw_target(
-        torch.tensor(target), STEER_CARVE_THRESHOLD, STEER_CARVE_GAIN
-      ).item()
+  # The board yaw rate the command asks for: a tenth of any steer carve.
+  target = board_yaw_target(
+    args.task, args.yaw_rate, STEER_CARVE_THRESHOLD, STEER_CARVE_GAIN
+  )
+  if target is not None:
     _, ratio = yaw_rate_ratio(board_yaw_rate_a, target)
     yaw_line += f", {ratio:.2f} of the {target:.3f} the command asks for"
   print(yaw_line)

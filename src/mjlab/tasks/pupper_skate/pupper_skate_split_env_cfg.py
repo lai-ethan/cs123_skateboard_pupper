@@ -76,18 +76,24 @@ _GROUND_FOOT_SITES = tuple(
 _KNEES = r"^leg_(front|back)_(r|l)_2_collision$"
 
 # Steer task: the yaw command is a carve signal that works with the robot's
-# heading hold. Quiet (0) is the ride: the hold holds the board's line. A carve
-# command is drawn with a magnitude in this range and either sign: above the
-# hold's 0.1 rad/s threshold, so the hold lets go and the command reaches the
-# policy, and above the hold's 0.3 clip, so a carve never looks like a
-# correction.
-STEER_CARVE_COMMAND_RANGE: tuple[float, float] = (0.4, 0.6)
-# The board yaw rate [rad/s] a carve asks for, per unit of carve command: 0.04
-# to 0.06 rad/s. The board turns only when the deck tilts.
+# heading hold. Quiet (0) is the ride: the hold holds the board's line. The
+# steer task clips the hold's correction at STEER_HEADING_HOLD_CLIP, equal to
+# the hold's 0.1 rad/s yaw threshold, so the yaw channel cannot be misread:
+# |command| <= 0.1 can only be a hold correction and |command| > 0.1 can only
+# be the stick. The ride and balance keep the gait tasks' 0.3 clip.
+STEER_HEADING_HOLD_CLIP = 0.1
+# A carve command is drawn with a magnitude in this range and either sign:
+# above the hold's 0.1 rad/s threshold, so the hold lets go and the command
+# reaches the policy. Partial turns are trained as well as full ones, since the
+# operator's stick can send any value.
+STEER_CARVE_COMMAND_RANGE: tuple[float, float] = (0.1, 0.6)
+# The board yaw rate [rad/s] a carve asks for, per unit of carve command: 0.01
+# to 0.06 rad/s, proportional to the stick. The board turns only when the deck
+# tilts.
 STEER_CARVE_GAIN = 0.1
-# |yaw command| above this is a carve, below it a hold correction. It sits
-# between the hold's clip (0.3) and the smallest carve (0.4).
-STEER_CARVE_THRESHOLD = 0.35
+# |yaw command| above this is a carve, at or below it a hold correction. It
+# equals the steer hold's clip and the hold's yaw threshold.
+STEER_CARVE_THRESHOLD = 0.1
 # Steer task: truck stiffness scale on the nominal 30 N*m/rad, so 9 to 18
 # N*m/rad, loosened trucks that Pupper's weight can tilt. Measured board yaw
 # rate at 0.3 m/s with the deck feet 4 cm off the centre line: 0.07 rad/s at 12
@@ -672,11 +678,12 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
 
   The yaw command is a carve signal that works with the robot's heading hold
   (see ``SteerVelocityCommand``). At yaw 0 the task is the ride: the hold keeps
-  the robot on the board's line. A carve command (0.4 to 0.6 rad/s, either
+  the robot on the board's line. A carve command (0.1 to 0.6 rad/s, either
   sign) is above the hold's threshold, so it reaches the policy as it is, and
-  asks for a board yaw rate of STEER_CARVE_GAIN times the command (0.04 to
-  0.06 rad/s) with the robot turning along with the board. When the carve ends
-  the hold recaptures the board's heading.
+  asks for a board yaw rate of STEER_CARVE_GAIN times the command (0.01 to
+  0.06 rad/s) with the robot turning along with the board. The hold's
+  correction is clipped at STEER_HEADING_HOLD_CLIP (0.1), so it never looks
+  like a carve. When the carve ends the hold recaptures the board's heading.
 
   The board turns only when the deck tilts, so this task trains on loosened
   trucks (STEER_TRUCK_STIFFNESS_SCALE) that Pupper's weight can tilt. The
@@ -711,6 +718,8 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   top = STEER_CARVE_COMMAND_RANGE[1]
   steer.ranges = dataclasses.replace(twist.ranges, ang_vel_z=(-top, top))
   steer.rel_turn_envs = 0.0
+  # The hold's correction stops at the carve threshold (see the constants).
+  steer.heading_hold_clip = STEER_HEADING_HOLD_CLIP
   cfg.commands["twist"] = steer
 
   # Loosened trucks: the ride's stiffer range barely tilts under Pupper.
@@ -730,13 +739,15 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   # The robot follows the hold's correction as in the ride, and in a carve
   # turns at the board's target rate.
   r["track_yaw_rate"].params = {**r["track_yaw_rate"].params, **carve}
-  # The board's yaw rate, paid only in carves. With the tight std, riding
-  # straight under a 0.04 to 0.06 rad/s target pays 37 to 10% of the term;
-  # board_turn_progress pays from the first bit of turn.
+  # The board's yaw rate, paid only in carves. The std is tight so a partial
+  # carve and a full one pay differently: a board turning at a 0.02 rad/s
+  # target under a 0.06 command keeps 2% of the term. Riding straight under a
+  # 0.01 to 0.06 rad/s target pays 78 to 0%; board_turn_progress pays from the
+  # first bit of turn.
   r["track_board_yaw_rate"] = RewardTermCfg(
     func=mdp.track_board_yaw_rate,
     weight=2.0,
-    params={"command_name": "twist", "std": 0.04, **carve},
+    params={"command_name": "twist", "std": 0.02, **carve},
   )
   r["board_turn_progress"] = RewardTermCfg(
     func=mdp.board_turn_progress,
