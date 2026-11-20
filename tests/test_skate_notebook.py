@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from mjlab.tasks.pupper_skate import mdp
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -14,6 +15,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   pupper_skate_split_ride_env_cfg,
   pupper_skate_split_steer_env_cfg,
 )
+from mjlab.tasks.registry import load_env_cfg
 
 REPO = Path(__file__).parent.parent
 NOTEBOOK = REPO / "notebooks" / "CS123_Pupper_Skate.ipynb"
@@ -126,3 +128,31 @@ def test_train_cell_resumes_only_when_asked():
   resume = train[0][train[0].index("if RESUME_FROM:") : train[0].index("\nelse:")]
   assert "agent_cfg.resume = True" in resume
   assert "wandb_run_path=RESUME_FROM" in resume
+
+
+def test_steer_trains_side_creep_and_the_straight_pull():
+  # The train cell's own loop, on the registered steer cfg: board_side_creep
+  # trains at -1.0 and track_board_yaw_rate keeps its straight_min_speed (the
+  # loop only sets weights). The ride has neither.
+  train = [c for c in _code_cells() if "launch_training(" in c]
+  assert len(train) == 1
+  lines = train[0].splitlines()
+  start = lines.index("for name, weight in REWARD_WEIGHTS.items():")
+  apply = "\n".join(lines[start : start + 3])
+  assert apply.endswith("env_cfg.rewards[name].weight = weight")
+  for task in ("Mjlab-SkateSplit-Steer-Pupper-v3", "Mjlab-SkateSplit-Ride-Pupper-v3"):
+    scope: dict = {"TASK": task}
+    exec(_reward_weights_cell(), scope)
+    scope["env_cfg"] = load_env_cfg(task)
+    exec(apply, scope)
+    rewards = scope["env_cfg"].rewards
+    if "-Steer-" in task:
+      assert scope["REWARD_WEIGHTS"]["board_side_creep"] == -1.0
+      assert rewards["board_side_creep"].func is mdp.board_side_creep
+      assert rewards["board_side_creep"].weight == -1.0
+      yaw = rewards["track_board_yaw_rate"]
+      assert yaw.weight == 2.0 and yaw.params["straight_min_speed"] == 0.1
+    else:
+      assert "board_side_creep" not in scope["REWARD_WEIGHTS"]
+      assert "board_side_creep" not in rewards
+  assert "board_side_creep" in NOTEBOOK.read_text()

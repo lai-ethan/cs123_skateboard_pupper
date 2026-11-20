@@ -14,7 +14,11 @@ from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
-from mjlab.tasks.pupper_skate.mdp.terminations import SlideSinceStart, board_slide
+from mjlab.tasks.pupper_skate.mdp.terminations import (
+  SlideSinceStart,
+  board_drift,
+  board_slide,
+)
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 if TYPE_CHECKING:
@@ -123,24 +127,27 @@ class board_fore_aft:
     return torch.exp(-torch.square(slide / std))
 
 
-class board_creep:
-  """Cost of a slow, steady slide along the deck, in [0, 1].
+class _OffsetCreep:
+  """Cost of a slow, steady change in one board offset, in [0, 1].
 
-  The rate is the per-step change of ``board_slide`` over the control step,
+  The rate is the per-step change of ``_offset`` over the control step,
   smoothed by two exponential averages in a row, each with time constant
   ``tau`` [s], so the stride's own back-and-forth cancels out and only a steady
   drift is left. One average would leave about amplitude / tau of the stride;
   two leave about amplitude / (omega * tau^2). The cost is
-  ``min(|average|, rate_cap) / rate_cap``. ``board_fore_aft`` pays for
-  where the robot is; this pays for where it is heading, while it is heading
-  there, long before ``board_slid`` ends the episode.
+  ``min(|average|, rate_cap) / rate_cap``.
 
-  Keeps the last slide and both averages per env. A reset zeroes them and
-  marks the env, and the env's first call after it only records the slide and
+  Keeps the last offset and both averages per env. A reset zeroes them and
+  marks the env, and the env's first call after it only records the offset and
   costs 0: the reward manager resets before the scene is forwarded, so the
   fresh pose is not readable in ``reset``, and the reset jump must not read as
   a velocity.
   """
+
+  def _offset(
+    self, env: ManagerBasedRlEnv, robot_cfg: SceneEntityCfg, board_cfg: SceneEntityCfg
+  ) -> torch.Tensor:
+    raise NotImplementedError
 
   def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
     del cfg  # Unused.
@@ -164,15 +171,45 @@ class board_creep:
     robot_cfg: SceneEntityCfg = _ROBOT,
     board_cfg: SceneEntityCfg = _BOARD,
   ) -> torch.Tensor:
-    slide = board_slide(env, robot_cfg, board_cfg)
-    prev = torch.where(self._fresh, slide, self._prev)
-    rate = (slide - prev) / env.step_dt
+    offset = self._offset(env, robot_cfg, board_cfg)
+    prev = torch.where(self._fresh, offset, self._prev)
+    rate = (offset - prev) / env.step_dt
     gain = env.step_dt / tau
     self._ema1 = self._ema1 + gain * (rate - self._ema1)
     self._ema2 = self._ema2 + gain * (self._ema1 - self._ema2)
-    self._prev = slide.clone()
+    self._prev = offset.clone()
     self._fresh[:] = False
     return torch.clamp(self._ema2.abs(), max=rate_cap) / rate_cap
+
+
+class board_creep(_OffsetCreep):
+  """Cost of a slow, steady slide along the deck, in [0, 1].
+
+  The rate of ``board_slide``, averaged twice (see ``_OffsetCreep``).
+  ``board_fore_aft`` pays for where the robot is; this pays for where it is
+  heading, while it is heading there, long before ``board_slid`` ends the
+  episode.
+  """
+
+  def _offset(
+    self, env: ManagerBasedRlEnv, robot_cfg: SceneEntityCfg, board_cfg: SceneEntityCfg
+  ) -> torch.Tensor:
+    return board_slide(env, robot_cfg, board_cfg)
+
+
+class board_side_creep(_OffsetCreep):
+  """Cost of a slow, steady sideways slide of the board, in [0, 1].
+
+  The sideways twin of ``board_creep``: the rate of ``board_drift``, the offset
+  ``board_drifted`` ends the episode on, averaged twice (see ``_OffsetCreep``).
+  The stride's side-to-side sway cancels out. A lean is a constant offset, so
+  once it is held it costs nothing; only a slide that keeps going does.
+  """
+
+  def _offset(
+    self, env: ManagerBasedRlEnv, robot_cfg: SceneEntityCfg, board_cfg: SceneEntityCfg
+  ) -> torch.Tensor:
+    return board_drift(env, robot_cfg, board_cfg)
 
 
 def board_speed_l2(
@@ -237,6 +274,7 @@ def track_board_yaw_rate(
   board_cfg: SceneEntityCfg = _BOARD,
   carve_threshold: float | None = None,
   carve_gain: float = 1.0,
+  straight_min_speed: float | None = None,
 ) -> torch.Tensor:
   """Reward the board turning at the commanded yaw rate (steer task).
 
@@ -248,17 +286,26 @@ def track_board_yaw_rate(
   ``carve_yaw_target``) and only carves pay: an env whose command is at or
   under the threshold, the heading hold's correction, gets 0. The correction
   turns the robot, not the board, and a quiet env then pays what the ride pays.
+
+  With ``straight_min_speed`` set as well, an env outside a carve whose speed
+  command (dim 0) is at least that is paid for a board that does not turn:
+  the target is 0, with the same ``std``. Standing envs, under it, still get 0.
   """
   board: Entity = env.scene[board_cfg.name]
   command = env.command_manager.get_command(command_name)
   assert command is not None
   cmd_wz = command[:, 2]
+  board_wz = board.data.root_link_ang_vel_w[:, 2]
   target = carve_yaw_target(cmd_wz, carve_threshold, carve_gain)
-  error = target - board.data.root_link_ang_vel_w[:, 2]
-  reward = torch.exp(-torch.square(error) / std**2)
+  reward = torch.exp(-torch.square(target - board_wz) / std**2)
   if carve_threshold is None:
     return reward
-  return reward * (cmd_wz.abs() > carve_threshold).float()
+  carving = cmd_wz.abs() > carve_threshold
+  if straight_min_speed is None:
+    return reward * carving.float()
+  rolling = command[:, 0] >= straight_min_speed
+  straight = torch.exp(-torch.square(board_wz) / std**2) * rolling.float()
+  return torch.where(carving, reward, straight)
 
 
 def board_progress(

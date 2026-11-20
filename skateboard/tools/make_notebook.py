@@ -202,6 +202,7 @@ if SPLIT:
     REWARD_WEIGHTS.update({
       "track_board_yaw_rate": 2.0,
       "board_turn_progress": 1.0,
+      "board_side_creep": -1.0,
     })
 else:
   REWARD_WEIGHTS = {

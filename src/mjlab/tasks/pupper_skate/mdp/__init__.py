@@ -20,6 +20,7 @@ from .rewards import (  # noqa: F401
   board_creep,
   board_fore_aft,
   board_progress,
+  board_side_creep,
   board_speed_l2,
   board_turn_progress,
   board_yaw_rate_l2,
@@ -42,6 +43,7 @@ from .rewards import (  # noqa: F401
 )
 from .terminations import (  # noqa: F401
   base_near_deck,
+  board_drift,
   board_drifted,
   board_fore_aft_offset,
   board_lateral_offset,

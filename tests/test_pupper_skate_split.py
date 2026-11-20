@@ -54,6 +54,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   BOARD_CREEP_TAU,
   BOARD_MAX_SLIDE,
   BOARD_MAX_SLIDE_ABS,
+  BOARD_SIDE_CREEP_WEIGHT,
   BOARD_SLIDE_STD,
   DECK_FEET_SLIDE_WEIGHT,
   SPLIT_CONTACT_CONE,
@@ -1395,6 +1396,86 @@ def test_board_creep_reset_clears_only_that_env_and_ignores_the_jump():
   assert _creep(term, env).abs().max().item() == 0.0
 
 
+def _side_creep_env(n: int) -> tuple[Any, Any, Any]:
+  """A fake env at the keyframe, the board_side_creep term on it, and a setter
+  that moves the board ``y`` [m] sideways from the keyframe in each env."""
+  env, _ = _moving_board_env(n)
+  board_pos = env.scene["board"].data.root_link_pos_w
+  start = board_pos[:, 1].clone()
+
+  def set_side(y: list[float]) -> None:
+    board_pos[:, 1] = start + torch.tensor(y)
+
+  term = mdp.board_side_creep(cfg=None, env=env)  # type: ignore[arg-type]
+  return env, term, set_side
+
+
+def test_board_side_creep_is_0_once_a_lean_is_held():
+  # Env 0 holds the keyframe. Env 1 leans: the board moves 4 cm sideways in
+  # 0.5 s, then stays there. Once both averages settle the lean is free.
+  env, term, set_side = _side_creep_env(2)
+  cost = torch.zeros(2)
+  for i in range(1, 501):  # 10 s.
+    t = i * _STEP_DT
+    set_side([0.0, 0.04 * min(t / 0.5, 1.0)])
+    cost = _creep(term, env)
+    assert cost[0].item() == 0.0
+  assert cost[1].item() < 0.01
+
+
+def test_board_side_creep_charges_a_steady_slide_in_full():
+  # At the cap, either way, and at 2.5 times it.
+  env, term, set_side = _side_creep_env(3)
+  cost = torch.zeros(3)
+  for i in range(1, 501):  # 10 s.
+    t = i * _STEP_DT
+    set_side([BOARD_CREEP_CAP * t, -BOARD_CREEP_CAP * t, 0.05 * t])
+    cost = _creep(term, env)
+  torch.testing.assert_close(cost, torch.ones(3), atol=0.01, rtol=0.0)
+
+
+def test_board_side_creep_averages_out_the_stride_sway():
+  # The stride sways the board 1 cm either way at 2 Hz. Two averages leave
+  # about amplitude / (omega tau^2) of it, 0.8 mm/s or 0.04 of the cap.
+  env, term, set_side = _side_creep_env(1)
+  omega = 2 * math.pi * 2.0
+  sway = []
+  for i in range(1, 501):  # 10 s.
+    t = i * _STEP_DT
+    set_side([0.01 * math.sin(omega * t)])
+    cost = _creep(term, env)
+    if t > 6.0:
+      sway.append(cost[0].item())
+  assert max(sway) < 0.15
+
+
+def test_board_side_creep_reads_only_the_sideways_offset():
+  # A slide along the deck is board_creep's; this term ignores it.
+  env, term, _ = _side_creep_env(1)
+  board_pos = env.scene["board"].data.root_link_pos_w
+  start = board_pos[:, 0].clone()
+  for i in range(1, 201):
+    board_pos[:, 0] = start + 0.05 * i * _STEP_DT
+    assert _creep(term, env).item() == 0.0
+
+
+def test_board_side_creep_reset_clears_only_that_env():
+  env, term, set_side = _side_creep_env(2)
+  before = torch.zeros(2)
+  for i in range(1, 301):
+    set_side([0.005 * i * _STEP_DT] * 2)
+    before = _creep(term, env)
+  assert before.min().item() > 0.2
+  y = 0.005 * 300 * _STEP_DT
+  term.reset(env_ids=torch.tensor([1]))
+  # The reset moved env 1's board 3 cm the other way; env 0 slides on.
+  step = 0.005 * _STEP_DT
+  set_side([y + step, y - 0.03])
+  after = _creep(term, env)
+  assert after[1].item() == 0.0
+  assert after[0].item() == pytest.approx(before[0].item(), abs=1e-3)
+
+
 def test_board_fore_aft_offset_is_in_the_board_heading_frame():
   # Board 0.146 m to the robot's left, turned 0.5 rad: the sideways offset
   # swings onto the board's forward axis by the sine.
@@ -1539,6 +1620,46 @@ def test_track_board_yaw_rate_pays_only_carves_against_the_scaled_target():
   torch.testing.assert_close(reward, torch.tensor(expected))
 
 
+def test_track_board_yaw_rate_pays_a_straight_board_when_asked():
+  # Rows, (speed, yaw) command and board yaw rate: straight at 0.3 m/s with
+  # the board not turning, pulling 0.013 rad/s either way; straight at the
+  # 0.1 m/s minimum; a hold correction of 0.08, whose target is still 0;
+  # standing, and under the minimum, which pay 0; a 0.5 carve on its 0.05
+  # target and a partial 0.2 carve at 0.06, as before.
+  rows = [
+    ((0.3, 0.0), 0.0),
+    ((0.3, 0.0), 0.013),
+    ((0.3, 0.0), -0.013),
+    ((0.1, 0.0), 0.0),
+    ((0.3, 0.08), 0.0),
+    ((0.0, 0.0), 0.0),
+    ((0.05, 0.0), 0.0),
+    ((0.3, 0.5), 0.05),
+    ((0.3, 0.2), 0.06),
+  ]
+  command = [[vx, 0.0, wz] for (vx, wz), _ in rows]
+  env = _fake_yaw_env(command, [rate for _, rate in rows])
+  straight = mdp.track_board_yaw_rate(
+    env,
+    command_name="twist",
+    std=0.02,
+    straight_min_speed=STEER_YAW_MIN_SPEED,
+    **_CARVE,
+  )
+  pull = math.exp(-((0.013 / 0.02) ** 2))
+  expected = [1.0, pull, pull, 1.0, 1.0, 0.0, 0.0, 1.0]
+  expected += [math.exp(-(0.04**2) / 0.02**2)]
+  torch.testing.assert_close(straight, torch.tensor(expected), atol=5e-4, rtol=0.0)
+  # Carves pay what they did; None is the old term, carves only.
+  old = mdp.track_board_yaw_rate(env, command_name="twist", std=0.02, **_CARVE)
+  assert torch.equal(straight[7:], old[7:])
+  assert old[:7].abs().max().item() == 0.0
+  unset = mdp.track_board_yaw_rate(
+    env, command_name="twist", std=0.02, straight_min_speed=None, **_CARVE
+  )
+  assert torch.equal(unset, old)
+
+
 def test_board_turn_progress_pays_only_carves_against_the_scaled_target():
   # Rows: half, all, more and the wrong way of a 0.5 carve's 0.05 target, half
   # of a -0.6 carve's -0.06, half of a partial 0.2 carve's 0.02, then hold
@@ -1620,6 +1741,22 @@ def test_only_the_steer_trains_on_loosened_trucks():
     assert "board_turn_progress" not in balance.rewards
 
 
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_balance_env_cfg,
+    pupper_skate_ride_env_cfg,
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_split_ride_env_cfg,
+  ],
+)
+def test_only_the_steer_charges_side_creep_and_a_straight_pull(make_cfg):
+  cfg = make_cfg()
+  assert "board_side_creep" not in cfg.rewards
+  for name, term in cfg.rewards.items():
+    assert "straight_min_speed" not in term.params, name
+
+
 def test_steer_is_the_split_ride_plus_a_carve_command():
   for play in (False, True):
     ride = pupper_skate_split_ride_env_cfg(play=play)
@@ -1627,10 +1764,21 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     expected = _weights(ride)
     expected["track_board_yaw_rate"] = 2.0
     expected["board_turn_progress"] = 1.0
+    expected["board_side_creep"] = -1.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
-    assert term.params == {"command_name": "twist", "std": 0.02, **_CARVE}
+    assert term.params == {
+      "command_name": "twist",
+      "std": 0.02,
+      "straight_min_speed": STEER_YAW_MIN_SPEED,
+      **_CARVE,
+    }
+    # The sideways twin of board_creep, at its rate and averages.
+    term = steer.rewards["board_side_creep"]
+    assert term.func is mdp.board_side_creep
+    assert term.weight == BOARD_SIDE_CREEP_WEIGHT == -1.0
+    assert term.params == {"tau": BOARD_CREEP_TAU, "rate_cap": BOARD_CREEP_CAP}
     term = steer.rewards["board_turn_progress"]
     assert term.func is mdp.board_turn_progress
     assert term.params == {

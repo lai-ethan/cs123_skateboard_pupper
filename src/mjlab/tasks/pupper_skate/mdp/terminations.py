@@ -134,6 +134,19 @@ def _offset_from_nominal(
   return current - nominal
 
 
+def board_drift(
+  env: ManagerBasedRlEnv,
+  robot_cfg: SceneEntityCfg = _ROBOT,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """How far the board has slid sideways from the keyframe [m], shape ``[B]``.
+
+  ``board_lateral_offset`` minus the keyframe's (see ``_offset_from_nominal``),
+  in the board's heading frame.
+  """
+  return _offset_from_nominal(env, board_lateral_offset, robot_cfg, board_cfg)
+
+
 def board_drifted(
   env: ManagerBasedRlEnv,
   max_drift: float,
@@ -142,11 +155,9 @@ def board_drifted(
 ) -> torch.Tensor:
   """Terminate when the board has slid sideways under the robot.
 
-  Fires when ``board_lateral_offset`` is more than ``max_drift`` [m] from its
-  nominal value, the keyframe's (see ``_offset_from_nominal``).
+  Fires when ``board_drift`` is more than ``max_drift`` [m].
   """
-  drift = _offset_from_nominal(env, board_lateral_offset, robot_cfg, board_cfg)
-  return torch.abs(drift) > max_drift
+  return torch.abs(board_drift(env, robot_cfg, board_cfg)) > max_drift
 
 
 def board_slide(
