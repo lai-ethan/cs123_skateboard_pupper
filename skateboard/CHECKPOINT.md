@@ -52,6 +52,14 @@ no resets.
   Policy: `policies/split_steer_v5_max0.3_policy.json`. Videos:
   `media/split_steer_v5_*_0.3ms.mp4`. Earlier steer runs did not turn
   (`jl7i4id0`) or slid off the deck (`SIM2REAL.md`, "Steering").
+- **v5 steers on full stick only.** It trained only on full carves (yaw 0.4
+  to 0.6 rad/s), so the operator must push the yaw stick all the way. A v6
+  that trains on partial turns (yaw 0.1 to 0.6) is planned and not trained
+  yet.
+- **No foot stop.** The team will not fit a foot stop or ridge on the deck,
+  so staying on the board has to come from the policy. Sliding along the deck
+  is an open risk: in sim 2 of 16 boards slide 8 cm within 30 s. Runs must be
+  short, with the robot reset to its marks between runs.
 - Centred balance has little sideways room: it fails 7 of 21 stance audit rows
   (board 2 cm off-centre, shoves, soft trucks). Place it within about 1 cm.
 - The 12 rad/s joint speed limit is an estimate (motor spec is about 30 rad/s
@@ -67,8 +75,9 @@ no resets.
    (test 0), split balance, centred balance, split ride at 0.2 then 0.3 m/s.
 4. Measure truck stiffness and wheel drag (still guesses).
 5. Steering test with split steer v5 (`HARDWARE_TEST.md`, test 5): trucks
-   loosened to 9 to 18 N·m/rad, a foot stop on the deck, short runs. Needs
-   Ethan's OK and a TA sign-off first.
+   loosened to 9 to 18 N·m/rad, full yaw stick only, short runs, robot reset
+   to its marks between runs. Needs Ethan's OK and a TA sign-off first.
+6. Train steer v6 on partial turns (the steer task already has the change).
 
 ## What changed from the Nov 17 version
 
@@ -81,10 +90,17 @@ no resets.
 - Split steer v5 exported as the candidate for the first steering test.
 - Policies and media renamed to `<stance>_<skill>_v<N>`, with a table of runs.
 
+## What changed on Nov 20
+
+- Two new constraints: the yaw stick can send any value, and there is no
+  foot stop on the deck. The steer task now trains partial turns for a v6
+  (not trained yet). Foot stop advice is gone; sliding is an open risk.
+
 ## Accounting
 
 - Skipped: anything on the robot; a stance audit for the ride policies.
 - Assumed: the 12 rad/s joint speed limit; truck stiffness 30 N·m/rad.
 - Issues: centred ride has no passing policy (`7fyt12i1` fails push foot duty); split
-  steer v5 fails 2 of 16 ride audit rows; the robot-side loader has not run a skate
+  steer v5 fails 2 of 16 ride audit rows; with no foot stop, sliding along the deck
+  is an open risk; steer v6 is not trained; the robot-side loader has not run a skate
   policy.

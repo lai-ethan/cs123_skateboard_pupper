@@ -138,9 +138,11 @@ says"). Takes five minutes.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
   policy trained only on that range. The stock trucks have not been
   measured; they are assumed much stiffer, and then the board will not turn.
-- Fit a foot stop or a small ridge on the deck in front of and behind the left
-  feet. In sim the left feet slowly slide along the deck toward the nose or
-  tail. Keep each run short, about 10 s.
+- There is no foot stop or ridge on the deck, and none will be fitted.
+  Staying on the board comes from the policy alone. Sliding along the deck is
+  an open risk: in sim the left feet slowly slide toward the nose or tail, and
+  2 of 16 boards slide 8 cm within 30 s. Keep each run short, about 10 s, and
+  reset the robot to its marks between runs.
 - Placement: left feet on the deck, right feet on the floor, as in test 3.
   Place the robot square to the board, body parallel to the deck.
 - This file has the heading hold on (kp 1.0, clip 0.3 rad/s). On the robot the
@@ -152,9 +154,12 @@ says"). Takes five minutes.
 - First ride straight at yaw 0. Then carve: a yaw command of 0.4 to 0.6 rad/s,
   either way. The file clips yaw at 0.6, so a carve is the full yaw stick.
   Push the yaw stick all the way, quickly; to stop the carve, let it go fully.
-  Do not hold it part way or move it slowly: 0.1 to 0.35 rad/s reaches the
-  policy and it never trained there. Back to yaw 0 holds the new heading (the
-  robot's own, see above).
+  Do not hold it part way or move it slowly: v5 trained only on full carves,
+  and 0.1 to 0.35 rad/s reaches the policy where it never trained. Back to
+  yaw 0 holds the new heading (the robot's own, see above).
+- Partial turns: a steer v6 that trains on any stick value (carves of 0.1 to
+  0.6 rad/s, hold clip 0.1) is planned and not trained yet. Until it exists,
+  this test is full stick only.
 - Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6.5
   to 7 m radius at 0.3 m/s (sim board yaw rate 0.046 rad/s left, 0.042
   right). In sim, 10 s of carving turned the board 0.50 rad left and 0.44 rad

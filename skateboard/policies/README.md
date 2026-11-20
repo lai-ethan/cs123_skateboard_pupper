@@ -27,7 +27,13 @@ centred push reference open loop, with no trained policy, so it has no run.
 | `split_ride_v7` | `gkk9a6bj` | `Mjlab-SkateSplit-Ride-Pupper-v3` | Traced deck, pays for the heading hold. Fails 9 ride audit rows. |
 | `split_steer_v2` | `188eygof` | `Mjlab-SkateSplit-Steer-Pupper-v3` | First carve signal run. Steers both ways; the deck feet creep off the nose. |
 | `split_steer_v3` | `a9x8z66m` | `Mjlab-SkateSplit-Steer-Pupper-v3` | Adds `board_slid` and `board_fore_aft`. Creeps slower, still fails 6 audit rows. |
-| `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. First steer run to pass all three gait reports with zero resets; fails 2 of 16 audit rows. Candidate for the first steering test. |
+| `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. First steer run to pass all three gait reports with zero resets; fails 2 of 16 audit rows. Candidate for the first steering test. Trained only on full carves (yaw 0.4 to 0.6, hold clip 0.3), so use the full yaw stick. |
+
+`split_steer_v6` is planned and not trained yet. It will train on the current
+steer task: partial turns (yaw 0.1 to 0.6) with the hold clip at 0.1. There
+will be no foot stop on the deck for any steer test, so sliding along the
+deck is an open risk: in sim 2 of 16 v5 boards slide 8 cm within 30 s. Keep
+runs short and reset the robot to its marks between runs.
 
 `split_balance_v2` and `split_ride_v0` were trained before the split stance had
 its own task ids, so they ran under the ids the centred stance uses now.

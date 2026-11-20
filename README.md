@@ -71,7 +71,7 @@ task from scratch (using the cartpole task as the example).
 | `Mjlab-Skate-Ride-Pupper-v3` | Final project: push with one foot off either side of the deck so the board rolls at a commanded forward speed. |
 | `Mjlab-SkateSplit-Balance-Pupper-v3` | Final project, split stance: hold the left feet on the deck and the right feet on the floor while the board is free to roll. |
 | `Mjlab-SkateSplit-Ride-Pupper-v3` | Final project, split stance: push with the right legs so the board rolls at a commanded forward speed. |
-| `Mjlab-SkateSplit-Steer-Pupper-v3` | Final project, split stance: the split ride on loosened trucks, plus a carve command (yaw 0.4 to 0.6 rad/s) that asks the robot to lean and turn the board. |
+| `Mjlab-SkateSplit-Steer-Pupper-v3` | Final project, split stance: the split ride on loosened trucks, plus a carve command (yaw above 0.1 and up to 0.6 rad/s, partial turns included) that asks the robot to lean and turn the board. |
 
 **The lift gait is yours**: only the trot reference ships
 (`src/mjlab/tasks/pupper_gait/mdp/gait_reference.py`). StableGait also needs a

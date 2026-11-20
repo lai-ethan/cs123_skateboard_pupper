@@ -36,7 +36,9 @@ written 2026-11-19, from simulation only. Nothing here has been tried on the rob
   is on the floor only 20% of the time (see "Riding: where it stands").
 - **Split steer v5 steers in sim but is not a full pass.** It carves both ways
   on loosened trucks with no resets in the gait check, but in 30 s rides about
-  1 board in 8 slides off (see "Steering: what sim says").
+  1 board in 8 slides off (see "Steering: what sim says"). v5 trained only on
+  full carves. A v6 that trains on partial turns is planned and not trained
+  yet.
 
 ## The board, as measured
 
@@ -192,7 +194,9 @@ signs off before the first powered run (PLAN Task 12).
 8. **Centred ride `7fyt12i1`, hand held,** last, and only if Ethan accepts
    that it fails the push foot duty limit (`HARDWARE_TEST.md`, test 4).
 9. **Split steer v5, hand held,** only after step 7, on trucks loosened to 9
-   to 18 N·m/rad, with a foot stop on the deck (`HARDWARE_TEST.md`, test 5).
+   to 18 N·m/rad, with full yaw stick only, short runs, and the robot reset
+   to its marks between runs (`HARDWARE_TEST.md`, test 5). There is no foot
+   stop on the deck.
 
 The test sheet for this session is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
@@ -344,15 +348,21 @@ The runs below show how it got there.
   causes, or by skidding the wheels. The wheels do not roll sideways.
 - **The steer task now: a carve signal.** The yaw command has two meanings,
   and the robot's own heading hold tells them apart, so the robot side needs
-  no change.
-  - Yaw 0 is the ride. The heading hold is on and its correction (at most 0.3
-    rad/s) holds a heading: in sim the board's, on the robot the robot's own
-    IMU yaw. So on the robot, place it parallel to the board.
-  - A carve is a yaw command of 0.4 to 0.6 rad/s, either sign. It is above the
-    hold's 0.1 rad/s threshold, so the hold lets go and the command reaches
-    the policy. It is above the hold's 0.3 clip, so the policy cannot mistake
-    it for a correction. It asks the board to turn at a tenth of the command,
-    0.04 to 0.06 rad/s, with the robot turning along with it.
+  no change. The task changed after v5 (see "What changed from v5"). v5 was
+  trained on the old version, so the old numbers still apply to v5.
+  - Yaw 0 is the ride. The heading hold is on and its correction holds a
+    heading: in sim the board's, on the robot the robot's own IMU yaw. So on
+    the robot, place it parallel to the board. The correction is at most 0.1
+    rad/s on the current task (0.3 for v5 and for the ride).
+  - A carve is a yaw command above 0.1 and up to 0.6 rad/s, either sign. It is
+    above the hold's 0.1 rad/s threshold, so the hold lets go and the command
+    reaches the policy. The hold's clip is also 0.1, so a command of 0.1 or
+    less can only be a correction and a larger one can only be the stick. It
+    asks the board to turn at a tenth of the command, 0.01 to 0.06 rad/s, with
+    the robot turning along with it. A half stick is a half turn.
+  - v5 trained only on full carves, 0.4 to 0.6 rad/s, with the hold's clip at
+    0.3. Between 0.1 and 0.35 rad/s its stick looks like a hold correction,
+    and it never trained there. So v5 needs the full yaw stick.
   - When the command goes back to 0, the hold captures a new heading and
     holds that: in sim the board's, on the robot its own. A yaw offset to the
     board at that moment stays.
@@ -433,10 +443,13 @@ The runs below show how it got there.
   had 1). v3 `a9x8z66m` failed 6 rows. Log:
   `policies/split_steer_v5_audit.txt`.
 - **What that means for the robot.** v5 is a candidate for the first hardware
-  steering test, not a fully passing policy. In sim about 1 board in 8 slides
-  8 cm along the deck within 30 s, so fit a foot stop or a ridge on the deck
-  and keep runs short. Loosen the trucks to about 9 to 18 N·m/rad first. A
-  hardware run needs Ethan's OK and a TA sign-off; neither has been given.
+  steering test, not a fully passing policy. There will be no foot stop or
+  ridge on the deck, so staying on the board has to come from the policy.
+  Sliding along the deck is an open risk: in sim 2 of 16 boards slide 8 cm
+  within 30 s. Keep runs short and reset the robot to its marks between runs.
+  Use the full yaw stick only (v5 trained only on full carves). Loosen the
+  trucks to about 9 to 18 N·m/rad first. A hardware run needs Ethan's OK and
+  a TA sign-off; neither has been given.
   Policy: `policies/split_steer_v5_max0.3_policy.json` (speed 0 to 0.3 m/s,
   yaw clipped at 0.6 rad/s). Checkpoint:
   `policies/split_steer_v5_model_23999.pt`.
@@ -501,6 +514,28 @@ The runs below show how it got there.
 - The steering section has a table of steer v5 at deck tops from 75 to
   103 mm, for the choice of wheels and trucks.
 
+## What changed from v5
+
+- Two new team constraints. The operator's yaw stick can send any value, so
+  the steer policy must train on partial turns. There will be no foot stop or
+  ridge on the deck, so staying on the board has to come from the policy.
+- The steer task now trains partial turns: carves of 0.1 to 0.6 rad/s, not
+  only 0.4 to 0.6. The board yaw it asks for is a tenth of the command, so
+  0.01 to 0.06 rad/s, a half stick for a half turn.
+- The steer task clips the heading hold's correction at 0.1 rad/s, not 0.3.
+  That equals the hold's yaw threshold, so a command of 0.1 or less is a
+  correction and a larger one is the stick. The carve threshold is 0.1 too.
+  Steer exports stamp this clip in `heading_hold`; the ride and balance keep
+  0.3.
+- The board yaw reward's width is 0.02 rad/s, not 0.04, so a partial carve
+  and a full one pay differently.
+- These changes are for a planned v6. v6 is not trained yet and there are no
+  v6 results. v5 is unchanged and still needs the full yaw stick.
+- Every foot stop recommendation is gone. Sliding along the deck is an open
+  risk instead (see "What that means for the robot").
+- The tools now accept any yaw inside the steer command clip, and the gait
+  report prints the asked board yaw rate for any carve.
+
 ## Accounting
 
 - **Skipped:** any hardware test; a stance audit for the ride policies; shoves
@@ -510,6 +545,8 @@ The runs below show how it got there.
   that lowered trucks put the deck at 68 to 83 mm.
 - **Issues:** centred ride has no passing policy yet (`7fyt12i1` fails the
   push foot duty limit); the centred stance fails 7 audit rows from lack of sideways room;
-  split steer v5 fails 2 of 16 ride audit rows;
+  split steer v5 fails 2 of 16 ride audit rows, and with no foot stop on the
+  deck, sliding along it is an open risk; steer v6 (partial turns) is not
+  trained;
   hand-placing the robot in the split stance, the robot-side loader and how the
   ride speed is commanded on the robot are unverified.
