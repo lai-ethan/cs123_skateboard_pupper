@@ -14,6 +14,7 @@ from mjlab.utils.lab_api.math import quat_apply_inverse, yaw_quat
 
 if TYPE_CHECKING:
   from mjlab.envs import ManagerBasedRlEnv
+  from mjlab.managers.termination_manager import TerminationTermCfg
 
 _ROBOT = SceneEntityCfg("robot")
 _BOARD = SceneEntityCfg("board")
@@ -153,23 +154,65 @@ def board_slide(
   robot_cfg: SceneEntityCfg = _ROBOT,
   board_cfg: SceneEntityCfg = _BOARD,
 ) -> torch.Tensor:
-  """How far the robot has slid along the deck [m], shape ``[B]``.
+  """How far the robot is along the deck from the keyframe [m], shape ``[B]``.
 
   ``board_fore_aft_offset`` minus the keyframe's. Negative when the robot has
-  moved towards the nose (the board centre is then further behind it).
+  moved towards the nose (the board centre is then further behind it). A reset
+  can already start a robot several cm off; ``SlideSinceStart`` counts from
+  there instead.
   """
   return _offset_from_nominal(env, board_fore_aft_offset, robot_cfg, board_cfg)
 
 
-def board_slid(
-  env: ManagerBasedRlEnv,
-  max_slide: float,
-  robot_cfg: SceneEntityCfg = _ROBOT,
-  board_cfg: SceneEntityCfg = _BOARD,
-) -> torch.Tensor:
+class SlideSinceStart:
+  """``board_slide`` since the episode's start, per env [m].
+
+  Keeps each env's ``board_slide`` at its first call after a reset and returns
+  the slide minus that. A reset only marks the env: the managers reset before
+  the scene is forwarded, so the fresh pose is not readable in ``reset``. The
+  first call after it records the start and returns 0.
+  """
+
+  def __init__(self, num_envs: int, device: str):
+    self._start = torch.zeros(num_envs, device=device)
+    self._fresh = torch.ones(num_envs, dtype=torch.bool, device=device)
+
+  def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    if env_ids is None:
+      env_ids = slice(None)
+    self._fresh[env_ids] = True
+
+  def __call__(self, slide: torch.Tensor) -> torch.Tensor:
+    self._start = torch.where(self._fresh, slide, self._start)
+    self._fresh[:] = False
+    return slide - self._start
+
+
+class board_slid:
   """Terminate when the robot has slid along the deck, either way.
 
-  The fore-aft twin of ``board_drifted``: fires when ``board_slide`` is more
-  than ``max_slide`` [m].
+  The fore-aft twin of ``board_drifted``. Fires when the slide since the
+  episode's start (``SlideSinceStart``) is more than ``max_slide`` [m], or when
+  ``board_slide``, from the keyframe, is more than ``max_slide_abs`` [m]. The
+  first is what the policy can answer for, since it cannot see where a reset
+  put it. The second keeps the front left foot on the deck.
   """
-  return torch.abs(board_slide(env, robot_cfg, board_cfg)) > max_slide
+
+  def __init__(self, cfg: TerminationTermCfg, env: ManagerBasedRlEnv):
+    del cfg  # Unused.
+    self._since_start = SlideSinceStart(env.num_envs, env.device)
+
+  def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    self._since_start.reset(env_ids)
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    max_slide: float,
+    max_slide_abs: float,
+    robot_cfg: SceneEntityCfg = _ROBOT,
+    board_cfg: SceneEntityCfg = _BOARD,
+  ) -> torch.Tensor:
+    slide = board_slide(env, robot_cfg, board_cfg)
+    moved = self._since_start(slide)
+    return (torch.abs(moved) > max_slide) | (torch.abs(slide) > max_slide_abs)

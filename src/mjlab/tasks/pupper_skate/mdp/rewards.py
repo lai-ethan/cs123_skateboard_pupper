@@ -14,7 +14,7 @@ from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 from mjlab.tasks.pupper.mdp.rewards import carve_yaw_target
-from mjlab.tasks.pupper_skate.mdp.terminations import board_slide
+from mjlab.tasks.pupper_skate.mdp.terminations import SlideSinceStart, board_slide
 from mjlab.utils.lab_api.math import euler_xyz_from_quat, wrap_to_pi
 
 if TYPE_CHECKING:
@@ -96,20 +96,31 @@ def board_alignment(
   return torch.exp(-pos_error / std_pos**2 - yaw_error / std_yaw**2)
 
 
-def board_fore_aft(
-  env: ManagerBasedRlEnv,
-  std: float,
-  robot_cfg: SceneEntityCfg = _ROBOT,
-  board_cfg: SceneEntityCfg = _BOARD,
-) -> torch.Tensor:
+class board_fore_aft:
   """Reward the robot staying put along the deck: ``exp(-(slide / std)^2)``.
 
-  ``slide`` is ``board_slide``, the board's fore-aft offset from the robot in the
-  board's heading frame minus the keyframe's, the quantity ``board_slid`` ends
-  the episode on.
+  ``slide`` is ``board_slide`` since the episode's start (``SlideSinceStart``),
+  the quantity ``board_slid`` ends the episode on. It counts from the start, not
+  the keyframe, because the policy cannot see where a reset put it. So a robot
+  that holds still where it started is paid in full.
   """
-  slide = board_slide(env, robot_cfg, board_cfg)
-  return torch.exp(-torch.square(slide / std))
+
+  def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRlEnv):
+    del cfg  # Unused.
+    self._since_start = SlideSinceStart(env.num_envs, env.device)
+
+  def reset(self, env_ids: torch.Tensor | slice | None = None) -> None:
+    self._since_start.reset(env_ids)
+
+  def __call__(
+    self,
+    env: ManagerBasedRlEnv,
+    std: float,
+    robot_cfg: SceneEntityCfg = _ROBOT,
+    board_cfg: SceneEntityCfg = _BOARD,
+  ) -> torch.Tensor:
+    slide = self._since_start(board_slide(env, robot_cfg, board_cfg))
+    return torch.exp(-torch.square(slide / std))
 
 
 class board_creep:

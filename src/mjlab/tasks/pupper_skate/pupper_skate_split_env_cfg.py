@@ -130,10 +130,24 @@ STEER_YAW_MIN_SPEED = 0.1
 # to cancel the stride's own back-and-forth (about 2 Hz): one average leaves
 # about amplitude / tau of it, two leave about amplitude / (omega * tau^2),
 # roughly six times less.
+# Steer v6 (run hfd3qhwr) still crept in one env out of 16, the one with the
+# softest deck leg gains. The policy cannot see where it stands along the deck,
+# and a reset alone could start it 6.2 cm into the 8 cm. So the 8 cm and
+# board_fore_aft now count from the episode's own start, and
+# BOARD_MAX_SLIDE_ABS from the keyframe is only the backstop that keeps the
+# front left foot on the deck.
 BOARD_MAX_SLIDE = 0.08
+BOARD_MAX_SLIDE_ABS = 0.12
 BOARD_SLIDE_STD = 0.03
 BOARD_CREEP_TAU = 1.0
 BOARD_CREEP_CAP = 0.02
+
+# The creep in steer v6 is a ratchet: when one right foot pushes alone, the
+# deck foot on the same end drops to 1 to 2 N and scuffs about 5 mm, and about
+# 1 mm of that stays each stride. At weight -2 deck_feet_slide cost 0.0015 to
+# 0.011 per step, against 0.07 to 0.33 for board_creep, so the scuff was all
+# but free. Ten times that puts it at 0.015 to 0.11.
+DECK_FEET_SLIDE_WEIGHT = -20.0
 
 # Split tasks: strict friction on the contacts. MuJoCo's soft contacts let a
 # loaded foot slip slowly under a steady sideways load; real grip tape holds.
@@ -563,11 +577,11 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
     },
   )
   # The deck feet ride the deck: charge their slip relative to the deck (not
-  # the world, the deck moves), at the floor feet's weight. A deck foot that
-  # creeps lets the board walk out from under the robot.
+  # the world, the deck moves). A deck foot that creeps lets the board walk out
+  # from under the robot. Ten times the floor feet's weight (see the constant).
   r["deck_feet_slide"] = RewardTermCfg(
     func=mdp.deck_feet_slide,
-    weight=-2.0,
+    weight=DECK_FEET_SLIDE_WEIGHT,
     params={
       "sensor_name": "deck_feet_contact",
       "asset_cfg": SceneEntityCfg(
@@ -654,11 +668,13 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   cfg.terminations["board_drifted"] = TerminationTermCfg(
     func=mdp.board_drifted, params={"max_drift": 0.06}
   )
-  # The fore-aft twin: the robot slid BOARD_MAX_SLIDE along the deck, either way
-  # (see the constant). board_fore_aft pays for staying put before that, with
-  # a tighter width than board_alignment's, which also reads this axis.
+  # The fore-aft twin: the robot slid BOARD_MAX_SLIDE along the deck from its
+  # start, either way, or is BOARD_MAX_SLIDE_ABS from the keyframe (see the
+  # constants). board_fore_aft pays for staying put before that, with a
+  # tighter width than board_alignment's, which also reads this axis.
   cfg.terminations["board_slid"] = TerminationTermCfg(
-    func=mdp.board_slid, params={"max_slide": BOARD_MAX_SLIDE}
+    func=mdp.board_slid,
+    params={"max_slide": BOARD_MAX_SLIDE, "max_slide_abs": BOARD_MAX_SLIDE_ABS},
   )
   r["board_fore_aft"] = RewardTermCfg(
     func=mdp.board_fore_aft, weight=1.0, params={"std": BOARD_SLIDE_STD}

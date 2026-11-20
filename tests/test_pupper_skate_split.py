@@ -53,7 +53,9 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   BOARD_CREEP_CAP,
   BOARD_CREEP_TAU,
   BOARD_MAX_SLIDE,
+  BOARD_MAX_SLIDE_ABS,
   BOARD_SLIDE_STD,
+  DECK_FEET_SLIDE_WEIGHT,
   SPLIT_CONTACT_CONE,
   SPLIT_CONTACT_IMPRATIO,
   STEER_CARVE_COMMAND_RANGE,
@@ -400,7 +402,7 @@ SPLIT_RIDE_WEIGHTS = {
   "push_stride": 0.5,
   "short_stride": -0.3,
   "feet_slide": -2.0,
-  "deck_feet_slide": -2.0,
+  "deck_feet_slide": -20.0,
   "board_alignment": 2.0,
   "push_leg_pose": 0.3,
   "joint_vel_l2": -1e-3,
@@ -617,10 +619,12 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
       "x": (-0.35, 0.35),
       "y": (-0.35, 0.35),
     }
-  # Deck feet must not slide on the deck, at the floor feet's weight.
+  # Deck feet must not slide on the deck. The weight was the floor feet's
+  # (-2); at that it cost about 1e-3 a step, so it is ten times that now.
   slide = cfg.rewards["deck_feet_slide"]
   assert slide.func is mdp.deck_feet_slide
-  assert slide.weight == cfg.rewards["feet_slide"].weight == -2.0
+  assert slide.weight == DECK_FEET_SLIDE_WEIGHT == -20.0
+  assert cfg.rewards["feet_slide"].weight == -2.0
   assert slide.params["sensor_name"] == "deck_feet_contact"
   assert slide.params["asset_cfg"].site_names == (
     "leg_front_l_3_foot_site",
@@ -640,7 +644,8 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   assert not drifted.time_out
   slid = cfg.terminations["board_slid"]
   assert slid.func is mdp.board_slid
-  assert slid.params == {"max_slide": 0.08} and BOARD_MAX_SLIDE == 0.08
+  assert slid.params == {"max_slide": 0.08, "max_slide_abs": 0.12}
+  assert BOARD_MAX_SLIDE == 0.08 and BOARD_MAX_SLIDE_ABS == 0.12
   assert not slid.time_out
   fore_aft = cfg.rewards["board_fore_aft"]
   assert fore_aft.func is mdp.board_fore_aft and fore_aft.weight == 1.0
@@ -1154,20 +1159,49 @@ def _fake_board_env(shift: list[list[float]], yaw: list[float]) -> Any:
   return SimpleNamespace(scene={"robot": robot, "board": board})
 
 
-def test_board_slid_ends_a_slide_beyond_8_cm_either_way():
-  # Board along the robot: keyframe, 7.9 cm either way, 8.1 cm either way.
+_STEP_DT = 0.02
+
+
+def _moving_board_env(n: int) -> tuple[Any, Any]:
+  """A fake env at the keyframe and a setter that puts the robot ``x`` [m]
+  along the deck from the keyframe in each env."""
+  env = _fake_board_env([[0.0, 0.0]] * n, [0.0] * n)
+  env.num_envs, env.device, env.step_dt = n, "cpu", _STEP_DT
+  board_pos = env.scene["board"].data.root_link_pos_w
+  start = board_pos[:, 0].clone()
+
+  def set_slide(x: list[float]) -> None:
+    board_pos[:, 0] = start + torch.tensor(x)
+
+  return env, set_slide
+
+
+def _slid_term(env: Any) -> Any:
+  return mdp.board_slid(cfg=None, env=env)  # type: ignore[arg-type]
+
+
+def _slid(term: Any, env: Any) -> torch.Tensor:
+  return term(env, max_slide=BOARD_MAX_SLIDE, max_slide_abs=BOARD_MAX_SLIDE_ABS)
+
+
+def test_board_slid_ends_a_slide_beyond_8_cm_from_the_start_either_way():
+  # Changed: the 8 cm now counts from where the episode started, not from the
+  # keyframe. Here they start at the keyframe, so the numbers are the old ones.
+  env, set_slide = _moving_board_env(5)
+  term = _slid_term(env)
+  assert not _slid(term, env).any()
   along = [0.0, 0.079, -0.079, 0.081, -0.081]
-  env = _fake_board_env([[x, 0.0] for x in along], [0.0] * 5)
+  set_slide(along)
   assert mdp.board_slide(env).tolist() == pytest.approx(along, abs=1e-6)
-  fired = mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE)
-  assert fired.tolist() == [False, False, False, True, True]
+  assert _slid(term, env).tolist() == [False, False, False, True, True]
   # A slide along the deck does not trip the sideways check.
   assert not mdp.board_drifted(env, max_drift=0.06).any()
 
 
 def test_board_slid_ignores_a_sideways_offset():
   env = _fake_board_env([[0.0, 0.07], [0.0, -0.07], [0.0, 0.2]], [0.0] * 3)
-  assert not mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE).any()
+  env.num_envs, env.device = 3, "cpu"
+  assert not _slid(_slid_term(env), env).any()
   assert mdp.board_slide(env).abs().max() < 1e-6
   assert mdp.board_drifted(env, max_drift=0.06).all()
 
@@ -1182,39 +1216,105 @@ def test_board_slid_never_fires_on_a_fresh_reset():
     for yaw in (-0.15, 0.15)
   ]
   env = _fake_board_env([[dx, dy] for dx, dy, _ in corners], [y for *_, y in corners])
+  env.num_envs, env.device = len(corners), "cpu"
   slide = mdp.board_slide(env)
   # The largest is 6.6 cm: 4 cm along plus the turn swinging the 0.146 m
-  # sideways offset onto the board's forward axis.
+  # sideways offset onto the board's forward axis. Under the 12 cm backstop,
+  # and the first step only records the start.
   assert slide.abs().max().item() == pytest.approx(0.066, abs=5e-4)
-  assert not mdp.board_slid(env, max_slide=BOARD_MAX_SLIDE).any()
+  assert not _slid(_slid_term(env), env).any()
 
 
-def test_board_fore_aft_pays_1_at_the_keyframe_and_falls_with_the_slide():
+def test_a_robot_reset_5_cm_off_that_holds_still_is_not_slid_and_paid_in_full():
+  env, set_slide = _moving_board_env(2)
+  slid, fore_aft = _slid_term(env), _fore_aft_term(env)
+  set_slide([0.05, -0.05])
+  for _ in range(100):
+    assert not _slid(slid, env).any()
+    reward = fore_aft(env, std=BOARD_SLIDE_STD)
+    assert reward.tolist() == pytest.approx([1.0, 1.0])
+  # board_slide itself still reads from the keyframe.
+  assert mdp.board_slide(env).tolist() == pytest.approx([0.05, -0.05], abs=1e-6)
+
+
+def test_board_slid_fires_on_9_cm_from_the_start_wherever_it_started():
+  # Env 0 starts at the keyframe and moves 9 cm; env 1 starts 5 cm back and
+  # moves 9 cm forward, only 4 cm from the keyframe; env 2 starts 5 cm back
+  # and moves 7 cm.
+  env, set_slide = _moving_board_env(3)
+  term = _slid_term(env)
+  set_slide([0.0, -0.05, -0.05])
+  assert not _slid(term, env).any()
+  set_slide([0.09, 0.04, 0.02])
+  assert _slid(term, env).tolist() == [True, True, False]
+
+
+def test_a_robot_5_cm_off_that_moves_on_hits_the_12_cm_backstop_first():
+  # Starts 5 cm off and moves 8 cm more the same way, 1 mm a step. The
+  # absolute 12 cm from the keyframe comes at 7 cm moved, before the 8 cm
+  # from the start would, so the backstop is what ends it.
+  for sign in (1.0, -1.0):
+    env, set_slide = _moving_board_env(1)
+    term = _slid_term(env)
+    fired_at = None
+    for mm in range(81):
+      set_slide([sign * (0.05 + mm * 1e-3)])
+      if _slid(term, env).item():
+        fired_at = mm
+        break
+    # 12 cm from the keyframe, 7 cm from the start (70 or 71 by rounding).
+    assert fired_at in (70, 71)
+    assert fired_at * 1e-3 < BOARD_MAX_SLIDE
+
+
+def test_board_slid_start_resets_per_env():
+  env, set_slide = _moving_board_env(3)
+  term = _slid_term(env)
+  set_slide([0.0, 0.0, 0.0])
+  _slid(term, env)
+  set_slide([0.07, 0.07, 0.07])
+  assert not _slid(term, env).any()
+  # Env 1 resets; on its next step it stands 4 cm further and that is its
+  # new start. The others still count from the keyframe.
+  term.reset(env_ids=torch.tensor([1]))
+  set_slide([0.11, 0.11, 0.11])
+  assert _slid(term, env).tolist() == [True, False, True]
+  set_slide([0.11, 0.18, 0.11])
+  assert _slid(term, env)[1].item()  # 7 cm on, but 18 cm from the keyframe.
+  # A full reset clears every env: 10 cm from the keyframe is a new start.
+  term.reset(env_ids=None)
+  set_slide([0.1, 0.1, 0.1])
+  assert not _slid(term, env).any()
+
+
+def _fore_aft_term(env: Any) -> Any:
+  return mdp.board_fore_aft(cfg=None, env=env)  # type: ignore[arg-type]
+
+
+def test_board_fore_aft_pays_1_at_the_start_and_falls_with_the_slide():
+  # Changed: the slide counts from the episode's start, not the keyframe.
   along = [0.0, 0.03, -0.03, 0.06, 0.08]
-  env = _fake_board_env([[x, 0.0] for x in along], [0.0] * 5)
-  reward = mdp.board_fore_aft(env, std=BOARD_SLIDE_STD)
+  env, set_slide = _moving_board_env(5)
+  term = _fore_aft_term(env)
+  set_slide([-0.04] * 5)
+  assert term(env, std=BOARD_SLIDE_STD).tolist() == pytest.approx([1.0] * 5)
+  set_slide([x - 0.04 for x in along])
+  reward = term(env, std=BOARD_SLIDE_STD)
   expected = [math.exp(-((x / 0.03) ** 2)) for x in along]
-  assert reward.tolist() == pytest.approx(expected, rel=1e-5)
-  assert reward[0].item() == pytest.approx(1.0)
+  assert reward.tolist() == pytest.approx(expected, rel=1e-4)
+  # The start resets per env.
+  term.reset(env_ids=torch.tensor([3]))
+  assert term(env, std=BOARD_SLIDE_STD)[3].item() == pytest.approx(1.0)
   # A sideways offset costs nothing here (board_alignment pays for that).
   env = _fake_board_env([[0.0, 0.05]], [0.0])
-  assert mdp.board_fore_aft(env, std=BOARD_SLIDE_STD).item() == pytest.approx(1.0)
-
-
-_STEP_DT = 0.02
+  env.num_envs, env.device = 1, "cpu"
+  assert _fore_aft_term(env)(env, std=BOARD_SLIDE_STD).item() == pytest.approx(1.0)
 
 
 def _creep_env(n: int) -> tuple[Any, Any, Any]:
   """A fake env at the keyframe, the board_creep term on it, and a setter that
   puts the robot ``x`` [m] along the deck from the keyframe in each env."""
-  env = _fake_board_env([[0.0, 0.0]] * n, [0.0] * n)
-  env.num_envs, env.device, env.step_dt = n, "cpu", _STEP_DT
-  board_pos = env.scene["board"].data.root_link_pos_w
-  start = board_pos[:, 0].clone()
-
-  def set_slide(x: list[float]) -> None:
-    board_pos[:, 0] = start + torch.tensor(x)
-
+  env, set_slide = _moving_board_env(n)
   return env, mdp.board_creep(cfg=None, env=env), set_slide  # type: ignore[arg-type]
 
 
@@ -1315,13 +1415,24 @@ def test_board_slid_through_the_termination_manager():
     env.step(actions)
     assert not env.termination_manager.get_term("board_slid").any()
   env.reset()
-  # Envs: keyframe; 6 cm along; 9 cm either way.
+  # Changed: the start is recorded on the first step after the reset, so a
+  # board moved 9 cm by the reset alone does not count. Only past the 12 cm
+  # backstop does it end the episode. Envs: keyframe; 6 cm; 9 cm; 13 cm.
   board = env.scene["board"]
+  pose = board.data.root_link_pose_w.clone()
+  pose[:, 0] += torch.tensor([0.0, 0.06, 0.09, 0.13], device=env.device)
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
+  env.step(actions)
+  fired = env.termination_manager.get_term("board_slid")
+  assert fired.tolist() == [False, False, False, True]
+  env.reset()
+  env.step(actions)  # Records the start at the keyframe.
+  # Then the boards move: none; 6 cm along; 9 cm either way.
   pose = board.data.root_link_pose_w.clone()
   pose[:, 0] += torch.tensor([0.0, 0.06, 0.09, -0.09], device=env.device)
   board.write_root_link_pose_to_sim(pose)
   env.sim.forward()
-  assert mdp.board_slid(env, max_slide=0.08).tolist() == [False, False, True, True]
   env.step(actions)
   fired = env.termination_manager.get_term("board_slid")
   assert fired.tolist() == [False, False, True, True]
@@ -1552,7 +1663,10 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     assert steer.terminations.keys() == ride.terminations.keys()
     assert steer.terminations["board_drifted"].params == {"max_drift": 0.06}
     assert steer.terminations["board_slid"].func is mdp.board_slid
-    assert steer.terminations["board_slid"].params == {"max_slide": 0.08}
+    assert steer.terminations["board_slid"].params == {
+      "max_slide": 0.08,
+      "max_slide_abs": 0.12,
+    }
     assert steer.rewards["board_fore_aft"].params == {"std": 0.03}
     assert steer.rewards["board_creep"].func is mdp.board_creep
     assert steer.rewards["board_creep"].weight == -1.0
