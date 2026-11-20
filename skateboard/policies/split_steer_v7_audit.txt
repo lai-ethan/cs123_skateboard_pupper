@@ -1,0 +1,16 @@
+PASS  nominal_10s     resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.94,1.06]  lat 0.130..0.160 m  drift 0.10 (0.04) rad
+PASS  nominal_30s     resets  1/1  board_slid:1             deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.94,1.05]  lat 0.136..0.149 m  drift 0.12 (0.04) rad
+PASS  deck_grip_0.4   resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.97 [0.93,1.06]  lat 0.129..0.160 m  drift 0.16 (0.05) rad
+PASS  floor_grip_0.4  resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.96 [0.90,1.06]  lat 0.135..0.158 m  drift 0.14 (0.04) rad
+PASS  board_y_+2cm    resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.97 [0.94,1.04]  lat 0.135..0.154 m  drift 0.15 (0.04) rad
+PASS  board_y_-2cm    resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.93,1.06]  lat 0.127..0.164 m  drift 0.14 (0.06) rad
+PASS  board_yaw_0.15  resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.94,1.05]  lat 0.135..0.155 m  drift 0.16 (0.04) rad
+PASS  shove_side_0.5  resets  0/0  -                        deck 1.000(1.00)/0.999(0.99)  speed 0.98 [0.94,1.05]  lat 0.129..0.161 m  drift 0.15 (0.05) rad
+PASS  shove_fwd_0.5   resets  0/0  -                        deck 1.000(1.00)/0.996(0.98)  speed 0.97 [0.91,1.04]  lat 0.126..0.160 m  drift 0.14 (0.05) rad
+PASS  wheel_drag_x2   resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.96,1.02]  lat 0.128..0.162 m  drift 0.13 (0.04) rad
+PASS  wheel_drag_x3   resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.92 [0.88,0.97]  lat 0.125..0.160 m  drift 0.13 (0.04) rad
+PASS  truck_x0.5      resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.94,1.06]  lat 0.130..0.159 m  drift 0.10 (0.03) rad
+PASS  truck_x4        resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.94,1.06]  lat 0.122..0.181 m  drift 0.03 (0.01) rad
+PASS  deck_93mm       resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.98 [0.92,1.04]  lat 0.136..0.161 m  drift 0.07 (0.03) rad
+PASS  deck_113mm      resets  1/1  board_slid:1             deck 1.000(1.00)/1.000(1.00)  speed 0.96 [0.89,1.02]  lat 0.138..0.164 m  drift 0.05 (0.03) rad
+PASS  kp_x0.7         resets  0/0  -                        deck 1.000(1.00)/1.000(1.00)  speed 0.97 [0.92,1.06]  lat 0.135..0.156 m  drift 0.14 (0.04) rad
