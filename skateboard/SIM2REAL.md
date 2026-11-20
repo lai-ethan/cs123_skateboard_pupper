@@ -416,6 +416,22 @@ The runs below show how it got there.
   Policy: `policies/split_steer_v5_max0.3_policy.json` (speed 0 to 0.3 m/s,
   yaw clipped at 0.6 rad/s). Checkpoint:
   `policies/split_steer_v5_model_23999.pt`.
+- **Steer v5 on a lower board: it still passes.** Same gait check (0.3 m/s,
+  16 boards, 8 s) with the deck top lowered, as smaller wheels or trucks
+  would do. No retraining. Every cell is a pass with no reset.
+
+  | Deck top | Straight: worst slide | Carve left: turn, slide | Carve right: turn, slide |
+  | --- | --- | --- | --- |
+  | 103 mm (now) | 6.6 cm | 0.92 of asked, 7.0 cm | 0.84 of asked, 6.7 cm |
+  | 95 mm | 6.8 cm | 0.83 of asked, 6.3 cm | 0.78 of asked, 6.7 cm |
+  | 85 mm | 7.4 cm | 0.77 of asked, 6.0 cm | 0.73 of asked, 6.7 cm |
+  | 75 mm | 7.6 cm | 0.76 of asked, 6.0 cm | 0.65 of asked, 7.0 cm |
+
+  Two things get worse as the deck drops. The board turns less for the same
+  command (0.65 to 0.76 of asked at 75 mm), and the feet slide further when
+  riding straight (7.6 cm, against a reset limit of 8 cm). So a lower board
+  works with this policy but is not clearly safer in sim. The ride audit was
+  not rerun at the lower heights; it passes at 93 and 113 mm.
 
 ## What changed from v1
 
@@ -458,6 +474,8 @@ The runs below show how it got there.
   check, render and ride audit.
 - Policy and media files have descriptive names now; the name to run table is
   [`policies/README.md`](policies/README.md).
+- The steering section has a table of steer v5 at deck tops from 75 to
+  103 mm, for the choice of wheels and trucks.
 
 ## Accounting
 
