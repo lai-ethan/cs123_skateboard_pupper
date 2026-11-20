@@ -35,14 +35,15 @@ says"). Takes five minutes.
   the trucks: 1 kg, then 2 kg, then 3 kg (the robot is about 3 kg). Read the
   tilt each time.
 - Repeat with both kingpin nuts loosened one full turn.
-- Steering by lean needs about 6 degrees at 3 kg. Under 3 degrees: do not
-  train steering on this board.
+- Steering by lean needs about 7.5 to 15 degrees at 3 kg (9 to 18 N·m/rad,
+  worked out below). Under 7.5 degrees the trucks are stiffer than the steer
+  policy trained on: do not run test 5.
 - Tilt at 1 / 2 / 3 kg, stock: ______ / ______ / ______ degrees
 - Tilt at 1 / 2 / 3 kg, loosened: ______ / ______ / ______ degrees
 - Stiffness k = m x 9.81 x d / tilt, with m in kg, d the weight's distance from
-  the centre line in m and the tilt in rad. 3 kg on the edge (d about 0.078 m)
-  is 2.3 N·m, so 9 to 18 N·m/rad, the range test 5 needs, is about 7 to 15
-  degrees at 3 kg.
+  the centre line in m and the tilt in rad. 3 kg on the edge (d about 0.0805 m,
+  half the 161 mm deck) is 2.4 N·m, so 9 to 18 N·m/rad, the range test 5
+  needs, is about 7.5 to 15 degrees at 3 kg.
 - k at 3 kg, loosened: ______ N·m/rad
 
 ## 1. Split balance
@@ -123,8 +124,8 @@ says"). Takes five minutes.
   on 2 of 16 sim boards, about 1 in 8.
 - Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
-  policy trained only on that range. Stock trucks are far stiffer and the
-  board will not turn.
+  policy trained only on that range. The stock trucks have not been
+  measured; they are assumed much stiffer, and then the board will not turn.
 - Fit a foot stop or a small ridge on the deck in front of and behind the left
   feet. In sim the left feet slowly slide along the deck toward the nose or
   tail. Keep each run short, about 10 s.
@@ -135,9 +136,10 @@ says"). Takes five minutes.
 - First ride straight at yaw 0. Then carve: a yaw command of 0.4 to 0.6 rad/s,
   either way. Below 0.4 is not a carve; the policy never trained between 0.1
   and 0.4. Back to yaw 0 holds the new heading.
-- Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6 m
-  radius at 0.3 m/s. In sim, 10 s of carving turned the board 0.50 rad left
-  and 0.44 rad right.
+- Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6.5
+  to 7 m radius at 0.3 m/s (sim board yaw rate 0.046 rad/s left, 0.042
+  right). In sim, 10 s of carving turned the board 0.50 rad left and 0.44 rad
+  right.
 - Watch: the robot leans its weight toward one deck edge; the board turns that
   way; left feet stay put on the deck.
 - Pass: the board turns each way for a few seconds with no fall, then rides

@@ -291,17 +291,20 @@ cd ~/pupper_gait_deploy
 
 ## Steering: what sim says
 
-Split steer v5 is the first policy that steers the board by leaning. It is a
-candidate for the first hardware steering test (`HARDWARE_TEST.md`, test 5),
-not a fully passing policy. Its export has the heading hold on (kp 1.0, clip
-0.3 rad/s), so at yaw 0 the robot keeps itself parallel to the board. The
-other skate exports have it off (kp 0). The runs below show how it got there.
+Split steer v5 is the first steer policy to pass all three gait reports (yaw
+0, +0.5 and -0.5) with zero resets. Steer v2 to v4 also turned the board both
+ways, but reset in the gait check. v5 is a candidate for the first hardware
+steering test (`HARDWARE_TEST.md`, test 5), not a fully passing policy. Its
+export has the heading hold on (kp 1.0, clip 0.3 rad/s), so at yaw 0 the robot
+keeps itself parallel to the board. The other skate exports have it off (kp 0).
+The runs below show how it got there.
 
 - **First try: a split-stance steer task.** `Mjlab-SkateSplit-Steer-Pupper-v3`
   was the split ride plus a commanded board turn rate of up to 0.15 rad/s.
   Run `jl7i4id0` (1500 iterations) rode well but did not turn: 0.07 of a
-  +0.15 command and 0.00 of a -0.15 command. A second version (up to 0.08
-  rad/s, heading hold off) did not learn either. With the hold off, the ride
+  +0.15 command and 0.00 of a -0.15 command. A later run (up to 0.08 rad/s,
+  heading hold off; abandoned, no run id recorded, not split steer v2) did
+  not learn either. With the hold off, the ride
   policy yawed 0.06 to 0.1 rad off the board and 6 of 8 envs let the board
   walk out sideways within 8 s. Neither is exported.
 - **Why the board barely turns.** It turns only when the deck tilts: 0.0165

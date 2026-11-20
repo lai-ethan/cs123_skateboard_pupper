@@ -6,7 +6,9 @@ is `balance`, `ride` or `steer`, and N counts that stance and skill's runs in th
 order they were trained. Suffixes say what the file is: `_policy.json` (export),
 `_max0.3_policy.json` (export that clips the speed command at 0.3 m/s),
 `_model_<iteration>.pt` (checkpoint), `_audit.txt` (audit log), `_0.3ms` (video
-at that speed) and `_125.png` (the still at that frame).
+at that speed) and `_125.png` (the still at that frame). The one media file
+outside the scheme is `centred_push_reference_openloop.mp4`: it plays the
+centred push reference open loop, with no trained policy, so it has no run.
 
 | Name | W&B run | Task id | What it is |
 | --- | --- | --- | --- |
@@ -25,7 +27,7 @@ at that speed) and `_125.png` (the still at that frame).
 | `split_ride_v7` | `gkk9a6bj` | `Mjlab-SkateSplit-Ride-Pupper-v3` | Traced deck, pays for the heading hold. Fails 9 ride audit rows. |
 | `split_steer_v2` | `188eygof` | `Mjlab-SkateSplit-Steer-Pupper-v3` | First carve signal run. Steers both ways; the deck feet creep off the nose. |
 | `split_steer_v3` | `a9x8z66m` | `Mjlab-SkateSplit-Steer-Pupper-v3` | Adds `board_slid` and `board_fore_aft`. Creeps slower, still fails 6 audit rows. |
-| `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. Carves both ways, fails 2 of 16 audit rows. Candidate for the first steering test. |
+| `split_steer_v5` | `bxke67fj` (resumes `qqm2917n`) | `Mjlab-SkateSplit-Steer-Pupper-v3` | Elliptic friction cone. First steer run to pass all three gait reports with zero resets; fails 2 of 16 audit rows. Candidate for the first steering test. |
 
 `split_balance_v2` and `split_ride_v0` were trained before the split stance had
 its own task ids, so they ran under the ids the centred stance uses now.
@@ -39,4 +41,5 @@ Runs that count toward N but have no files here:
 - `split_ride_v5`: `cfcrepfu` (resumed from v4). `v6`: `wk1xldv1` (resumed from
   v5). v7 resumed from v6. The docs already called `vzs88cci` v1, so the older
   `29p4j81t` is v0. `me6p0pdw`, cut off by Colab before it, has no number.
-- `split_steer_v1`: `jl7i4id0`. `v4`: `8tklg4k7`.
+- `split_steer_v1`: `jl7i4id0`. `v4`: `8tklg4k7`. A lean-steer run between v1
+  and v2 was abandoned with no run id recorded and has no number.

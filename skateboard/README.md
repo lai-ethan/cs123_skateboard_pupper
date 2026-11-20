@@ -56,7 +56,7 @@ Five tasks are registered:
 - `Mjlab-SkateSplit-Balance-Pupper-v3`: hold the split stance on a board that is free to roll.
 - `Mjlab-SkateSplit-Ride-Pupper-v3`: push with the right legs so the board rolls at a commanded speed (0 to 0.5 m/s). `push_stride` pays for planted strides of the right feet, each stance as long as a 10 cm stroke takes at the command (0.25 to 0.5 s). `action_rate_l2`, `action_acc`, `joint_acc` and `swing_height` charge for snaps at lift-off and touchdown and for swings higher than 3 cm, and the joint speed penalty starts at 5 rad/s (PLAN Task 31).
 
-- `Mjlab-SkateSplit-Steer-Pupper-v3`: the split ride on loosened trucks (9 to 18 N·m/rad) plus a carve signal. Yaw 0 rides straight with the heading hold on; a yaw command of 0.4 to 0.6 rad/s, either sign, asks the board to turn at a tenth of it. `track_board_yaw_rate` and `board_turn_progress` pay for the board's turn. Split steer v5 is the first run that turns the board both ways.
+- `Mjlab-SkateSplit-Steer-Pupper-v3`: the split ride on loosened trucks (9 to 18 N·m/rad) plus a carve signal. Yaw 0 rides straight with the heading hold on; a yaw command of 0.4 to 0.6 rad/s, either sign, asks the board to turn at a tenth of it. `track_board_yaw_rate` and `board_turn_progress` pay for the board's turn. Split steer v5 is the first steer run to pass all three gait reports (yaw 0, +0.5, -0.5) with zero resets; v2 to v4 also turned the board both ways but reset.
 
 The reward tables are in section 4 of the notebook.
 
