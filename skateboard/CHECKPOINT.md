@@ -21,7 +21,11 @@ no resets.
   0.99, no resets.
 - Split balance: peak joint speed 0.58 rad/s, right feet on the floor 100% of
   the time, no resets.
-- Split ride v4: passes at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`.
+- Split ride v4: passed at 0.2, 0.3 and 0.4 m/s on 2026-11-17, on the old box
+  deck, before the `board_drifted` and `board_slid` checks existed. It has not
+  passed on the current task: on 2026-11-18 its checkpoint reset on
+  `board_drifted` in the gait check, and its retrain v7 (`gkk9a6bj`) fails 9
+  ride audit rows. Not rerun since `board_slid` and the elliptic cone.
 - Heading hold is off in every skate export (kp 0) except split steer v5.
 - File names map to W&B runs in [`policies/README.md`](policies/README.md).
 

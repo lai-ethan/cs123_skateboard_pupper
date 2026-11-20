@@ -2,9 +2,10 @@
 
 Date: ________  People: ________________________
 
-Tests 1 to 3 use policies that pass the gait check in sim on the 103 mm deck. Test 4
-uses one that fails one limit. Test 5 steers: it passes the gait check but fails 2
-of 16 ride audit rows. None has run on the robot. Sim first, then robot.
+Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. Test 3's
+policy passed it on an older task and resets on sideways drift on the current one. Test
+4 uses one that fails one limit. Test 5 steers: it passes the gait check but fails 2 of
+16 ride audit rows. None has run on the robot. Sim first, then robot.
 
 ## Safety, before any power
 
@@ -18,8 +19,13 @@ of 16 ride audit rows. None has run on the robot. Sim first, then robot.
 - [ ] Fit test with the robot powered off (SIM2REAL "Plan before the first real
       run", step 2).
 
-Deploy: use the commands in [`SIM2REAL.md`](SIM2REAL.md) ("Plan before the
-first real run") and PLAN Task 12. Do not improvise other commands.
+Deploy: install the local file named in each test, from `policies/`, as in
+test 3. Tests 3 to 5 need the capped `*_max0.3_policy.json` files; tests 1 and
+2 use the `_policy.json` files. Do not use `./deploy.sh mjlab/<run>` for these
+tests: it fetches the run's W&B export, which is not the capped file. The
+file table and commands are in [`SIM2REAL.md`](SIM2REAL.md) ("Plan before the
+first real run"). The robot-side commands have not yet been run with a skate
+policy. Do not improvise other commands.
 
 Stop any test at once if: a foot slips off the deck edge, a joint buzzes or
 shakes, the robot leans past the hands, or anything smells hot.
@@ -37,12 +43,14 @@ says"). Takes five minutes.
 - Repeat with both kingpin nuts loosened one full turn.
 - Steering by lean needs about 7.5 to 15 degrees at 3 kg (9 to 18 N·m/rad,
   worked out below). Under 7.5 degrees the trucks are stiffer than the steer
-  policy trained on: do not run test 5.
+  policy trained on; over 15 degrees they are softer (under 9 N·m/rad). Either
+  way, do not run test 5.
 - Tilt at 1 / 2 / 3 kg, stock: ______ / ______ / ______ degrees
 - Tilt at 1 / 2 / 3 kg, loosened: ______ / ______ / ______ degrees
 - Stiffness k = m x 9.81 x d / tilt, with m in kg, d the weight's distance from
   the centre line in m and the tilt in rad. 3 kg on the edge (d about 0.0805 m,
-  half the 161 mm deck) is 2.4 N·m, so 9 to 18 N·m/rad, the range test 5
+  half the 161 mm measured deck; the sim's traced outline is 157.1 mm) is
+  2.4 N·m, so 9 to 18 N·m/rad, the range test 5
   needs, is about 7.5 to 15 degrees at 3 kg.
 - k at 3 kg, loosened: ______ N·m/rad
 
@@ -70,6 +78,10 @@ says"). Takes five minutes.
 ## 3. Split ride at 0.2 m/s, then 0.3 m/s
 
 - Policy: `policies/split_ride_v4_policy.json` (run `iznjwbka`)
+- It passed the gait check on 2026-11-17, on the old box deck. It has not
+  passed on the current task: its checkpoint resets on `board_drifted`, the
+  board walking sideways out from under the feet. Run it only if Ethan
+  accepts that. Keep runs short.
 - Only if test 1 passes. Wheels free, clear straight path, hands ready.
 - Placement: left feet on the deck, right feet on the floor.
 - Speed command: the forward stick. Full stick asks for 1.5 m/s and the policy
@@ -86,7 +98,7 @@ says"). Takes five minutes.
   at most; left feet stay on the deck; board rolls straight. Nothing steers.
 - Pass at 0.2 m/s: several pushes, board moves, no fall. Then try 0.3 m/s.
   Stop: fast or stamping legs, a left foot off the deck, the board curving
-  away.
+  away, or the board walking sideways from under the left feet.
 - Notes at 0.2 m/s: ____________________________________________
 - Notes at 0.3 m/s: ____________________________________________
 
@@ -130,12 +142,19 @@ says"). Takes five minutes.
   feet. In sim the left feet slowly slide along the deck toward the nose or
   tail. Keep each run short, about 10 s.
 - Placement: left feet on the deck, right feet on the floor, as in test 3.
-- This file has the heading hold on (kp 1.0, clip 0.3 rad/s). At yaw 0 it keeps
-  the robot lined up with the board. The other skate files have it off.
+  Place the robot square to the board, body parallel to the deck.
+- This file has the heading hold on (kp 1.0, clip 0.3 rad/s). On the robot the
+  hold keeps the robot's own IMU yaw, not the board's heading: it cannot see
+  the board. Any yaw between robot and board when the hold captures stays
+  locked in. After each carve, check the body is still parallel to the board
+  before the next run. The other skate files have the hold off.
 - Speed: the forward stick, clipped at 0.3 m/s. Sim checked only 0.3 m/s.
 - First ride straight at yaw 0. Then carve: a yaw command of 0.4 to 0.6 rad/s,
-  either way. Below 0.4 is not a carve; the policy never trained between 0.1
-  and 0.4. Back to yaw 0 holds the new heading.
+  either way. The file clips yaw at 0.6, so a carve is the full yaw stick.
+  Push the yaw stick all the way, quickly; to stop the carve, let it go fully.
+  Do not hold it part way or move it slowly: 0.1 to 0.35 rad/s reaches the
+  policy and it never trained there. Back to yaw 0 holds the new heading (the
+  robot's own, see above).
 - Expect a slow lean turn: about 3 degrees per second, a wide arc of about 6.5
   to 7 m radius at 0.3 m/s (sim board yaw rate 0.046 rad/s left, 0.042
   right). In sim, 10 s of carving turned the board 0.50 rad left and 0.44 rad

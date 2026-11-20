@@ -36,13 +36,13 @@ As of 2026-11-19. Nothing has run on the robot.
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | First candidate |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
-| Split ride v4 | `iznjwbka` | pass | pass at 0.2, 0.3, 0.4 m/s | not run | Third, after both balance tests |
+| Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready: Ethan's call, short runs only |
 | Centred ride (tripod) | `7fyt12i1` | pass | fail on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Steering candidate, loosened trucks, Ethan's call |
 
 - Done: board model on the measured board, both stances, five tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
-- Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passes the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`. Policy: `policies/split_ride_v4_policy.json`.
+- Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passed the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s on 2026-11-17, on the old box deck and before the `board_drifted` and `board_slid` checks existed. It has not passed on the current task: on 2026-11-18 its checkpoint reset on `board_drifted` (sideways drift off the feet) in the gait check, and its retrain, split ride v7 `gkk9a6bj`, fails 9 ride audit rows. Not rerun since `board_slid` and the elliptic cone. Policy: `policies/split_ride_v4_policy.json`.
 - Centred ride is a tripod ride now: three feet on the deck, the back right foot pushing on the floor. Run `7fyt12i1` rides at 0.1 to 0.3 m/s with no resets and passes every gait limit but one: the push foot is on the floor 20% of the time (limit 40%). Provisional policy: `policies/centred_ride_v9_max0.3_policy.json`. Video: `media/centred_ride_v9.mp4`. The run history is in [`SIM2REAL.md`](SIM2REAL.md).
 - Steering: split steer v5 (runs `qqm2917n`, then `bxke67fj`) is the candidate for the first hardware steering test, not a fully passing policy. It leans to steer on trucks loosened to 9 to 18 N·m/rad. At 0.3 m/s it passes the gait check at yaw 0, +0.5 and -0.5 with no resets, and the board turns at 0.84 to 0.92 of the asked rate. It fails 2 of 16 ride audit rows: about 1 board in 8 slides off the feet within 30 s, so the test uses a foot stop on the deck and short runs. Policy: `policies/split_steer_v5_max0.3_policy.json`. Test sheet: [`HARDWARE_TEST.md`](HARDWARE_TEST.md), tests 0 and 5. A hardware run needs Ethan's OK and a TA sign-off.
 - Heading hold is off in every skate export (kp 0) except split steer v5 (kp 1.0, clip 0.3 rad/s).

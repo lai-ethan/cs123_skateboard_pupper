@@ -10,7 +10,7 @@ written 2026-11-19, from simulation only. Nothing here has been tried on the rob
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | **Yes, first candidate** |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Yes, with care (see below) |
-| Split ride v4 | `iznjwbka` | pass | pass at 0.2, 0.3, 0.4 m/s | not run | Yes, after both balance tests |
+| Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; short runs only, Ethan's call |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Candidate for the first steering test, loosened trucks |
 
@@ -22,9 +22,13 @@ written 2026-11-19, from simulation only. Nothing here has been tried on the rob
   edge. It falls when the board is 2 cm off-centre, when shoved, or when the
   trucks are four times softer than modelled. On the robot it needs placement
   within about 1 cm, wedged wheels and no shoves.
-- **Split ride is ready for a first test.** Split ride v4 (`iznjwbka`) passes
-  the gait check on the real deck height at 0.2, 0.3 and 0.4 m/s. It replaces
-  `3qmtsv4o`.
+- **Split ride is not ready.** Split ride v4 (`iznjwbka`) passed the gait
+  check on the real deck height at 0.2, 0.3 and 0.4 m/s on 2026-11-17, on the
+  old box deck and before the `board_drifted` and `board_slid` checks existed.
+  On 2026-11-18, on the then current task at 103 mm, its checkpoint and the
+  next one (`cfcrepfu`) reset on `board_drifted` 27 to 28 times on the box
+  deck and 33 to 35 times on the traced deck. Its retrain, v7 (`gkk9a6bj`),
+  fails 9 ride audit rows. Not rerun since `board_slid` and the elliptic cone.
 - **Centred ride rides in sim but fails one gait limit.** The sixth run
   (`7fyt12i1`) keeps three feet on the deck and pushes with the back right
   foot on the floor. It holds the commanded speed with no falls, slow joints
@@ -183,8 +187,8 @@ signs off before the first powered run (PLAN Task 12).
    within 1 cm. Do not shove it.
 6. **Centred balance, wheels free**, only if step 5 holds for 10 s.
 7. **Split ride `iznjwbka`, hand held,** only after split balance holds
-   (steps 3 and 4).
-   Start at 0.2 m/s, then 0.3 m/s. It passes the gait check at both.
+   (steps 3 and 4), and only if Ethan accepts that it resets on sideways
+   drift on the current task. Start at 0.2 m/s, then 0.3 m/s. Short runs.
 8. **Centred ride `7fyt12i1`, hand held,** last, and only if Ethan accepts
    that it fails the push foot duty limit (`HARDWARE_TEST.md`, test 4).
 9. **Split steer v5, hand held,** only after step 7, on trucks loosened to 9
@@ -192,13 +196,27 @@ signs off before the first powered run (PLAN Task 12).
 
 The test sheet for this session is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
-On the robot (over SSH):
+Install the local files in `policies/`, not the W&B exports: the ride and
+steer tests need the capped `*_max0.3_policy.json` files, and `./deploy.sh
+mjlab/<run>` fetches a run's W&B export, which is not the capped file. The
+files to use:
+
+| Step | File |
+| --- | --- |
+| 3, 4 | `policies/split_balance_v3_policy.json` |
+| 5, 6 | `policies/centred_balance_v2_policy.json` |
+| 7 | `policies/split_ride_v4_max0.3_policy.json` |
+| 8 | `policies/centred_ride_v9_max0.3_policy.json` |
+| 9 | `policies/split_steer_v5_max0.3_policy.json` |
+
+On the robot (over SSH), after copying the file there, as in
+`HARDWARE_TEST.md` test 3. These commands come from the robot repo's usage
+and have not yet been run with a skate policy:
 
 ```bash
 cd ~/pupper_gait_deploy
-./deploy.sh mjlab/gt60lfo0   # split balance
-./deploy.sh mjlab/zdctdcyf   # centred balance
-./deploy.sh mjlab/iznjwbka   # split ride v4, only at step 7
+python3 download_policy.py --file <file> --output policies/test_policy.json
+./deploy.sh
 ```
 
 ## Riding: where it stands
@@ -236,7 +254,9 @@ cd ~/pupper_gait_deploy
   estimate its joint speeds would pass, but v4 replaces it anyway.
 - **Split ride v4 `iznjwbka`** (PLAN Task 31 rewards: smoother lift-off and
   touchdown, low swings). `GAIT: PASS` on the 103 mm deck at 0.2, 0.3 and
-  0.4 m/s. This is the split ride to deploy. Video:
+  0.4 m/s (2026-11-17, box deck, before `board_drifted` and `board_slid`).
+  On the current task it resets on `board_drifted`; see the short answer.
+  Video:
   `media/split_ride_v4_0.3ms.mp4`. Policy:
   `policies/split_ride_v4_policy.json`.
 - **Centred ride, first design (PLAN Task 32).** The policy followed a clocked
@@ -295,8 +315,10 @@ Split steer v5 is the first steer policy to pass all three gait reports (yaw
 0, +0.5 and -0.5) with zero resets. Steer v2 to v4 also turned the board both
 ways, but reset in the gait check. v5 is a candidate for the first hardware
 steering test (`HARDWARE_TEST.md`, test 5), not a fully passing policy. Its
-export has the heading hold on (kp 1.0, clip 0.3 rad/s), so at yaw 0 the robot
-keeps itself parallel to the board. The other skate exports have it off (kp 0).
+export has the heading hold on (kp 1.0, clip 0.3 rad/s). In sim the hold
+holds the board's heading. On the robot it holds the robot's own IMU yaw, so it
+cannot see the board: any yaw between robot and board when the hold captures
+is kept, not corrected. The other skate exports have the hold off (kp 0).
 The runs below show how it got there.
 
 - **First try: a split-stance steer task.** `Mjlab-SkateSplit-Steer-Pupper-v3`
@@ -324,14 +346,16 @@ The runs below show how it got there.
   and the robot's own heading hold tells them apart, so the robot side needs
   no change.
   - Yaw 0 is the ride. The heading hold is on and its correction (at most 0.3
-    rad/s) keeps the robot parallel to the board.
+    rad/s) holds a heading: in sim the board's, on the robot the robot's own
+    IMU yaw. So on the robot, place it parallel to the board.
   - A carve is a yaw command of 0.4 to 0.6 rad/s, either sign. It is above the
     hold's 0.1 rad/s threshold, so the hold lets go and the command reaches
     the policy. It is above the hold's 0.3 clip, so the policy cannot mistake
     it for a correction. It asks the board to turn at a tenth of the command,
     0.04 to 0.06 rad/s, with the robot turning along with it.
-  - When the command goes back to 0, the hold captures the board's new
-    heading and holds that.
+  - When the command goes back to 0, the hold captures a new heading and
+    holds that: in sim the board's, on the robot its own. A yaw offset to the
+    board at that moment stays.
   - The board's turn is paid only during a carve. The board can sit 6 cm off
     the stance's line before the alignment term charges most of its reward
     (the ride allows 3 cm), since a lean needs the deck feet about 4 cm off
