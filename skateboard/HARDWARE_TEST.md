@@ -145,8 +145,9 @@ says"). Takes five minutes.
   from v6). Keep the stick within ±0.3; the file clips yaw at ±0.3 rad/s
   anyway. It passes the validator and all 16 ride audit rows, and no sim
   board slid out in 27 gait runs. But it pulls right, gentle right carves
-  turn up to twice what they ask, and hard right carves (stick -0.5, -0.6)
-  fail in sim on every seed, so it does not get the full stick. Same heading
+  turn up to 2.1 times what they ask, and hard right carves (stick -0.5,
+  -0.6) fail in sim on every seed, so it does not get the full stick. The
+  cause of the right pull is not known yet. Same heading
   hold as v6 (kp 1.0, clip 0.1). Same placement and trucks.
 - Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The

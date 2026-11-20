@@ -574,12 +574,12 @@ The runs below show how it got there.
 
   - 21 of 27 runs pass. The 6 failures are all stick -0.5 and -0.6, on all
     three seeds, on `board_drifted` (the board drifts sideways more than
-    6 cm), 1 to 4 boards in 16.
+    6 cm), on 1 or 2 boards in 16 (up to 4 resets).
   - No `board_slid` reset in any of the 27 runs. v6 had one board (env 12)
     slide out on left carves of 0.3, 0.5 and 0.6 on seed 0.
   - v7 pulls right: at stick 0 the board yaws at -0.013 rad/s on average.
     So gentle right carves overshoot (2.1 times asked at -0.15, 1.3 at -0.3
-    on seed 0; 1.1 to 1.6 on seeds 1 and 2) and left carves fall short.
+    on seed 0; 1.1 to 1.6 on seeds 1 and 2) and left carves mostly fall short.
   - The largest fore-aft offset from the keyframe is 8.1 cm straight and up
     to 9.1 cm on left carves (v6: 6.2 and 8.0). This includes where a board
     was reset; it is no longer a reset unless the robot moves 8 cm from its
@@ -603,8 +603,8 @@ The runs below show how it got there.
   the board travels 2.98 m. The board's heading changed +0.26 rad at stick
   0.3, -0.24 rad at stick -0.3 and -0.63 rad at stick -0.6. The stick -0.6
   render did not reset and the board travelled only 2.59 m; the
-  `board_drifted` failures happen on 1 to 4 of 16 gait check boards, so one
-  render does not show them. Videos:
+  `board_drifted` failures happen on 1 or 2 of 16 gait check boards (up to
+  4 resets), so one render does not show them. Videos:
   `media/split_steer_v7_straight_0.3ms.mp4`,
   `media/split_steer_v7_left_stick0.3_0.3ms.mp4`,
   `media/split_steer_v7_right_stick0.3_0.3ms.mp4` and

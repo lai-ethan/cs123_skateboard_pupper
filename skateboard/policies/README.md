@@ -42,8 +42,9 @@ robot to its marks between runs.
 ([`../PLAN_DECK_SLIDE.md`](../PLAN_DECK_SLIDE.md)). Its `_max0.3_policy.json`
 clips both speed (0 to 0.3 m/s) and yaw (±0.3 rad/s); v6's clips yaw at ±0.6.
 `split_steer_v7_right_stick0.6_0.3ms.mp4` is a carve the export cannot send.
-It shows one board that did not reset; in the gait check 1 to 4 boards in 16
-drift off sideways at that stick.
+It shows one board that did not reset; in the gait check 1 or 2 boards in 16
+(up to 4 resets) drift off sideways at that stick. v7 pulls right, and the cause
+of the pull is not known yet.
 
 `split_balance_v2` and `split_ride_v0` were trained before the split stance had
 its own task ids, so they ran under the ids the centred stance uses now.

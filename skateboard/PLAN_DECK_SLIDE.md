@@ -119,8 +119,8 @@ What got worse:
 - v7 pulls right. At stick 0 the mean board yaw rate is -0.013 rad/s (v6:
   -0.003).
 - Hard right carves fail. Stick -0.5 and -0.6 fail the gait check on every
-  seed, on `board_drifted` (the board drifts sideways more than 6 cm), 1 to 4
-  boards in 16. v6 passed both on seed 0.
+  seed, on `board_drifted` (the board drifts sideways more than 6 cm), on 1
+  or 2 boards in 16 (up to 4 resets). v6 passed both on seed 0.
 - Left carves are weaker at high stick: +0.5 turns 0.56 of asked (v6: 0.67),
   +0.6 turns 0.58 (v6: 0.80), seed 0.
 - Gentle right carves overshoot: 2.12 times the asked rate at -0.15 and 1.32
