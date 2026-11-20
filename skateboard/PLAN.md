@@ -212,8 +212,8 @@ Expected: Pupper stands tilted with left feet on the board and stays there.
 ### Task 9: Train balance on Colab (checkpoint, Mon Nov 16)
 
 **Result (Sun Nov 15):** PASS in sim, default weights.
-- `bal1`, no pushes: W&B `ethanlai-stanford-university/mjlab/2zxd46yi`.
-- `bal2`, pushes + deck-height randomization, 1500 iterations: episode length 500, `feet_on_deck` 2.00. W&B `ethanlai-stanford-university/mjlab/2ace1uqa`. This is the one to try on the robot first.
+- `bal1`, no pushes: W&B `<entity>/mjlab/2zxd46yi`.
+- `bal2`, pushes + deck-height randomization, 1500 iterations: episode length 500, `feet_on_deck` 2.00. W&B `<entity>/mjlab/2ace1uqa`. This is the one to try on the robot first.
 
 - [ ] **Step 1:** open `notebooks/CS123_Pupper_Skate.ipynb` in Colab, runtime G4 GPU, run top to bottom. `TASK = "Mjlab-Skate-Balance-Pupper-v3"`, 4096 envs, 1500 iterations (about 50 min on a free T4). Whoever runs it pastes their own W&B key; never commit a key.
 - [ ] **Step 2: Pass criteria** on W&B:
@@ -260,7 +260,7 @@ FORCE_CPU=1 uv run python skateboard/tools/check_stance.py 0.14 0.17 <the 12 ang
 ### Task 11: Train riding
 
 **Result (Mon Nov 16, 13:01 CST):** `RESULT: PASS`, default weights, full 1500 iterations.
-- W&B `ethanlai-stanford-university/mjlab/29p4j81t`, Colab Pro T4, 55 min.
+- W&B `<entity>/mjlab/29p4j81t`, Colab Pro T4, 55 min.
 - Last 20 iterations: episode length 487.0 (need 450), `track_board_velocity` 2.380 (need 2.0), `feet_on_deck` 1.873. `board_tipped` 0.03, `base_too_low` 0.01, `feet_off_deck` 0.51, `fell_over` 0.09.
 - No reward hacking seen: tracking, feet on deck and episode length rose together while terminations fell.
 - `policy.json` on the run was replaced at the end of training (parity error 3.7e-6).
