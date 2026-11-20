@@ -613,11 +613,11 @@ JOINT_SPEED_LIMIT: float = 8.0
   - `gait_verdict(metrics) -> list[tuple[str, float, str, float, bool]]` rows of `(name, value, "max" | "min", limit, passed)`.
 - [ ] **Step 3: implement `gait_report.py`.** Command line: `gait_report.py task policy [--speed 0.4] [--steps 500] [--skip 100]`. It rolls the policy out with `load_policy`, drops the first `--skip` steps (settling), records `robot.data.joint_vel`, `robot.data.actuator_force` and `ground_feet_contact` `found > 0` each step, prints each metric with its limit and PASS or FAIL, then a last line `GAIT: PASS` or `GAIT: FAIL`. Exit code always 0, like `run_summary.py`. Module docstring carries the usage, as the other tools do.
 - [ ] **Step 4: run it on the two saved policies** and paste the output into your report:
-  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4` — expected `GAIT: FAIL` (this is the windmill policy; peak joint speed far above 8 rad/s).
-  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json` — expected `GAIT: PASS`.
+  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/split_ride_v0_model_1499.pt --speed 0.4` — expected `GAIT: FAIL` (this is the windmill policy; peak joint speed far above 8 rad/s).
+  - `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/split_balance_v2_policy.json` — expected `GAIT: PASS`.
   - Added after the final review: a fifth row, `board_speed_ratio` (mean forward board speed divided by `--speed`, `("min", 0.5)`), and `--speed` turns off standing commands. Deck-height randomization was widened to plus or minus 3 cm afterwards.
   - If either verdict is not the expected one, report DONE_WITH_CONCERNS with the numbers; do not change `GAIT_LIMITS` to force it.
-  - Also confirm the refactored renderer still works: `FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/balance_2ace1uqa_policy.json /tmp/sdd_render_check/balance.mp4 --steps 50` writes the mp4 (delete that folder afterwards).
+  - Also confirm the refactored renderer still works: `FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-Skate-Balance-Pupper-v3 skateboard/policies/split_balance_v2_policy.json /tmp/sdd_render_check/balance.mp4 --steps 50` writes the mp4 (delete that folder afterwards).
 - [ ] **Step 5: training-curve check.** In `run_summary.py`, add to the ride entry of `PASS_CRITERIA`: `"Episode_Reward/joint_speed_limit": -0.1` and `"Episode_Reward/torque_saturation": -0.2` (both are penalties logged as weight × mean cost, so "at least" a small negative number means the penalty is rarely paid). Add a test in `tests/test_skate_run_summary.py` that a ride run with good length and tracking but `Episode_Reward/joint_speed_limit` of -0.5 gets `RESULT: FAIL`, and passes at -0.01 with `torque_saturation` -0.05. Update any existing ride test there that now lacks the two tags.
 - [ ] **Step 6:** `FORCE_CPU=1 uv run pytest tests/test_skate_gait_report.py tests/test_skate_run_summary.py tests/test_pupper_skate.py -q` pass; `uv run ruff format`, `uv run ruff check`, `uv run ty check` clean for touched files. Commit `feat: add a gait report tool and gait terms in the ride pass check`.
 
@@ -721,7 +721,7 @@ and not a guess. It does not train anything and changes no task.
     m), `lift_front_right` and `lift_rear_right` (from
     `lifted_foot_margins`; reported, not part of the verdict).
   - Command line: `stance_audit.py [policy] [--conditions a,b,c]`. `policy`
-    defaults to `skateboard/policies/balance_2ace1uqa_policy.json`; the task
+    defaults to `skateboard/policies/split_balance_v2_policy.json`; the task
     is always `Mjlab-Skate-Balance-Pupper-v3`. An unknown condition name is
     an `ap.error`. Print one line per condition with `PASS`/`FAIL` and the
     row, then `STANCE: PASS` only if every condition run passed.

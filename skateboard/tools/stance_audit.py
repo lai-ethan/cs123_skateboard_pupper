@@ -16,7 +16,7 @@ foot lifted. It trains nothing and changes no task.
 
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \\
-    [skateboard/policies/balance_2ace1uqa_policy.json] [--conditions a,b,c] \\
+    [skateboard/policies/split_balance_v2_policy.json] [--conditions a,b,c] \\
     [--task Mjlab-SkateSplit-Balance-Pupper-v3]
 
 Each condition is one env and 500 steps, measured after the first 100; a full
@@ -38,7 +38,7 @@ import numpy as np
 from scipy.spatial import ConvexHull
 
 DEFAULT_TASK = "Mjlab-Skate-Balance-Pupper-v3"
-DEFAULT_POLICY = Path("skateboard/policies/balance_2ace1uqa_policy.json")
+DEFAULT_POLICY = Path("skateboard/policies/split_balance_v2_policy.json")
 STEPS, SKIP, KICK_STEP = 500, 100, 200
 WHEEL_FRICTION = 0.85
 # The deck geom's own friction. Feet have geom priority 1, so a foot contact

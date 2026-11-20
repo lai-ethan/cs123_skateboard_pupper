@@ -15,7 +15,7 @@ REPO = Path(__file__).parent.parent
 TOOLS = REPO / "skateboard" / "tools"
 SPLIT_RIDE = "Mjlab-SkateSplit-Ride-Pupper-v3"
 TRIPOD_RIDE = "Mjlab-Skate-Ride-Pupper-v3"
-SPLIT_POLICY = REPO / "skateboard" / "policies" / "split_ride_iznjwbka_policy.json"
+SPLIT_POLICY = REPO / "skateboard" / "policies" / "split_ride_v4_policy.json"
 ROW_NAMES = [
   "nominal_10s",
   "nominal_30s",

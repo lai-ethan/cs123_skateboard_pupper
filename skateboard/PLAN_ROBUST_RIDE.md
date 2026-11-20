@@ -137,11 +137,11 @@ for how each condition was applied. Build the tool from that, in the style of
    the verdict function passes and fails on hand-made metric dicts at each
    limit; a smoke test runs `nominal_10s` with 2 envs and about 60 steps on
    `Mjlab-SkateSplit-Ride-Pupper-v3` with
-   `skateboard/policies/split_ride_iznjwbka_policy.json` and gets finite
+   `skateboard/policies/split_ride_v4_policy.json` and gets finite
    metrics (allow a `--steps` override for this). Mark the smoke test the way
    slow tests in that file are marked, if any are.
 8. Run the full audit once on the current policy:
-   `FORCE_CPU=1 uv run python skateboard/tools/ride_audit.py Mjlab-SkateSplit-Ride-Pupper-v3 skateboard/policies/split_ride_iznjwbka_policy.json --speed 0.3 --json /Users/ethan/.claude/jobs/bc321137/tmp/ride_audit_iznjwbka.json`
+   `FORCE_CPU=1 uv run python skateboard/tools/ride_audit.py Mjlab-SkateSplit-Ride-Pupper-v3 skateboard/policies/split_ride_v4_policy.json --speed 0.3 --json /Users/ethan/.claude/jobs/bc321137/tmp/ride_audit_iznjwbka.json`
    and paste the table into the report. It is expected to FAIL on several
    rows; that is the baseline, not a bug. If `nominal_10s` fails, stop and
    report.
@@ -217,11 +217,11 @@ inherits them; no other task changes):**
    - Observation dimension of the ride is what it was.
 10. **Smoke runs:** zero-action rollout of the ride (train and play), finite
     rewards. Then
-    `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-SkateSplit-Ride-Pupper-v3 skateboard/policies/split_ride_iznjwbka_policy.json --speed 0.3 --deck-height 0.103`
+    `FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-SkateSplit-Ride-Pupper-v3 skateboard/policies/split_ride_v4_policy.json --speed 0.3 --deck-height 0.103`
     still runs (the old policy on the new task; its numbers may differ and it
     may reset on `board_drifted`: report them, do not tune to them).
 11. **Warm start check:** the old checkpoint
-    `skateboard/policies/split_ride_iznjwbka_model_2998.pt` must still load
+    `skateboard/policies/split_ride_v4_model_2998.pt` must still load
     into the task's policy network (same observation and action sizes). Say
     in the report how you checked.
 

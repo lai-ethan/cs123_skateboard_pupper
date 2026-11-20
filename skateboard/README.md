@@ -26,7 +26,7 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 | Stance helper scripts, video renderer, pass check, gait report | [`tools/`](tools/) |
 | Sim2real: stance margins, what sim cannot show, steps before the first real run | [`SIM2REAL.md`](SIM2REAL.md) |
 | First hardware session test sheet | [`HARDWARE_TEST.md`](HARDWARE_TEST.md) |
-| Trained policies, sim videos | [`policies/`](policies/), [`media/`](media/) |
+| Trained policies, sim videos, which run each name is | [`policies/`](policies/), [`media/`](media/), [`policies/README.md`](policies/README.md) |
 
 ## Status
 
@@ -41,8 +41,8 @@ As of 2026-11-18. Nothing has run on the robot.
 
 - Done: board model on the measured board, both stances, five tasks, tests, notebook, both balance policies.
 - Both balance policies and their audit logs are in [`policies/`](policies/); videos are in [`media/`](media/).
-- Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passes the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`. Policy: `policies/split_ride_iznjwbka_policy.json`.
-- Centred ride is a tripod ride now: three feet on the deck, the back right foot pushing on the floor. Run `7fyt12i1` rides at 0.1 to 0.3 m/s with no resets and passes every gait limit but one: the push foot is on the floor 20% of the time (limit 40%). Provisional policy: `policies/centred_ride_7fyt12i1_max0.3_policy.json`. Video: `media/centred_ride_v9_7fyt12i1.mp4`. The run history is in [`SIM2REAL.md`](SIM2REAL.md).
+- Split ride v4 `iznjwbka` (PLAN Task 31 rewards) passes the gait check on the 103 mm deck at 0.2, 0.3 and 0.4 m/s. It replaces `3qmtsv4o`. Policy: `policies/split_ride_v4_policy.json`.
+- Centred ride is a tripod ride now: three feet on the deck, the back right foot pushing on the floor. Run `7fyt12i1` rides at 0.1 to 0.3 m/s with no resets and passes every gait limit but one: the push foot is on the floor 20% of the time (limit 40%). Provisional policy: `policies/centred_ride_v9_max0.3_policy.json`. Video: `media/centred_ride_v9.mp4`. The run history is in [`SIM2REAL.md`](SIM2REAL.md).
 - Steering: the steer run `jl7i4id0` does not turn the board. In sim the robot is too light to tilt the deck far enough. Measure the real trucks first ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), test 0).
 - Heading hold is off in all skate exports (kp 0).
 - Not done: a centred ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md); the test sheet is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
@@ -139,31 +139,32 @@ when a run fails is in Tasks 9 and 11 of the plan.
 ### 4. Replay the trained policies (laptop)
 
 Saved policies are in [`policies/`](policies/), so no W&B login is needed. The
-current ones are `split_balance_gt60lfo0_*`, `balance_zdctdcyf_*` (centred) and
-`split_ride_iznjwbka_*` (split ride v4).
-`balance_2ace1uqa_*` and `ride_29p4j81t_*` are from the first split stance on a
+current ones are `split_balance_v3_*`, `centred_balance_v2_*` and
+`split_ride_v4_*`. Each name maps to its W&B run in
+[`policies/README.md`](policies/README.md).
+`split_balance_v2_*` and `split_ride_v0_*` are from the first split stance on a
 guessed board; the commands below use them only to show the tools. From the repo
 root:
 
 ```bash
 # Ride, in the interactive viewer
 FORCE_CPU=1 uv run play Mjlab-SkateSplit-Ride-Pupper-v3 \
-  --checkpoint-file skateboard/policies/ride_29p4j81t_model_1499.pt --num-envs 1
+  --checkpoint-file skateboard/policies/split_ride_v0_model_1499.pt --num-envs 1
 
 # Ride or balance, saved as a video plus stills (no viewer needed)
 FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-SkateSplit-Ride-Pupper-v3 \
-  skateboard/policies/ride_29p4j81t_model_1499.pt out/ride.mp4 --speed 0.4
+  skateboard/policies/split_ride_v0_model_1499.pt out/ride.mp4 --speed 0.4
 FORCE_CPU=1 uv run python skateboard/tools/render_policy.py Mjlab-SkateSplit-Balance-Pupper-v3 \
-  skateboard/policies/balance_2ace1uqa_policy.json out/balance.mp4
+  skateboard/policies/split_balance_v2_policy.json out/balance.mp4
 ```
 
 To run the gait check on both saved policies:
 
 ```bash
 FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-SkateSplit-Ride-Pupper-v3 \
-  skateboard/policies/ride_29p4j81t_model_1499.pt --speed 0.4
+  skateboard/policies/split_ride_v0_model_1499.pt --speed 0.4
 FORCE_CPU=1 uv run python skateboard/tools/gait_report.py Mjlab-SkateSplit-Balance-Pupper-v3 \
-  skateboard/policies/balance_2ace1uqa_policy.json
+  skateboard/policies/split_balance_v2_policy.json
 ```
 
 The gait check rolls out 16 envs at once (`--envs`), each with its own board
@@ -203,7 +204,7 @@ height, board placement, grip, motors, shoves):
 
 ```bash
 FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \
-  skateboard/policies/balance_2ace1uqa_policy.json --conditions baseline,board_y+2cm \
+  skateboard/policies/split_balance_v2_policy.json --conditions baseline,board_y+2cm \
   --task Mjlab-SkateSplit-Balance-Pupper-v3
 ```
 

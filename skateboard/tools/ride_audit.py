@@ -21,7 +21,7 @@ own friction is the friction of every contact it makes; the grip rows set it.
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/ride_audit.py \\
     Mjlab-SkateSplit-Ride-Pupper-v3 \\
-    skateboard/policies/split_ride_iznjwbka_policy.json --speed 0.3 \\
+    skateboard/policies/split_ride_v4_policy.json --speed 0.3 \\
     [--num-envs 16] [--seed 0] [--rows nominal_10s,kp_x0.7] [--steps 500] \\
     [--json out.json]
 

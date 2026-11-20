@@ -4,7 +4,7 @@ Takes a training checkpoint (`model_*.pt`) or an exported `policy.json`.
 
 Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
   FORCE_CPU=1 uv run python skateboard/tools/render_policy.py \\
-    Mjlab-Skate-Ride-Pupper-v3 skateboard/policies/ride_29p4j81t_model_1499.pt \\
+    Mjlab-SkateSplit-Ride-Pupper-v3 skateboard/policies/split_ride_v0_model_1499.pt \\
     out/ride.mp4 --speed 0.4 [--yaw-rate 0.5]
 
 `--yaw-rate` is the yaw command in rad/s; it defaults to 0, the only yaw the

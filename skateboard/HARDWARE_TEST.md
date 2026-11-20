@@ -41,7 +41,7 @@ says"). Takes five minutes.
 
 ## 1. Split balance
 
-- Policy: `policies/split_balance_gt60lfo0_policy.json` (run `gt60lfo0`)
+- Policy: `policies/split_balance_v3_policy.json` (run `gt60lfo0`)
 - First because two feet stay on the floor, so a failure is a small one.
 - Placement: left feet on the deck, right feet on the floor. Wheels chocked.
 - Watch: right feet stay planted; lean about 5 degrees toward the deck, as in
@@ -52,7 +52,7 @@ says"). Takes five minutes.
 
 ## 2. Centred balance
 
-- Policy: `policies/balance_zdctdcyf_policy.json` (run `zdctdcyf`)
+- Policy: `policies/centred_balance_v2_policy.json` (run `zdctdcyf`)
 - Placement: all four feet on the deck. Centre the board under the robot to
   within about 1 cm. Wheels chocked.
 - Watch: feet stay on the deck, not the edge; body still; no shaking.
@@ -62,11 +62,11 @@ says"). Takes five minutes.
 
 ## 3. Split ride at 0.2 m/s, then 0.3 m/s
 
-- Policy: `policies/split_ride_iznjwbka_policy.json` (run `iznjwbka`)
+- Policy: `policies/split_ride_v4_policy.json` (run `iznjwbka`)
 - Only if test 1 passes. Wheels free, clear straight path, hands ready.
 - Placement: left feet on the deck, right feet on the floor.
 - Speed command: the forward stick. Full stick asks for 1.5 m/s and the policy
-  clips it. Use `policies/split_ride_iznjwbka_max0.3_policy.json` for this
+  clips it. Use `policies/split_ride_v4_max0.3_policy.json` for this
   session: it clips at 0.3 m/s, so a full push cannot go faster. A light push
   (about one eighth of the stick) is 0.2 m/s. The uncapped file reaches
   0.5 m/s, which has no gait check.
@@ -85,7 +85,7 @@ says"). Takes five minutes.
 
 ## 4. Centred ride, tripod (provisional: Ethan decides)
 
-- Policy: `policies/centred_ride_7fyt12i1_max0.3_policy.json` (run `7fyt12i1`).
+- Policy: `policies/centred_ride_v9_max0.3_policy.json` (run `7fyt12i1`).
   It clips at 0.3 m/s. Install it like the capped file in test 3.
 - Gait check: `GAIT: FAIL` on one limit. The push foot is on the floor 20% of
   the time (limit 40%). Every other limit passes at 0.1, 0.2 and 0.3 m/s

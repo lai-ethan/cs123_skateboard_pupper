@@ -56,7 +56,7 @@ between rows is the condition named.
 ```bash
 # Mac, in ~/claude/cs123/pupper-mjlab (about 9 minutes for all 21 rows)
 FORCE_CPU=1 uv run python skateboard/tools/stance_audit.py \
-  skateboard/policies/split_balance_gt60lfo0_policy.json \
+  skateboard/policies/split_balance_v3_policy.json \
   --task Mjlab-SkateSplit-Balance-Pupper-v3
 ```
 
@@ -67,8 +67,8 @@ of mass stays at least 3 cm inside the feet.
 - **torque** is the busiest motor's mean torque as a share of its limit.
 - **margin** is how far the centre of mass is inside the outline of the feet.
 
-The full logs are `policies/split_balance_gt60lfo0_audit.txt` and
-`policies/balance_zdctdcyf_audit.txt`.
+The full logs are `policies/split_balance_v3_audit.txt` and
+`policies/centred_balance_v2_audit.txt`.
 
 ## Results: split balance `gt60lfo0`
 
@@ -164,8 +164,8 @@ would fix it.
 Each step needs the one before it. No robot motion without Ethan's OK, and the TA
 signs off before the first powered run (PLAN Task 12).
 
-1. **Show a TA** `media/split_balance_gt60lfo0.mp4` and
-   `media/balance_zdctdcyf.mp4` and this note.
+1. **Show a TA** `media/split_balance_v3.mp4` and
+   `media/centred_balance_v2.mp4` and this note.
 2. **Fit test, robot powered off.** Place the robot on the board by hand in each
    stance. Check that the feet reach, sit on the deck and not the edge, and that
    nothing collides. For the split stance check that the right feet reach the
@@ -203,13 +203,13 @@ cd ~/pupper_gait_deploy
   fails at 0.4 m/s on the real deck: joint speed 10.6 rad/s, motors saturated
   21% of the time, the back right foot never touches the floor, and 5 of 16
   boards reset. At 0.2 m/s the joint speed passes (7.9) but it still saturates
-  and falls. Video: `media/split_ride_ffcxbwup_0.4ms.mp4`.
+  and falls. Video: `media/split_ride_v2_0.4ms.mp4`.
 - **Centred ride:** the first run never pushed (`14m5rs1f`). The second, with
   the Task 28 rewards, crashed at iteration 95 when one simulated env diverged.
   The third (`cy8f55bg`, with the Task 30 guard) ran to the end and failed:
   episodes last 363 of 500 steps, motors are saturated the whole time, and in
   the gait check the board moves at 0.15 of the command at best with 51 resets.
-  Video: `media/ride_cy8f55bg_0.4ms.mp4` (the robot ends up lying on the deck).
+  Video: `media/centred_ride_v3_0.4ms.mp4` (the robot ends up lying on the deck).
   Parked: it needs trucks that do not exist yet and a deck with no sideways
   room.
 - **Split ride v3 `3qmtsv4o`** (Task 30 rewards: more charge for fast joints
@@ -223,15 +223,15 @@ cd ~/pupper_gait_deploy
   | 0.4 m/s | **9.2** | **5.8%** | 2.0 | 0.93 to 1.01 |
 
   Both right feet are on the floor a little over half the time. Video:
-  `media/split_ride_3qmtsv4o_0.3ms.mp4` (2.7 m in 10 s, no resets). The policy
-  file is `policies/split_ride_3qmtsv4o_policy.json`.
+  `media/split_ride_v3_0.3ms.mp4` (2.7 m in 10 s, no resets). The policy
+  file is `policies/split_ride_v3_policy.json`.
   Judged against the old 8 rad/s limit it failed. Against the current 12 rad/s
   estimate its joint speeds would pass, but v4 replaces it anyway.
 - **Split ride v4 `iznjwbka`** (PLAN Task 31 rewards: smoother lift-off and
   touchdown, low swings). `GAIT: PASS` on the 103 mm deck at 0.2, 0.3 and
   0.4 m/s. This is the split ride to deploy. Video:
-  `media/split_ride_iznjwbka_0.3ms.mp4`. Policy:
-  `policies/split_ride_iznjwbka_policy.json`.
+  `media/split_ride_v4_0.3ms.mp4`. Policy:
+  `policies/split_ride_v4_policy.json`.
 - **Centred ride, first design (PLAN Task 32).** The policy followed a clocked
   push-and-glide reference: 0.4 Hz, the back right foot stepped off the deck,
   pushed on the floor and stepped back on. It trained on deck heights 93 to
@@ -254,11 +254,11 @@ cd ~/pupper_gait_deploy
   deck or a support foot leaves it for more than 0.3 s.
 - **Run four `9c33unfu`** (first tripod run): rides with no resets but
   skitters, about 7 strides per second with motors saturated 19 to 27% of the
-  time. `GAIT: FAIL`. Video: `media/centred_ride_v7_9c33unfu.mp4`.
+  time. `GAIT: FAIL`. Video: `media/centred_ride_v7.mp4`.
 - **Run five `zvx4xc24`** (adds a charge for short strokes, `short_stride`
   -1.5, and `torque_saturation` -1.0): fails only on stride rate, 17 strides
   in 8 s against a limit of 16, at 0.1, 0.2 and 0.3 m/s. Video:
-  `media/centred_ride_v8_zvx4xc24.mp4`.
+  `media/centred_ride_v8.mp4`.
 - **Run six `7fyt12i1`** (`short_stride` -3.0, 2026-11-18): the stride rate now
   passes and one limit still fails. On the 103 mm deck:
 
@@ -273,9 +273,9 @@ cd ~/pupper_gait_deploy
   hangs in the air while the board glides. The limit was written to catch a
   walking foot held in the air; here it flags a push-and-glide. The limit is
   unchanged and the verdict stands as a fail.
-  Video at 0.2 m/s: `media/centred_ride_v9_7fyt12i1.mp4` (2.16 m in 10 s, no
+  Video at 0.2 m/s: `media/centred_ride_v9.mp4` (2.16 m in 10 s, no
   resets). Policy, capped at 0.3 m/s:
-  `policies/centred_ride_7fyt12i1_max0.3_policy.json`.
+  `policies/centred_ride_v9_max0.3_policy.json`.
 - **What that means for the robot.** It is a provisional candidate, behind the
   three passing policies. Open risks: the robot stands on three feet for 80%
   of the ride, and at 0.1 m/s the pushes are short taps (about 0.13 s). If

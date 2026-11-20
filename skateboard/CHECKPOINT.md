@@ -13,9 +13,9 @@ no resets.
 
 | Policy | Run | Policy file | Video |
 | --- | --- | --- | --- |
-| Centred balance | `zdctdcyf` | `policies/balance_zdctdcyf_policy.json` | `media/balance_zdctdcyf.mp4` |
-| Split balance | `gt60lfo0` | `policies/split_balance_gt60lfo0_policy.json` | `media/split_balance_gt60lfo0.mp4` |
-| Split ride v4 | `iznjwbka` | `policies/split_ride_iznjwbka_policy.json` | `media/split_ride_iznjwbka_0.3ms.mp4` |
+| Centred balance | `zdctdcyf` | `policies/centred_balance_v2_policy.json` | `media/centred_balance_v2.mp4` |
+| Split balance | `gt60lfo0` | `policies/split_balance_v3_policy.json` | `media/split_balance_v3.mp4` |
+| Split ride v4 | `iznjwbka` | `policies/split_ride_v4_policy.json` | `media/split_ride_v4_0.3ms.mp4` |
 
 - Centred balance: peak joint speed 2.63 rad/s, no saturation, min foot duty
   0.99, no resets.
@@ -32,8 +32,8 @@ no resets.
   7 rad/s, no saturation and at most 1.5 strides per second. It fails
   `min_foot_duty`: the push foot is on the floor 20% of the time (limit 40%),
   because it pushes briefly and then glides.
-  Video: `media/centred_ride_v9_7fyt12i1.mp4`. Provisional policy:
-  `policies/centred_ride_7fyt12i1_max0.3_policy.json`.
+  Video: `media/centred_ride_v9.mp4`. Provisional policy:
+  `policies/centred_ride_v9_max0.3_policy.json`.
 - Earlier centred ride runs stood still (`vrn7pp8n`, `2kmu10gl`), lay on the
   deck (`xtbenpi4`), skittered (`9c33unfu`) or took one stride too many
   (`zvx4xc24`). The history is in `SIM2REAL.md`.
