@@ -210,17 +210,35 @@ Setup, by Ethan on the robot:
 
 Run, hands on the harness the whole time, 4 m of clear floor ahead:
 
+- The gamepad joystick outranks Gemini and is outside every server guard. It
+  can carve harder than the voice limits, and its controller-switch buttons
+  bypass the board guard. While Pupper is on the board, do not touch the
+  sticks or the switch buttons: use the gamepad for its e-stop only.
+- Lift Pupper off the board onto the floor before any "stand up".
+
 - [ ] Say "lie down". Place Pupper: left feet on the deck, right feet on the
       floor, body parallel to the board. Say "start skating". Pass: Gemini
       asks whether Pupper is placed before it starts; Pupper eases into the
       stance and balances for 10 s without rolling.
+- [ ] E-stop check, still balancing, both hands on the harness: press the
+      gamepad e-stop (right-stick press). Pass: the motors relax at once,
+      and `ros2 control list_controllers` lists `gemini_skate` as inactive.
+      Pupper is now relaxed on the board, and the server no longer counts it
+      as skating, so do not say "stand up". Place it again if it moved, and
+      say "start skating". Pass: Gemini asks whether Pupper is placed; Pupper
+      eases into the stance and balances.
 - [ ] Say "walk forward". Pass: Gemini refuses and says why. Pupper does not
       move.
 - [ ] Say "go forward". Pass: rides about 3 s, then stops pushing.
 - [ ] After that ride, watch the right legs for 5 s. Pass: they stay planted
       and do not push again; the zero command really stops the pushing.
-- [ ] Say "stop" in the middle of a ride. Pass: pushing stops within 1 s, and
-      the right legs stay still afterwards.
+- [ ] Say "go forward", and about 1 s into the ride say "stop". Pass: pushing
+      stops within 1 s, the right legs stay still afterwards, and Pupper
+      stays in skate mode, balancing.
+- [ ] Say "turn gently left". Pass: Gemini calls a gentle carve (0.15 rad/s);
+      Pupper leans left and the board's heading moves left, if only a few
+      degrees. If it rides dead straight, the gentle carve is not getting
+      through the cmd_vel mux: write it down, and do not raise the carve.
 - [ ] Say "turn left", then "turn right". Pass: the board curves the right
       way; Pupper stays on.
 - [ ] Hold the harness, say "get off the board". Pass: Gemini asks if Pupper
@@ -229,12 +247,14 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
 - [ ] Set up the tip test. Pupper is relaxed on the board from the step
       above. Place it again if it moved: left feet on the deck, right feet on
       the floor, body parallel to the board. Say "start skating". Pass:
-      Pupper eases into the stance and balances without rolling.
+      Gemini asks whether Pupper is placed before it starts; Pupper eases
+      into the stance and balances without rolling.
 - [ ] Tip test, still balancing (no ride queued), both hands on the harness:
       tilt Pupper slowly until the tilt e-stop fires. Say "walk forward", then
-      "do a trick". Pass: both are refused and Pupper does not move. Hold
+      "do a trick". Pass: both are refused and Pupper does not move, and
+      Gemini says to hold Pupper and end skating, not to stand up. Hold
       Pupper, say "get off the board". Pass: the motors relax. Lift Pupper
-      onto the floor, say "stand up". Pass: it stands.
+      off the board onto the floor, say "stand up". Pass: it stands.
 
 Stop the test (e-stop) if a left foot nears the deck edge, a right foot
 lands on the deck, the board heads for anything, or a motor faults.
@@ -248,4 +268,5 @@ Measure and write down, to replace the sim estimates in `skate/skate.yaml`:
 | Heading change in a 5 s hard carve, each way | 5 × `turn_deg_per_s.hard` = 5 × 2.2 = about 11° | |
 
 The sim numbers come from `skateboard/tools/timed_ride.py` on steer v6 (16 envs,
-5 s ride, no resets at any carve level). The turn is the weaker side's.
+5 s ride, no resets at any carve level). The turn value is the weaker side's, rounded to
+0.1.
