@@ -1561,3 +1561,79 @@ git commit -m "docs: add voice control hardware checklist"
 - Issues: the plan code has not been run. The Mac's gemini_pupper is a
   snapshot from 2026-11-09 and the robot's copy may be ahead, so the branch
   may need a merge on the robot.
+
+## Result (2026-11-21): built and desk-tested, not run on the robot
+
+Nothing here has run on the robot. A TA's OK is needed before the first run.
+
+- **Gemini Pupper repo**, local branch `skate-voice` (8 commits on top of
+  `nicholas/todo4-11`, not pushed): skate config and the steer v6 policy, skate
+  mode in the robot API and launch, the four tools (`start_skating`,
+  `skate_forward`, `skate_turn`, `end_skating`), the prompt section and
+  `skate/README.md`. Desk tests: 300 checks pass (166 before this work).
+- **This repo:** `skateboard/tools/timed_ride.py` with its tests, and test 6
+  in `HARDWARE_TEST.md`.
+
+Sim estimates Gemini quotes (steer v6, 16 envs, 5 s rides, no resets):
+
+| Stick (rad/s) | Speed (m/s) | Board turn (deg/s) | Max coast (m) |
+| --- | --- | --- | --- |
+| 0 | 0.292 | -0.153 | 0.073 |
+| +0.15 / -0.15 | 0.285 / 0.290 | 1.213 / -1.087 | 0.079 / 0.066 |
+| +0.3 / -0.3 | 0.288 / 0.292 | 1.658 / -1.369 | 0.084 / 0.073 |
+| +0.5 / -0.5 | 0.295 / 0.301 | 2.182 / -2.287 | 0.093 / 0.082 |
+
+`skate.yaml` carries 0.29 m/s, 1.1 / 1.4 / 2.2 deg/s and 0.1 m coast.
+
+### What changed from the plan
+
+- A tilt e-stop while skating keeps walking, tricks and follow refused until a
+  person holds Pupper and `end_skating(held=true)` runs (`fell_off_board`).
+- "stop" during the switch into skate mode can no longer leave the skate
+  controller on unnoticed; no other controller can be switched in while it is
+  active.
+- A failed job resets the queued state to the real state.
+- The web app's debug endpoints get the same on-board refusal as the tools.
+- `load_skate` enforces 0.3 m/s, 0.5 rad/s, 5 s a command and 10 s queued as
+  ceilings in code.
+- The checklist adds: gamepad e-stop before the first ride, a gentle carve,
+  zero-command stop, the tip test, and a hands-off-the-gamepad warning.
+
+### Open decisions
+
+- After a gamepad e-stop on the board the board guard is released, so a
+  spoken "stand up" would be accepted with Pupper still on the deck. The
+  checklist says to lift Pupper off first. Keeping the guard on after an
+  e-stop on the board is a small change to `emergency_stop`.
+- The turn estimates round up slightly past the weaker side (1.087 to 1.1,
+  1.369 to 1.4, 2.182 to 2.2 deg/s), as the rounding rule here says. Flooring
+  to 1.0 / 1.3 / 2.1 would make "never promises more turn" literally true.
+- `robot/robot_api.py`, `robot/tool_registry.py`, `robot/server.py` and the
+  launch file are provided code in the Gemini Pupper repo and are changed on
+  the branch.
+
+### Known minor gaps (deferred)
+
+- If the switch into skate mode lands more than 0.1 s after "stop", one
+  "stand up" can be answered as queued (its job is then refused); in that
+  window "lie down" can relax the motors without the held check, and follow
+  can leave the skate tools saying "not in skate mode" until "stop". Note the
+  real switch time on hardware.
+- A `skate.yaml` table given as a bare number raises TypeError, not
+  ValueError.
+- The 10 s queue cap can be a little strict after a fast job and a little
+  loose after a slow one.
+- `end_skating` waits behind queued rides ("stop" first).
+- `timed_ride.py`: `--ride-s` under one step gives NaN; episode timeouts
+  count as resets.
+- Sim runs 2 to 7 were launched in one batch; one re-run alone gave an
+  identical line.
+
+### Accounting
+
+- Skipped: any run on the robot; `/code-review` (not available in this
+  session, subagent reviews were used instead); pushing the Gemini Pupper
+  branch (public repo, not yet authorised).
+- Assumed: steer v6 works on hardware; the mux deadband passes 0.15 rad/s;
+  the Mac copy of the Gemini Pupper repo matches the robot's.
+- Issues: the estimates are sim numbers; expect a longer coast on hardware.
