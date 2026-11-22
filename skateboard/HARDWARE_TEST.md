@@ -186,3 +186,62 @@ says"). Takes five minutes.
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
 - Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
+
+## 6. Voice control (Gemini Pupper)
+
+Not run yet. Needs Ethan's OK on the day, a TA's sign-off for the policy,
+and tests 3 and 5 (split ride, steer by joystick) passed first. The voice
+tools assume the ride and the steer work. Nothing in this test has run on the
+robot: every distance and turn Gemini gives is a sim estimate.
+
+Setup, by Ethan on the robot:
+
+- [ ] `git pull` the `skate-voice` branch of gemini_pupper on the robot. The
+      robot's copy may be ahead of the Mac snapshot: merge, do not overwrite.
+- [ ] `python3 lab/test.py skate` on the robot: all checks pass.
+- [ ] `robot/start.sh`, with Pupper lying on the floor, away from the board.
+      In `/tmp/gemini-pupper/robot.log` the spawner lists `gemini_skate` as
+      loaded.
+- [ ] `ros2 control list_controllers` lists `gemini_skate` as inactive. It
+      must not be active before "start skating".
+- [ ] `ros2 param get /gemini_skate model_path` ends in `skate/policy.json`.
+- [ ] Joystick connected. Right-stick press is the e-stop and outranks
+      Gemini.
+
+Run, hands on the harness the whole time, 4 m of clear floor ahead:
+
+- [ ] Say "lie down". Place Pupper: left feet on the deck, right feet on the
+      floor, body parallel to the board. Say "start skating". Pass: Gemini
+      asks whether Pupper is placed before it starts; Pupper eases into the
+      stance and balances for 10 s without rolling.
+- [ ] Say "walk forward". Pass: Gemini refuses and says why. Pupper does not
+      move.
+- [ ] Say "go forward". Pass: rides about 3 s, then stops pushing.
+- [ ] After that ride, watch the right legs for 5 s. Pass: they stay planted
+      and do not push again; the zero command really stops the pushing.
+- [ ] Say "stop" in the middle of a ride. Pass: pushing stops within 1 s, and
+      the right legs stay still afterwards.
+- [ ] Say "turn left", then "turn right". Pass: the board curves the right
+      way; Pupper stays on.
+- [ ] Tip test, still balancing (no ride queued), both hands on the harness:
+      tilt Pupper slowly until the tilt e-stop fires. Say "walk forward", then
+      "do a trick". Pass: both are refused and Pupper does not move. Hold
+      Pupper, say "get off the board". Pass: the motors relax. Lift Pupper
+      onto the floor, say "stand up". Pass: it stands.
+- [ ] Hold the harness, say "get off the board". Pass: Gemini asks if Pupper
+      is held, then the motors relax. If a ride is still queued, end_skating
+      waits for it: say "stop" first to end at once.
+
+Stop the test (e-stop) if a left foot nears the deck edge, a right foot
+lands on the deck, the board heads for anything, or a motor faults.
+
+Measure and write down, to replace the sim estimates in `skate/skate.yaml`:
+
+| What | Sim estimate | Measured |
+| --- | --- | --- |
+| Distance in a 3 s ride (tape on the floor) | 3 × `travel_m_per_s` = 3 × 0.29 = about 0.9 m | |
+| Roll after the last push | `coast_m` = 0.1 m | |
+| Heading change in a 5 s hard carve, each way | 5 × `turn_deg_per_s.hard` = 5 × 2.2 = about 11° | |
+
+The sim numbers come from `skateboard/tools/timed_ride.py` on steer v6 (16 envs,
+5 s ride, no resets at any carve level). The turn is the weaker side's.

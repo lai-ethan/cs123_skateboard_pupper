@@ -26,6 +26,7 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 | Stance helper scripts, video renderer, pass check, gait report | [`tools/`](tools/) |
 | Sim2real: stance margins, what sim cannot show, steps before the first real run | [`SIM2REAL.md`](SIM2REAL.md) |
 | First hardware session test sheet | [`HARDWARE_TEST.md`](HARDWARE_TEST.md) |
+| Voice control through Gemini Pupper: timed commands, no distance sensing | [`PLAN_GEMINI_VOICE.md`](PLAN_GEMINI_VOICE.md) |
 | Trained policies, sim videos, which run each name is | [`policies/`](policies/), [`media/`](media/), [`policies/README.md`](policies/README.md) |
 
 ## Status
