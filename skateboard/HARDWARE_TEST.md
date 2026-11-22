@@ -223,14 +223,18 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
       the right legs stay still afterwards.
 - [ ] Say "turn left", then "turn right". Pass: the board curves the right
       way; Pupper stays on.
+- [ ] Hold the harness, say "get off the board". Pass: Gemini asks if Pupper
+      is held, then the motors relax. If a ride is still queued, end_skating
+      waits for it: say "stop" first to end at once.
+- [ ] Set up the tip test. Pupper is relaxed on the board from the step
+      above. Place it again if it moved: left feet on the deck, right feet on
+      the floor, body parallel to the board. Say "start skating". Pass:
+      Pupper eases into the stance and balances without rolling.
 - [ ] Tip test, still balancing (no ride queued), both hands on the harness:
       tilt Pupper slowly until the tilt e-stop fires. Say "walk forward", then
       "do a trick". Pass: both are refused and Pupper does not move. Hold
       Pupper, say "get off the board". Pass: the motors relax. Lift Pupper
       onto the floor, say "stand up". Pass: it stands.
-- [ ] Hold the harness, say "get off the board". Pass: Gemini asks if Pupper
-      is held, then the motors relax. If a ride is still queued, end_skating
-      waits for it: say "stop" first to end at once.
 
 Stop the test (e-stop) if a left foot nears the deck edge, a right foot
 lands on the deck, the board heads for anything, or a motor faults.
