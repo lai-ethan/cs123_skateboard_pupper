@@ -140,3 +140,68 @@ Videos, export, validator and docs as for v7.
   from 9 events on 2 seeds.
 - Issues: the stick-0 pull moved by 0.02 rad/s under a tiny perturbation in
   one diagnosis run, so it is measured on 3 seeds here, not 1.
+
+## Result (2026-11-21): v8 fails, v6 stays the steering candidate
+
+Sim only. Nothing here has run on the robot.
+
+Training: resumed from v7, 1952 of the planned 2000 iterations, in two Colab
+sessions (runs `xbwin9gi` and `siuom4dg`; Colab ended both early). Evaluated
+at 60% (`model_30200.pt`) and at 97.6% (`model_30950.pt`). The last 48
+iterations were not run: the result below does not hinge on them.
+
+| Bar | v8 at 60% | v8 at 97.6% |
+| --- | --- | --- |
+| No reset in the 27 gait runs | fail: 1 `board_slid` | fail: 5 resets in 4 runs |
+| Soft gains: 0 of 16 slide out, mean creep ≤ 0.21 cm/s | pass: 0.18 | pass: 0.16 |
+| Ride audit 16 of 16 | pass | fail: 15 of 16 |
+| Seed-0 turn within 0.1 of v6, nothing above 1.3× | fail | fail |
+| Stick-0 board yaw rate within ±0.006 rad/s | fail: -0.011 on seed 2 | pass: 0.000 / +0.006 / -0.001 |
+
+Gait checks passed: 23 of 27 at 60%, 17 of 27 at 97.6% (v7: 21).
+
+Seed 0, board turn as a fraction of what the stick asks:
+
+| stick | v8 97.6% | v8 60% | v7 | v6 |
+| --- | --- | --- | --- | --- |
+| +0.15 | 1.62 | 0.75 | 0.79 | 0.84 |
+| -0.15 | 1.35 | 1.50 | 2.12 | 0.82 |
+| +0.3 | 1.13 | 0.75 | 0.62 | 0.58 |
+| -0.3 | 1.22 | 0.95 | 1.32 | 0.63 |
+| +0.5 | 0.93 | 0.80 | 0.56 | 0.67 |
+| -0.5 | 1.14 | 0.84 | 0.99 | 0.86 |
+| +0.6 | 0.86 | 0.73 | 0.58 | 0.80 |
+| -0.6 | 0.99 | 0.73 | 0.72 | 0.86 |
+
+What the two new terms did:
+
+- The stick-0 pull is gone on all three seeds (v7: -0.013 / -0.003 / -0.015).
+- Sideways board loss in hard right carves fell from 14 resets in v7 to 0 at
+  60%, then 2 came back by 97.6% (seed 1 at -0.5, seed 2 at -0.6).
+- Creep under soft leg gains improved (mean 0.21 to 0.16 cm/s).
+
+What got worse:
+
+- The board turns harder at every stick as training went on. Small sticks
+  now overshoot: +0.15 turns 1.62× and 1.77× what is asked on seeds 0 and 2.
+- In right carves one or more boards slow to under half the asked speed with
+  no reset (speed ratio 0.25 to 0.50 in 6 runs). v7 had this mildly on one
+  env; 60% had it on 3 runs.
+- `board_slid` at +0.5 and +0.6 on seed 0, env 12 (v6 slid at +0.6 on the
+  same env).
+- A render at stick -0.6 (random seed) ended with the robot off the board.
+
+Decision, per the pass bar: v6 stays the steering candidate and v7 the
+fallback. No v8 policy is exported or packaged.
+
+Not determined: why the turn rate kept rising between 60% and 97.6%, and
+whether the stalls are the policy braking to hold the board under the
+sideways charge.
+
+### Accounting
+
+- Skipped: the last 48 training iterations; videos in `skateboard/media/`
+  and the export, since v8 did not pass.
+- Assumed: 97.6% of the run stands in for the full run.
+- Issues: the free Colab GPU limit cut both sessions; a further run needs
+  paid compute units or a wait of about half a day.
