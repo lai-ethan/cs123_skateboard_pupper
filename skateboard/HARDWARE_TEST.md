@@ -214,7 +214,9 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
   can carve harder than the voice limits, and its controller-switch buttons
   bypass the board guard. While Pupper is on the board, do not touch the
   sticks or the switch buttons: use the gamepad for its e-stop only.
-- Lift Pupper off the board onto the floor before any "stand up".
+- Lift Pupper off the board onto the floor before any "stand up" meant to
+  stand it. The one "stand up" said on the board (the e-stop step) checks
+  that it is refused.
 
 - [ ] Say "lie down". Place Pupper: left feet on the deck, right feet on the
       floor, body parallel to the board. Say "start skating". Pass: Gemini
@@ -223,10 +225,12 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
 - [ ] E-stop check, still balancing, both hands on the harness: press the
       gamepad e-stop (right-stick press). Pass: the motors relax at once,
       and `ros2 control list_controllers` lists `gemini_skate` as inactive.
-      Pupper is now relaxed on the board, and the server no longer counts it
-      as skating, so do not say "stand up". Place it again if it moved, and
-      say "start skating". Pass: Gemini asks whether Pupper is placed; Pupper
-      eases into the stance and balances.
+      Pupper is now relaxed on the board, and the board guard stays on: say
+      "stand up". Pass: Gemini refuses and says Pupper is on the board;
+      Pupper does not move. "Stand up" stays refused until "get off the
+      board". Place Pupper again if it moved, and say "start skating". Pass:
+      Gemini asks whether Pupper is placed; Pupper eases into the stance and
+      balances.
 - [ ] Say "walk forward". Pass: Gemini refuses and says why. Pupper does not
       move.
 - [ ] Say "go forward". Pass: rides about 3 s, then stops pushing.

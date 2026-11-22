@@ -1601,10 +1601,11 @@ Sim estimates Gemini quotes (steer v6, 16 envs, 5 s rides, no resets):
 
 ### Open decisions
 
-- After a gamepad e-stop on the board the board guard is released, so a
-  spoken "stand up" would be accepted with Pupper still on the deck. The
-  checklist says to lift Pupper off first. Keeping the guard on after an
-  e-stop on the board is a small change to `emergency_stop`.
+- Decided 2026-11-21: the board guard stays on after a gamepad e-stop on the
+  board. The e-stop still relaxes every leg at once; then walking, tricks and
+  follow stay refused (a spoken "stand up" too) until a person holds Pupper
+  and `end_skating(held=true)` runs. Before, the e-stop released the guard, so
+  "stand up" would have been accepted with Pupper still on the deck.
 - The turn estimates round up slightly past the weaker side (1.087 to 1.1,
   1.369 to 1.4, 2.182 to 2.2 deg/s), as the rounding rule here says. Flooring
   to 1.0 / 1.3 / 2.1 would make "never promises more turn" literally true.
