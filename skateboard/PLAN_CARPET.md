@@ -42,7 +42,7 @@ other carpets).
 
 - No change to the actor observation layout or the action space: v9 resumes
   from steer v6 checkpoint `skateboard/policies/split_steer_v6_model_26998.pt`.
-- No new sensors. No reward changes in this plan.
+- No new sensors. No new reward terms; Task 2 only restores v6's weights.
 - Balance tasks (both stances) and the centred ride must build exactly the
   events they build today: same names, same ranges.
 - Do not raise motor limits, gains, speed caps or the 0.3 m/s hardware clip.
@@ -107,12 +107,51 @@ giving the evidence above.
    table above, the new ranges, and that the carpet drag is a sim estimate,
    not a measurement.
 
-## Task 2: train steer v9 (controller, Colab)
+## Task 2: train v9 on steer v6's rewards
+
+Found when the first v9 run started (stopped after 4 minutes): the steer task
+still carries the reward changes of the two later experiments, so resuming
+from v6 on today's code would not be "v6 plus carpet".
+
+- v7 (`5d32fdf`): deck-foot scuff charge raised from -2 to -20, and the
+  fore-aft slide counted from the episode start. v7 pulls right at stick 0
+  and loses the board in hard right carves.
+- v8 (`69e4d6b`): `board_side_creep` at -1.0 and straight-line board tracking
+  (`straight_min_speed`). v8 failed its pass bar (`PLAN_STEER_V8.md`).
+
+Files: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`,
+`skateboard/tools/make_notebook.py`, `notebooks/CS123_Pupper_Skate.ipynb`
+(regenerated with the tool), `tests/test_pupper_skate_split.py`,
+`tests/test_skate_notebook.py` if it pins the table, `skateboard/SIM2REAL.md`.
+
+1. The steer task's default rewards go back to what steer v6 trained on
+   (commit `9743be3`), for these three things only:
+   - the deck-foot scuff charge weight back to its v6 value (-2; confirm the
+     value and the constant's name from `git show 9743be3` and `5d32fdf`);
+   - `board_side_creep` weight 0.0 (the term and its code stay, so the
+     experiment can be turned back on from the notebook table);
+   - `track_board_yaw_rate` without `straight_min_speed` (None).
+2. Keep from v7: the fore-aft slide measured from the episode start (the
+   `board_slid` reset and `board_creep`). It is the stricter check and the
+   sim tools already use it.
+3. `make_notebook.py`'s reward table carries the same weights; regenerate the
+   notebook with the tool.
+4. Comments at each constant say which run used which value and why v9 uses
+   v6's (one variable at a time: only the carpet ranges change).
+5. Tests first, seen to fail: the steer config has scuff weight -2,
+   `board_side_creep` weight 0.0 and no `straight_min_speed`; the notebook
+   table matches; the split ride config's rewards are unchanged by this task.
+6. `skateboard/SIM2REAL.md`: one line in the Carpet section saying v9 trains
+   on v6's rewards.
+
+## Task 3: train steer v9 (controller, Colab)
 
 Push to the team repo, then resume from steer v6 (`hfd3qhwr`,
-`model_26998.pt`) for 3000 iterations, 4096 envs, on a GPU runtime.
+`model_26998.pt`) for 3000 iterations, 4096 envs, on a GPU runtime. A T4 does
+about 5.7 s an iteration on this task, so use the Colab Pro account's faster
+GPU.
 
-## Task 3: evaluate and decide (controller)
+## Task 4: evaluate and decide (controller)
 
 - Ride audit with all rows, gait report at stick 0, ±0.15, ±0.3, ±0.5 on
   seed 0, `timed_ride.py` at stick 0 at drag x1 and x15.
