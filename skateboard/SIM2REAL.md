@@ -13,6 +13,7 @@ written 2026-11-24, from simulation except the first carpet run (see "Carpet").
 | Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; not to be used this session |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Candidate for the first steering test, loosened trucks |
+| Split steer v10 | `74jsd4gb` | not checked | pass at yaw 0, ±0.15, ±0.3, ±0.5, no resets (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run second after v6, to compare on carpet |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; **fail** at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Fallback for the steering test, full stick only |
 
@@ -223,7 +224,7 @@ files to use:
 | 5, 6 | `policies/centred_balance_v2_policy.json` |
 | 7 | none: skipped (split ride v4 is not to be used) |
 | 8 | `policies/centred_ride_v9_max0.3_policy.json` |
-| 9 | `policies/split_steer_v6_max0.3_policy.json` (if it slides: `policies/split_steer_v7_max0.3_policy.json`; full stick only: `policies/split_steer_v5_max0.3_policy.json`) |
+| 9 | `policies/split_steer_v6_max0.3_policy.json` first, then `policies/split_steer_v10_max0.3_policy.json` (provisional, to compare on carpet) (if v6 slides: `policies/split_steer_v7_max0.3_policy.json`; full stick only: `policies/split_steer_v5_max0.3_policy.json`) |
 
 On the robot (over SSH), after copying the file there, as in
 `HARDWARE_TEST.md` ("Deploy"). These commands come from the robot repo's usage
@@ -682,6 +683,35 @@ which the placement error now explains. A rough estimate for low-pile carpet
 is x5 to x10. So the wheel drag range is now x0.5 to x10 (log-uniform) for the
 next run, v10. **The carpet drag level is still not measured.**
 
+Steer v10 (run `74jsd4gb`, 2000 of 2000 iterations, resumed from v9, x0.5 to
+x10, checkpoint `model_31996.pt`) is better than v6 on every row but misses the
+pass bar at x10. Same pinned-drag test, speed as a share of asked (resets):
+
+| Wheel drag | v6 speed (resets) | v9 speed (resets) | v10 speed (resets) |
+| --- | --- | --- | --- |
+| x1 to x3 | 0.94 to 0.99 (0) | 1.04 (0) | 1.02 (0) |
+| x6 | 0.70 (4) | 0.95 (4) | 0.96 (0) |
+| x10 | 0.36 (12) | 0.45 (3) | 0.58 (4) |
+| x15 (stress) | 0.18 (25) | 0.07 (1) | 0.26 (4) |
+| x25 (stress) | 0.10 (41) | 0.00 (1) | 0.03 (1) |
+
+- Ride audit: 18 of 21 rows. Every row v6 passes, v10 passes; `nominal_30s`
+  has no reset (v6 had 1) and `shove_fwd_0.5` passes again. Log:
+  `policies/split_steer_v10_audit.txt`.
+- `wheel_drag_x6`: 0.96, no resets, meets the bar. `wheel_drag_x10`: 0.58
+  with 4 `board_drifted`, misses the bar (0.7, at most 2 resets); boards range
+  from 0.01 to 0.93 of the asked speed.
+- Gait report at 0.3 m/s: pass with no resets at stick 0, ±0.15, ±0.3 and
+  ±0.5 (v6 had one reset at +0.3 and at +0.5). Board turn as a share of
+  asked: 1.24 / 0.80 at ±0.15, 0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5.
+- v10 does not replace v6. It is a provisional second candidate for the
+  hardware test, run after v6 with the same placement and steps, to compare
+  on carpet (`HARDWARE_TEST.md`, test 5).
+  Policy: `policies/split_steer_v10_max0.3_policy.json` (speed 0 to 0.3 m/s,
+  yaw clipped at ±0.6 rad/s, heading hold kp 1.0, clip 0.1, as v6's). It
+  passes the robot-side validator (`download_policy.py --validate-only`).
+  Checkpoint: `policies/split_steer_v10_model_31996.pt`.
+
 ## What changed from v1
 
 - v1 covered the old split stance on a guessed board, with one policy
@@ -774,6 +804,10 @@ next run, v10. **The carpet drag level is still not measured.**
 
 - New "Carpet" section: the Gates carpet hardware result, the sim drag table,
   and the wider randomization the split ride and steer now train on.
+- Steer v9 (`d63ab512`) missed the pass bar and is not exported. Steer v10
+  (`74jsd4gb`, drag capped at x10) is exported as a provisional second
+  candidate; the Carpet section has its drag table and the short answer its
+  row.
 
 ## Accounting
 

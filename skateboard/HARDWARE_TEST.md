@@ -112,11 +112,12 @@ Which file to install for each test (all under `policies/`):
 | 2 | `centred_balance_v2_policy.json` |
 | 3 | skipped this session: no file. Split ride v4 is not to be used (not ready, SIM2REAL "Short answer"). The straight ride is test 5's first step, steer v6 at yaw 0 |
 | 4 | `centred_ride_v9_max0.3_policy.json` (provisional) |
-| 5 | `split_steer_v6_max0.3_policy.json` (slides: `split_steer_v7_max0.3_policy.json`; full stick only: `split_steer_v5_max0.3_policy.json`) |
+| 5 | `split_steer_v6_max0.3_policy.json` first; then `split_steer_v10_max0.3_policy.json` (provisional, run second, same placement and steps, to compare on carpet) (slides: `split_steer_v7_max0.3_policy.json`; full stick only: `split_steer_v5_max0.3_policy.json`) |
 | 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policy.json` |
 
-Steer v6 is the ride candidate until steer v9 is evaluated. Steer v9 is being
-trained, not evaluated; it has no file here yet.
+Steer v6 stays the ride candidate and the file to run first. Steer v9 was
+evaluated and not exported. Steer v10 is provisional: it is at least as good
+as v6 on every sim row but misses the pass bar at wheel drag x10.
 
 ## 0. Board tilt stiffness (robot off, no power)
 
@@ -216,6 +217,17 @@ at yaw 0. Do not install any `split_ride_*` file.
   -0.6) fail in sim on every seed, so it does not get the full stick. The
   cause of the right pull is not known yet. Same heading
   hold as v6 (kp 1.0, clip 0.1). Same placement and trucks.
+- Steer v10: `policies/split_steer_v10_max0.3_policy.json` (run `74jsd4gb`,
+  resumed from v9 `d63ab512`). Provisional, run second, same placement and
+  steps, to compare on carpet. Run v6 first. v10 trained on wheel drag up to
+  x10 (carpet). Same clips as v6 (speed 0 to 0.3 m/s, yaw ±0.6 rad/s) and
+  same heading hold (kp 1.0, clip 0.1); it passes the robot-side validator.
+  In sim it passes 18 of 21 ride audit rows, every row v6 passes, and rides
+  0.96 of the asked speed at drag x6 with no resets; at x10 it reaches only
+  0.58, with 4 boards drifting sideways. The gait check passes with no resets
+  at stick 0, ±0.15, ±0.3 and ±0.5.
+- Record for v6 and for v10: distance in 5 s, and whether the feet slid
+  along the deck.
 - Needs Ethan's OK and a TA sign-off for this test, and test 1 passed first.
   It also stands in for test 3: its first step, the straight ride at yaw 0,
   is the split ride for this session.
@@ -255,6 +267,8 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
 - Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
+- v6 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
+- v10 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
 
 ## 6. Voice control (Gemini Pupper)
 
