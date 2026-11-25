@@ -197,12 +197,14 @@ SPLIT_CONTACT_IMPRATIO = 10.0
 #   x15      0.18         25        0.07       1
 #   x25      0.10         41        0.00       1
 #
-# At x15 to x25 the push needed is close to the feet's whole grip, so those
-# boards could not be won (likely cause, not proven). A rough estimate for
-# low-pile carpet is x5 to x10. The ride audit's wheel_drag_x15 and
-# wheel_drag_x25 rows stay as stress rows. The draw is uniform in the log, so
-# half the boards are under about x2.2 (the geometric mean) and the policy
-# keeps its hard-floor ride.
+# Likely cause, not proven: the actor cannot see the board, and pushing at that
+# drag ended in board_slid for v6 (25 and 41 resets at x15 and x25), so v9
+# learned not to push; whether grip is the limit is untested. The x15 to x25
+# estimate came from the 2026-11-24 videos, which the placement error explains;
+# x5 to x10 for low-pile carpet is a textbook figure, not measured. The ride
+# audit's wheel_drag_x15 and wheel_drag_x25 rows stay as stress rows. The draw
+# is uniform in the log, so half the boards are under about x2.2 (the geometric
+# mean) and the policy keeps its hard-floor ride.
 WHEEL_DRAG_SCALE_RANGE: tuple[float, float] = (0.5, 10.0)
 # Floor grip up to carpet: the TA's advice (2026-11-24) was to randomize the
 # feet's friction on carpet, since Gates carpet differs from other carpets, so

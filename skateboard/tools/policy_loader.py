@@ -132,7 +132,7 @@ HARD_FLOOR_FOOT_FRICTION_RANGE: tuple[float, float] = (0.5, 1.2)
 def hold_hard_floor(env_cfg: Any) -> None:
   """Put the split ride's carpet ranges back to the hard-floor ones.
 
-  The split ride and steer train on carpet: wheel drag to x25, floor grip to
+  The split ride and steer train on carpet: wheel drag to x10, floor grip to
   1.6, the deck geom's own friction drawn, and the deck top to 11.8 cm. The
   tools judge every policy on the hard floor that steer v6 was judged on, so
   their numbers stay comparable: drag x0.5 to x3 drawn uniformly, floor grip

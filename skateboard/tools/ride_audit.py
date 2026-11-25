@@ -6,9 +6,11 @@ truck stiffness, deck height, motor gain), one change per row, and prints one
 PASS/FAIL row per condition. Every row keeps the task's play-mode
 randomization (training DR ranges, reset noise, observation noise, latency)
 and overrides one thing. On the split ride and steer the carpet ranges (wheel
-drag to x25, floor grip to 1.6, deck body friction, deck top to 11.8 cm) are
+drag to x10, floor grip to 1.6, deck body friction, deck top to 11.8 cm) are
 held at the hard-floor ranges earlier policies were audited on (see
-`hold_hard_floor` in policy_loader.py); the carpet rows go past them. A row passes when at most 6.25% of the envs reset
+`hold_hard_floor` in policy_loader.py); the carpet rows go past them, and the
+x15 and x25 drag rows are stress rows past the trained range. A row passes
+when at most 6.25% of the envs reset
 (1 of 16), the board's mean speed is 0.7 to 1.3 times the command, and every
 deck foot touches the deck at least 90% of the time in the worst env. Any
 reset in the first 100 steps (before the metrics start) fails the row. It
@@ -78,7 +80,9 @@ ROWS: dict[str, Row] = {
   "shove_fwd_0.5": Row(500, "shove_x", 0.5),
   "wheel_drag_x2": Row(500, "wheel_drag", 2.0),
   "wheel_drag_x3": Row(500, "wheel_drag", 3.0),
-  # Carpet: in sim x15 to x25 reproduces what Gates carpet did to steer v6.
+  # Carpet. The carpet's drag is not measured: x15 to x25 was first taken from
+  # the 2026-11-24 videos, which the placement error explains; a textbook
+  # figure is x5 to x10. x15 and x25 are stress rows.
   "wheel_drag_x6": Row(500, "wheel_drag", 6.0),
   "wheel_drag_x10": Row(500, "wheel_drag", 10.0),
   "wheel_drag_x15": Row(500, "wheel_drag", 15.0),

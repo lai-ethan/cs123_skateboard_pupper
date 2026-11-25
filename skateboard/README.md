@@ -31,7 +31,9 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 
 ## Status
 
-As of 2026-11-20. Nothing has run on the robot.
+As of 2026-11-20. Nothing has been tested on the robot: a first run on
+2026-11-24 had the wrong placement and an unconfirmed policy and does not
+count as a test ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-24 run").
 
 | Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
 | --- | --- | --- | --- | --- | --- |

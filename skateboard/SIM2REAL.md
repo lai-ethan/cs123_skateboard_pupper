@@ -2,7 +2,8 @@
 
 The TA's concern after the checkpoint report: "I doubt if Pupper can remain balanced
 at this pose on the board." This note is the answer so far. It is version 8,
-written 2026-11-24, from simulation except the first carpet run (see "Carpet").
+written 2026-11-24 and updated 2026-11-25 (steer v10), from simulation except
+the first carpet run (see "Carpet").
 
 ## Short answer
 
@@ -12,7 +13,7 @@ written 2026-11-24, from simulation except the first carpet run (see "Carpet").
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Yes, with care (see below) |
 | Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; not to be used this session |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
-| Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Candidate for the first steering test, loosened trucks |
+| Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 (on v10's 21 rows it fails wheel drag x6 to x25; no `floor_grip_1.6` row) | Candidate for the first steering test, loosened trucks |
 | Split steer v10 | `74jsd4gb` | not checked | pass at yaw 0, ±0.15, ±0.3, ±0.5, no resets (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run second after v6, to compare on carpet |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; **fail** at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Fallback for the steering test, full stick only |
@@ -616,8 +617,8 @@ The runs below show how it got there.
   alternative for riding straight and gentle carves: try it if v6 slides
   along the deck on the robot. Its export clips yaw at ±0.3 rad/s, so the
   robot cannot ask it for the hard right carves that fail in sim. The cause
-  of the right pull is not known yet. Neither v6 nor v7 has run on the
-  robot.
+  of the right pull is not known yet. Neither v6 nor v7 has been tested on
+  the robot (the 2026-11-24 run does not count, see "Carpet").
   Policy: `policies/split_steer_v7_max0.3_policy.json` (speed 0 to 0.3 m/s,
   yaw clipped at ±0.3 rad/s, heading hold kp 1.0, clip 0.1). It passes the
   robot-side validator (`download_policy.py --validate-only`). Checkpoint:
@@ -625,8 +626,9 @@ The runs below show how it got there.
 
 ## Carpet
 
-On Gates carpet (2026-11-24) the split ride (steer v6) stroked with the floor
-legs but the board did not roll, and in one clip the robot crept from mid-deck
+On Gates carpet (2026-11-24) the split ride (logged as steer v6, but the team
+may have run split ride v4, and the placement was wrong; `HARDWARE_TEST.md`,
+"2026-11-24 run") stroked with the floor legs but the board did not roll, and in one clip the robot crept from mid-deck
 to the nose over about 10 s. In sim, steer v6 at 0.3 m/s (16 boards, 10 s)
 with the wheel drag pinned (nominal is about 0.28 N of rolling resistance in
 total):
@@ -640,8 +642,9 @@ total):
 | x25 | 0.10 | 41 | `board_slid` |
 
 x15 to x25 shows both hardware symptoms (the board stalls, the feet slide
-along the deck), so carpet is taken to be x15 to x25 of nominal (4 to 7 N).
-**This is a sim estimate, not a measurement of the real board.**
+along the deck), so carpet was first taken to be x15 to x25 of nominal (4 to
+7 N). **Superseded below: the placement error explains the videos, and the
+carpet drag level is not measured.**
 
 The split ride and steer now train on these ranges (balance and the centred
 ride are unchanged):
@@ -676,16 +679,28 @@ missed the pass bar and v6 stays. Same pinned-drag test as above, v9 against v6:
 | x15 | 0.18 | 25 | 0.07 | 1 |
 | x25 | 0.10 | 41 | 0.00 | 1 |
 
-Above x10 v9 stands still instead of pushing (likely cause, not proven: at x15
-to x25 the push needed is close to the feet's whole grip, so those boards could
-not be won). The x15 to x25 carpet estimate came from the hardware videos,
-which the placement error now explains. A rough estimate for low-pile carpet
-is x5 to x10. So the wheel drag range is now x0.5 to x10 (log-uniform) for the
-next run, v10. **The carpet drag level is still not measured.**
+Above x10 v9 stands still instead of pushing. Likely cause, not proven: the
+actor cannot see the board, and pushing at that drag ended in `board_slid` for
+v6 (25 and 41 resets at x15 and x25), so v9 learned not to push; whether grip
+is the limit is untested. A grip limit alone would not stall v9 on 16 of 16
+boards at x25 across the whole grip draw, while v6 still moves there and one
+v10 board rides 0.73 of asked at x15.
+
+The x15 to x25 carpet estimate came from the hardware videos, which the
+placement error now explains, so there is no hardware evidence for any carpet
+drag level. x5 to x10 is a textbook figure: rolling resistance of 0.05 to 0.1
+of about 26 N on the wheels (the 26 N is not sourced). Small wheels on carpet
+can exceed 0.1, and v10 is solid only to x6 and marginal at x10. The wheel
+drag range is x0.5 to x10 (log-uniform) for v10. **The carpet drag level is
+still not measured.** Test 0 of `HARDWARE_TEST.md` now measures it: pull the
+loaded board on the carpet with a scale; force in N divided by 0.28 is the
+drag multiple.
 
 Steer v10 (run `74jsd4gb`, 2000 of 2000 iterations, resumed from v9, x0.5 to
-x10, checkpoint `model_31996.pt`) is better than v6 on every row but misses the
-pass bar at x10. Same pinned-drag test, speed as a share of asked (resets):
+x10, checkpoint `model_31996.pt`) passes every row v6 passes, and is faster at
+x6 to x15, but misses the pass bar at x10. It is not better on every row: at
+x25 it rides 0.03 against v6's 0.10, and `board_yaw_0.15` has 1 `board_slid`
+(v6: 0). Same pinned-drag test, speed as a share of asked (resets):
 
 | Wheel drag | v6 speed (resets) | v9 speed (resets) | v10 speed (resets) |
 | --- | --- | --- | --- |
@@ -702,8 +717,13 @@ pass bar at x10. Same pinned-drag test, speed as a share of asked (resets):
   with 4 `board_drifted`, misses the bar (0.7, at most 2 resets); boards range
   from 0.01 to 0.93 of the asked speed.
 - Gait report at 0.3 m/s: pass with no resets at stick 0, ±0.15, ±0.3 and
-  ±0.5 (v6 had one reset at +0.3 and at +0.5). Board turn as a share of
-  asked: 1.24 / 0.80 at ±0.15, 0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5.
+  ±0.5, seed 0 only (v6: three seeds; v6 had one reset at +0.3 and at +0.5).
+  ±0.6 is not checked. Board turn as a share of asked: 1.24 / 0.80 at ±0.15,
+  0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5. The largest fore-aft slide along
+  the deck is 6.2 to 7.2 cm in every gait run, against the 8 cm reset limit,
+  so "no resets" does not mean v10 slides less than v6.
+- The audit rows ride straight (yaw 0), and the gait report holds drag at
+  x0.5 to x3, so carves at carpet drag are not checked for v10 or v6.
 - v10 does not replace v6. It is a provisional second candidate for the
   hardware test, run after v6 with the same placement and steps, to compare
   on carpet (`HARDWARE_TEST.md`, test 5).
@@ -728,7 +748,8 @@ pass bar at x10. Same pinned-drag test, speed as a share of asked (resets):
 - The gait check's joint speed limit is 12 rad/s (an estimate from the motor
   spec), not 8.
 - Split ride v4 (`iznjwbka`) passes the gait check at 0.2, 0.3 and 0.4 m/s and
-  replaces `3qmtsv4o` in the deploy list.
+  replaces `3qmtsv4o` as the split ride candidate in the file list. (It was
+  later marked not ready and is not to be used; see "Short answer".)
 - Centred ride was redesigned around a clocked push-and-glide reference on the
   stock deck. Its first run failed (stands still); a second run with rebalanced
   rewards is training.

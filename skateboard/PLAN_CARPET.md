@@ -181,13 +181,17 @@ Run `d63ab512`, 3000 of 3000 iterations, resumed from v6, L4 GPU. Sim only.
   `x10`, `x15`, `x25` and `shove_fwd_0.5` (2 `fell_over`; v6 passed it).
 - Gait report at 0.3 m/s, stick 0: pass, no resets.
 - Above x10 v9 stands still instead of pushing: at x10 the boards range from
-  0.00 to 0.92 of the asked speed. Likely cause, not proven: at x15 to x25
-  the push needed is close to the feet's whole grip, so those boards could
-  not be won and the policy learned to stop when the board feels stuck.
+  0.00 to 0.92 of the asked speed. Likely cause, not proven: the actor cannot
+  see the board, and pushing at that drag ended in `board_slid` for v6 (25
+  and 41 resets at x15 and x25), so v9 learned not to push; whether grip is
+  the limit is untested. A grip limit alone would not stall v9 on 16 of 16
+  boards at x25 across the whole grip draw.
 - The x15 to x25 carpet estimate came from the hardware videos, which the
-  placement error now explains. A rough estimate for low-pile carpet (rolling
-  resistance 0.05 to 0.1 of about 26 N on the wheels) is x5 to x10. Not
-  measured.
+  placement error now explains, so there is no hardware evidence for any
+  carpet drag level. x5 to x10 is a textbook figure (rolling resistance 0.05
+  to 0.1 of about 26 N on the wheels; the 26 N is not sourced), and small
+  wheels on carpet can exceed 0.1. Not measured: test 0 of
+  `HARDWARE_TEST.md` now measures it (pull force in N divided by 0.28).
 - No v9 policy is exported.
 
 ## Task 6: cap the drag range at x10 and train v10
@@ -211,7 +215,7 @@ pass bar: every row v6 passes still passes; `wheel_drag_x6` speed at least
 0.9 with at most 2 resets; `wheel_drag_x10` speed at least 0.7 with at most 2
 resets; gait report passes at stick 0 and ±0.15.
 
-## Result of v10 (2026-11-25): better than v6 on every row, misses the bar at x10
+## Result of v10 (2026-11-25): passes every row v6 passes, faster at x6 to x15, misses the bar at x10
 
 Run `74jsd4gb`, 2000 of 2000 iterations, resumed from v9, drag range x0.5 to
 x10, T4 GPU. Checkpoint `model_31996.pt`. Sim only.
@@ -225,22 +229,27 @@ x10, T4 GPU. Checkpoint `model_31996.pt`. Sim only.
 | x25 (stress) | 0.10 (41) | 0.00 (1) | 0.03 (1) |
 
 - Ride audit: 18 of 21 rows. Every row v6 passes, v10 passes; `nominal_30s`
-  has no reset (v6 had 1) and `shove_fwd_0.5` passes again.
+  has no reset (v6 had 1) and `shove_fwd_0.5` passes again. Faster than v6
+  at x6 to x15, but not better on every row: at x25 0.03 against v6's 0.10,
+  and `board_yaw_0.15` has 1 `board_slid` (v6: 0). v6 has no
+  `floor_grip_1.6` row.
 - `wheel_drag_x6`: 0.96, no resets. Meets the bar.
 - `wheel_drag_x10`: 0.58 with 4 `board_drifted`. Misses the bar (0.7, at
   most 2 resets). Boards range from 0.01 to 0.93 of the asked speed.
 - Gait report at 0.3 m/s: pass with no resets at stick 0, ±0.15, ±0.3 and
-  ±0.5 (v6 had one reset at +0.3 and at +0.5). Board turn as a share of
-  asked: 1.24 / 0.80 at ±0.15, 0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5.
+  ±0.5, seed 0 only (v6 had three seeds, and one reset at +0.3 and at +0.5).
+  Board turn as a share of asked: 1.24 / 0.80 at ±0.15, 0.84 / 0.78 at
+  ±0.3, 0.68 / 1.01 at ±0.5. The largest fore-aft deck slide is 6.2 to 7.2
+  cm in every gait run, against the 8 cm reset limit, so "no resets" does
+  not mean it slides less than v6.
 - Decision: the bar is missed, so v10 does not replace v6. It is exported as
-  a provisional second candidate for the hardware test, because it is at
-  least as good as v6 on every sim row.
+  a provisional second candidate for the hardware test, because it passes
+  every row v6 passes and is faster at x6 to x15.
 
 ## Task 7: export v10 as a provisional candidate
 
-Inputs (outside the repo): checkpoint
-`/Users/ethan/.claude/jobs/bc321137/tmp/v10/model_31996.pt`, its audit rows
-`.../tmp/v10/audit.txt` and gait lines `.../tmp/v10/gait.txt`.
+Inputs (outside the repo): checkpoint `model_31996.pt`, its audit rows
+`audit.txt` and gait lines `gait.txt`.
 
 Files: `skateboard/policies/` (new `split_steer_v10_*` files),
 `skateboard/policies/README.md`, `skateboard/HARDWARE_TEST.md`,
@@ -311,8 +320,12 @@ tests, `skateboard/media/` (existing stills only; add no new binary files).
 
 - Skipped: reward changes; a board-speed observation (would break the
   resume from v6).
-- Assumed: carpet is x15 to x25 of the nominal wheel drag; the torso does
-  not normally rest on the deck in the split stance.
-- Issues: at the lowest deck grip (0.5) the feet may not be able to hold a
-  7 N push, so the policy may not reach full speed on carpet without grip
-  tape on the deck.
+- Assumed: carpet was first taken to be x15 to x25 of the nominal wheel
+  drag, from the 2026-11-24 videos; the placement error explains those, so
+  the working figure is now x5 to x10, a textbook estimate, not measured
+  (test 0 of `HARDWARE_TEST.md` measures it). The torso does not normally
+  rest on the deck in the split stance.
+- Issues: the carpet drag level is not measured, and v10 is solid only to x6
+  and marginal at x10. At the lowest deck grip (0.5) the feet may not hold
+  the push a high carpet drag needs (untested), so the policy may not reach
+  full speed on carpet without grip tape on the deck.

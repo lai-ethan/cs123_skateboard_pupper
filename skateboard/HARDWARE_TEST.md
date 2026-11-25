@@ -6,7 +6,9 @@ Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. T
 is skipped this session: its policy, split ride v4, is not to be used. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
 one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
-hard right carves. None has run on the robot. Sim first, then robot.
+hard right carves. None has been tested on the robot: a first run on
+2026-11-24 had the wrong placement and an unconfirmed policy, so it does not
+count as a test ("2026-11-24 run" below). Sim first, then robot.
 
 ## Safety, before any power
 
@@ -112,12 +114,13 @@ Which file to install for each test (all under `policies/`):
 | 2 | `centred_balance_v2_policy.json` |
 | 3 | skipped this session: no file. Split ride v4 is not to be used (not ready, SIM2REAL "Short answer"). The straight ride is test 5's first step, steer v6 at yaw 0 |
 | 4 | `centred_ride_v9_max0.3_policy.json` (provisional) |
-| 5 | `split_steer_v6_max0.3_policy.json` first; then `split_steer_v10_max0.3_policy.json` (provisional, run second, same placement and steps, to compare on carpet) (slides: `split_steer_v7_max0.3_policy.json`; full stick only: `split_steer_v5_max0.3_policy.json`) |
+| 5 | `split_steer_v6_max0.3_policy.json` first; then `split_steer_v10_max0.3_policy.json` (provisional, run second, same placement and steps, to compare on carpet); `split_steer_v7_max0.3_policy.json` only if v6 slides along the deck, on a hard floor or once the board rolls (fallback, full stick only: `split_steer_v5_max0.3_policy.json`) |
 | 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policy.json` |
 
 Steer v6 stays the ride candidate and the file to run first. Steer v9 was
-evaluated and not exported. Steer v10 is provisional: it is at least as good
-as v6 on every sim row but misses the pass bar at wheel drag x10.
+evaluated and not exported. Steer v10 is provisional and does not replace
+v6: it passes every ride audit row v6 passes, and is faster at wheel drag x6
+to x15, but misses its pass bar at x10.
 
 ## 0. Board tilt stiffness (robot off, no power)
 
@@ -142,6 +145,19 @@ says"). Takes five minutes.
   2.4 N·m, so 9 to 18 N·m/rad, the range test 5
   needs, is about 7.5 to 15 degrees at 3 kg.
 - k at 3 kg, loosened: ______ N·m/rad
+
+Carpet drag (two minutes, robot off). No hardware evidence measures the
+carpet's wheel drag yet; the sim estimate (x5 to x10 of nominal) is a
+textbook figure, and v10 is solid in sim only to x6. This measures it.
+
+- Board on the test carpet, wheels free (not chocked), loosened trucks. Put
+  about 1.2 kg on the deck, near its middle.
+- Hook a luggage scale or a kitchen scale to the nose truck and pull the
+  board along the carpet, level, at a steady slow walk. Read the force once
+  it is rolling steadily, not the jerk at the start.
+- Force in N = kg on the scale x 9.81 (grams x 0.00981). Nominal sim wheel
+  drag is about 0.28 N in total, so the drag multiple is force / 0.28.
+- Force on carpet: ______ N. Drag multiple (N / 0.28): x______
 
 ## 1. Split balance
 
@@ -205,32 +221,51 @@ at yaw 0. Do not install any `split_ride_*` file.
   ±0.15, -0.3, -0.5 and -0.6. Left carves of +0.3, +0.5 and +0.6 fail on one
   sim board in 16 (the same one each time), which slid 8 cm along the deck.
   On two more seeds those left carves had no reset: 1 board in 48 in all.
-- Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
-  yaw stick only. It trained only on full carves and fails 2 of 16 ride
-  audit rows. Its heading hold clip is 0.3, not 0.1.
-- If the robot slides along the deck with v6: try
-  `policies/split_steer_v7_max0.3_policy.json` (run `n5m2zsks`, resumed
-  from v6). Keep the stick within ±0.3; the file clips yaw at ±0.3 rad/s
+- Steer v10, second: `policies/split_steer_v10_max0.3_policy.json` (run
+  `74jsd4gb`, resumed from v9 `d63ab512`). Provisional, run second, same
+  placement and steps, to compare on carpet. Run v6 first. v10 does not
+  replace v6 and did not pass its own bar. Before installing it, check it
+  on the robot with `python3 download_policy.py --validate-only <file>`, as
+  for any file; it passed that check on the Mac. v10 trained on wheel drag
+  up to x10 (the carpet's drag is not measured; test 0 measures it). Same
+  clips as v6 (speed 0 to 0.3 m/s, yaw ±0.6 rad/s) and same heading hold
+  (kp 1.0, clip 0.1). In sim it passes 18 of 21 ride audit rows, every row
+  v6 passes, and is faster than v6 at drag x6 to x15: 0.96 of the asked
+  speed at x6 with no resets; at x10 it reaches only 0.58, with 4
+  `board_drifted` resets on 3 boards. The gait check passes with no resets
+  at stick 0, ±0.15, ±0.3 and ±0.5, on one seed only (v6: three seeds). Its
+  largest fore-aft slide along the deck is 6.2 to 7.2 cm in every gait run,
+  against the 8 cm reset limit, so "no resets" does not mean it slides less
+  than v6. v10: stop at about ±0.5; ±0.6 is not checked in sim.
+- If the robot slides along the deck with v6, on a hard floor or once the
+  board rolls: try `policies/split_steer_v7_max0.3_policy.json` (run
+  `n5m2zsks`, resumed from v6), after v6 and v10. Keep the stick within
+  ±0.3; the file clips yaw at ±0.3 rad/s
   anyway. It passes the validator and all 16 ride audit rows, and no sim
   board slid out in 27 gait runs. But it pulls right, gentle right carves
   turn up to 2.1 times what they ask, and hard right carves (stick -0.5,
   -0.6) fail in sim on every seed, so it does not get the full stick. The
   cause of the right pull is not known yet. Same heading
   hold as v6 (kp 1.0, clip 0.1). Same placement and trucks.
-- Steer v10: `policies/split_steer_v10_max0.3_policy.json` (run `74jsd4gb`,
-  resumed from v9 `d63ab512`). Provisional, run second, same placement and
-  steps, to compare on carpet. Run v6 first. v10 trained on wheel drag up to
-  x10 (carpet). Same clips as v6 (speed 0 to 0.3 m/s, yaw ±0.6 rad/s) and
-  same heading hold (kp 1.0, clip 0.1); it passes the robot-side validator.
-  In sim it passes 18 of 21 ride audit rows, every row v6 passes, and rides
-  0.96 of the asked speed at drag x6 with no resets; at x10 it reaches only
-  0.58, with 4 boards drifting sideways. The gait check passes with no resets
-  at stick 0, ±0.15, ±0.3 and ±0.5.
-- Record for v6 and for v10: distance in 5 s, and whether the feet slid
-  along the deck.
+- Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
+  yaw stick only. It trained only on full carves and fails 2 of 16 ride
+  audit rows. Its heading hold clip is 0.3, not 0.1.
+- Record for v6 and for v10: distance in 5 s (straight ride, full forward
+  stick, from the first push; the hard-floor sim expectation is about 1.4 to
+  1.5 m), and whether the feet slid along the deck.
+- On carpet, compare the straight ride first; carve only if the board rolls.
+  Carves at carpet drag are not checked in sim for either file.
+- If neither file rolls on carpet with correct placement, repeat the straight
+  ride on a hard floor, hands on, and record it (distance in 5 s, feet slid
+  y/n). That run tells "placement or policy" apart from "carpet".
+- v10 standing still without stroking, or the board creeping sideways, is its
+  known sim behaviour at high drag (at x15 it rides 0.26 of asked, at x25
+  0.03, and the board drifts sideways at x10 and x15): stop and note it.
 - Needs Ethan's OK and a TA sign-off for this test, and test 1 passed first.
   It also stands in for test 3: its first step, the straight ride at yaw 0,
-  is the split ride for this session.
+  is the split ride for this session. With test 3 skipped there is no
+  straight ride on stock trucks this session: the first roll test depends on
+  the loosened trucks.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
   policy trained only on that range. The stock trucks have not been
   measured; they are assumed much stiffer, and then the board will not turn.
@@ -248,7 +283,8 @@ at yaw 0. Do not install any `split_ride_*` file.
   before the next run. The other skate files have the hold off.
 - Speed: the forward stick, clipped at 0.3 m/s. Sim checked only 0.3 m/s.
 - First ride straight at yaw 0. Then carve with a small stick, about 0.15
-  rad/s, each way. Only then try more stick, up to full (0.6). Partial stick
+  rad/s, each way. Only then try more stick, up to full (0.6) for v6 (v10:
+  stop at about ±0.5; ±0.6 is not checked in sim). Partial stick
   is allowed: v6 trained on carves of 0.1 to 0.6 rad/s, and a half stick asks
   for about half the turn. Do not hold the stick right at 0.1: that sits
   between the heading hold and the smallest carve. Back to yaw 0 holds the
@@ -262,13 +298,16 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Pass: the board turns each way for a few seconds with no fall, then rides
   straight again at yaw 0. Stop: a left foot slides toward the nose or tail or
   off the deck, the robot turns but the board does not, or fast stamping legs.
-- Notes straight: ____________________________________________
+- Notes straight (v6, then v10): ________________________________________
 - Notes carve left, small stick: ____________________________________________
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
-- Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
 - v6 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
 - v10 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
+- v10 stood still or the board crept sideways (y/n, which): ________________
+- Hard floor, only if neither rolled on carpet: v6 ______ m, slid (y/n) ____;
+  v10 ______ m, slid (y/n) ____
+- Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
 
 ## 6. Voice control (Gemini Pupper)
 
@@ -368,5 +407,5 @@ crept along the deck toward the nose over about 10 s
 specified: `PLAN_CARPET.md` logs the ride as steer v6, but the team may have
 run split ride v4, which is not ready. So the run does not count as a test of
 steer v6. The carpet work
-([`PLAN_CARPET.md`](PLAN_CARPET.md), steer v9) is insurance, not a confirmed
+([`PLAN_CARPET.md`](PLAN_CARPET.md), steer v9 and v10) is insurance, not a confirmed
 cause.
