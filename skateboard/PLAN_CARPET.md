@@ -165,6 +165,45 @@ GPU.
   `skateboard/policies/README.md`, and update the hardware checklist. If it
   does not: v6 stays, and the report says which bar it missed.
 
+## Task 5: placement guide in the hardware checklist
+
+The first hardware run (2026-11-24) put the body on top of the deck with the
+left legs past the far edge. The policies train with the body beside the
+board, over the floor, the two left feet on the middle of the deck and the two
+right feet on the floor. The TA's read of the videos is the same: wrong
+placement, so the policy had nothing to stand on. The team may also have run
+split ride v4, which the docs already mark as not ready.
+
+Files: `skateboard/HARDWARE_TEST.md`, `skateboard/README.md` if it links the
+tests, `skateboard/media/` (existing stills only; add no new binary files).
+
+1. A new section near the top of `skateboard/HARDWARE_TEST.md`, "Placement
+   (read this first)", before test 0:
+   - the split stance in plain words: body beside the board and parallel to
+     it, over the floor; left feet on the deck's centre line area; right feet
+     on the floor; body not resting on the deck;
+   - the numbers from the code, with where they come from: how far the left
+     feet sit from the deck's centre line and from its edge, how far the body
+     centre is from the board's centre line, and where along the board the
+     feet go relative to the trucks (read them from the split stance
+     constants and the stance tools; do not estimate from pictures);
+   - an embedded existing still that shows it (for example
+     `media/split_steer_v6_left_stick0.15_0.3ms_250.png`), with a one-line
+     caption;
+   - a "wrong" list from the 2026-11-24 videos: body on top of the deck, left
+     legs past the far edge, body resting on the deck;
+   - which file to install for each test: a table of test number to policy
+     file under `skateboard/policies/`, saying split ride v4 is not to be
+     used and steer v6 is the ride candidate until v9 is evaluated.
+2. Each split-stance test's "Placement" line points to the new section.
+3. A short "2026-11-24 run" note at the end of the file: what was seen
+   (balance held 17 to 18 s in two clips; the ride did not roll; the robot
+   crept along the deck), that placement and the policy version were not as
+   specified, so the run does not count as a test of steer v6, and that the
+   carpet work (`PLAN_CARPET.md`) is insurance, not a confirmed cause.
+4. Keep the file's wrapping and tone. Every number must be traceable to code
+   or to an existing doc; say "not measured" where it is not.
+
 ## Accounting
 
 - Skipped: reward changes; a board-speed observation (would break the
