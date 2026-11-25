@@ -647,7 +647,7 @@ ride are unchanged):
 
 | Event | Before | Now |
 | --- | --- | --- |
-| `wheel_drag` | x0.5 to x3, uniform | x0.5 to x25, uniform in the log (half the boards under x3.5) |
+| `wheel_drag` | x0.5 to x3, uniform | x0.5 to x10, uniform in the log (half the boards under x2.2) |
 | `floor_foot_friction` | 0.5 to 1.2 | 0.5 to 1.6 |
 | `deck_foot_friction` | 0.5 to 1.4 | 0.5 to 1.4 |
 | `deck_friction` (body, knee and shin on the deck) | not drawn (1.0) | 0.3 to 1.2 |
@@ -656,12 +656,31 @@ ride are unchanged):
 The split stance holds 10 s with zero actions at the new 11.8 cm top. The
 sim tools (`gait_report.py`, `timed_ride.py`, `render_policy.py`,
 `ride_audit.py`) hold these events at the old ranges, so their numbers compare
-with v6's; the ride audit's `wheel_drag_x6` to `wheel_drag_x25` and
+with v6's; the ride audit's `wheel_drag_x6` to `wheel_drag_x25` (x15 and x25
+are stress rows) and
 `floor_grip_1.6` rows test carpet. The plan is
 [`PLAN_CARPET.md`](PLAN_CARPET.md).
 
 Steer v9 trains on steer v6's rewards (`deck_feet_slide` -2, `board_side_creep`
 0, no straight-line board tracking), so the carpet ranges are the only change.
+
+Steer v9 (run `d63ab512`, 3000 of 3000 iterations, resumed from v6, x0.5 to x25)
+missed the pass bar and v6 stays. Same pinned-drag test as above, v9 against v6:
+
+| Wheel drag | v6 speed | v6 resets | v9 speed | v9 resets |
+| --- | --- | --- | --- | --- |
+| x1 to x3 | 0.94 to 0.99 | 0 | 1.04 | 0 |
+| x6 | 0.70 | 4 | 0.95 | 4 |
+| x10 | 0.36 | 12 | 0.45 | 3 |
+| x15 | 0.18 | 25 | 0.07 | 1 |
+| x25 | 0.10 | 41 | 0.00 | 1 |
+
+Above x10 v9 stands still instead of pushing (likely cause, not proven: at x15
+to x25 the push needed is close to the feet's whole grip, so those boards could
+not be won). The x15 to x25 carpet estimate came from the hardware videos,
+which the placement error now explains. A rough estimate for low-pile carpet
+is x5 to x10. So the wheel drag range is now x0.5 to x10 (log-uniform) for the
+next run, v10. **The carpet drag level is still not measured.**
 
 ## What changed from v1
 

@@ -182,12 +182,28 @@ SPLIT_CONTACT_IMPRATIO = 10.0
 # (16 boards, 10 s) with the wheel drag pinned made 0.94 of the asked speed
 # with no resets at x3 (the old top), 0.70 and 4 resets at x6, 0.36 and 12 at
 # x10, 0.18 and 25 at x15, 0.10 and 41 at x25, nearly all board_slid. x15 to
-# x25 shows both hardware symptoms, so carpet is taken to be x15 to x25 of the
-# nominal drag (4 to 7 N of rolling resistance against about 0.28 N). That is a
-# sim estimate, not a measurement. The draw is uniform in the log, so half the
-# boards are still under about x3.5 (the geometric mean) and the policy keeps
-# its hard-floor ride.
-WHEEL_DRAG_SCALE_RANGE: tuple[float, float] = (0.5, 25.0)
+# x25 shows both hardware symptoms, so carpet was first taken to be x15 to x25
+# of the nominal drag (4 to 7 N of rolling resistance against about 0.28 N).
+# That is a sim estimate, not a measurement.
+#
+# The range is capped at x10. Steer v9 trained on x0.5 to x25 and learned to
+# stand still above x10 (pinned drag, 16 boards, 10 s, 0.3 m/s; speed is the
+# share of the asked speed):
+#
+#   drag     v6 speed  v6 resets  v9 speed  v9 resets
+#   x1-x3    0.94-0.99     0        1.04       0
+#   x6       0.70          4        0.95       4
+#   x10      0.36         12        0.45       3
+#   x15      0.18         25        0.07       1
+#   x25      0.10         41        0.00       1
+#
+# At x15 to x25 the push needed is close to the feet's whole grip, so those
+# boards could not be won (likely cause, not proven). A rough estimate for
+# low-pile carpet is x5 to x10. The ride audit's wheel_drag_x15 and
+# wheel_drag_x25 rows stay as stress rows. The draw is uniform in the log, so
+# half the boards are under about x2.2 (the geometric mean) and the policy
+# keeps its hard-floor ride.
+WHEEL_DRAG_SCALE_RANGE: tuple[float, float] = (0.5, 10.0)
 # Floor grip up to carpet: the TA's advice (2026-11-24) was to randomize the
 # feet's friction on carpet, since Gates carpet differs from other carpets, so
 # the floor feet's draw reaches 1.6, up from 1.2. Unmeasured. The deck feet's

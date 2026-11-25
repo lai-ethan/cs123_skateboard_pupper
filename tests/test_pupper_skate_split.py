@@ -629,7 +629,7 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   # from hard floor to carpet.
   drag = events["wheel_drag"]
   assert drag.func is mdp.scale_joint_drag and drag.mode == "startup"
-  assert drag.params["scale_range"] == (0.5, 25.0)
+  assert drag.params["scale_range"] == (0.5, 10.0)
   assert drag.params["log_uniform"] is True
   assert drag.params["asset_cfg"].name == "board"
   assert drag.params["asset_cfg"].joint_names == (r"wheel_.*_spin",)
@@ -686,7 +686,7 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
 
 
 def test_carpet_constants():
-  assert WHEEL_DRAG_SCALE_RANGE == (0.5, 25.0)
+  assert WHEEL_DRAG_SCALE_RANGE == (0.5, 10.0)
   assert FLOOR_FOOT_FRICTION_RANGE == (0.5, 1.6)
   assert DECK_FOOT_FRICTION_RANGE == (0.5, 1.4)
   assert DECK_BODY_FRICTION_RANGE == (0.3, 1.2)
@@ -1132,16 +1132,16 @@ def _drag_factors(env: Any) -> tuple[torch.Tensor, torch.Tensor]:
 def test_scale_joint_drag_log_uniform_spans_hard_floor_to_carpet():
   env, asset_cfg = _drag_env(4096)
   torch.manual_seed(0)
-  mdp.scale_joint_drag(env, None, (0.5, 25.0), asset_cfg, log_uniform=True)
+  mdp.scale_joint_drag(env, None, (0.5, 10.0), asset_cfg, log_uniform=True)
   damping, friction = _drag_factors(env)
   # One factor per env for all four wheels and both fields.
   torch.testing.assert_close(damping, damping[:, :1].expand_as(damping))
   torch.testing.assert_close(friction, damping)
   factor = damping[:, 0]
-  assert torch.all((factor >= 0.5 - 1e-5) & (factor <= 25.0 + 1e-5))
+  assert torch.all((factor >= 0.5 - 1e-5) & (factor <= 10.0 + 1e-5))
   # Uniform in the log: the median is the geometric mean, not the midpoint.
   median = factor.median().item()
-  assert abs(median / math.sqrt(0.5 * 25.0) - 1.0) < 0.15
+  assert abs(median / math.sqrt(0.5 * 10.0) - 1.0) < 0.15
   # The other dof is untouched.
   assert torch.all(env.sim.model.dof_damping[:, 0] == 7.0)
   assert torch.all(env.sim.model.dof_frictionloss[:, 0] == 9.0)
@@ -1177,7 +1177,7 @@ def test_wheel_drag_shares_one_factor_per_env(ride_env):
   torch.testing.assert_close(damping, damping[:, :1].expand_as(damping))
   torch.testing.assert_close(friction, damping)
   factor = damping[:, 0]
-  assert torch.all((factor >= 0.5) & (factor <= 25.0))
+  assert torch.all((factor >= 0.5) & (factor <= 10.0))
   assert factor.max() - factor.min() > 0.1
 
 
