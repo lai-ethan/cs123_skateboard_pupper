@@ -14,7 +14,7 @@ the first carpet run (see "Carpet").
 | Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; not to be used this session |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 (on v10's 21 rows it fails wheel drag x6 to x25; no `floor_grip_1.6` row) | Candidate for the first steering test, loosened trucks |
-| Split steer v10 | `74jsd4gb` | not checked | pass at yaw 0, ±0.15, ±0.3, ±0.5, no resets (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run second after v6, to compare on carpet |
+| Split steer v10 | `74jsd4gb` | not checked | three seeds at yaw 0, ±0.15, ±0.3, ±0.5 (±0.6 on seed 0 only): 22 of 23 runs pass, 1 reset at -0.5 (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run second after v6, to compare on carpet |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; **fail** at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Fallback for the steering test, full stick only |
 
@@ -716,9 +716,9 @@ x25 it rides 0.03 against v6's 0.10, and `board_yaw_0.15` has 1 `board_slid`
 - `wheel_drag_x6`: 0.96, no resets, meets the bar. `wheel_drag_x10`: 0.58
   with 4 `board_drifted`, misses the bar (0.7, at most 2 resets); boards range
   from 0.01 to 0.93 of the asked speed.
-- Gait report at 0.3 m/s: pass with no resets at stick 0, ±0.15, ±0.3 and
-  ±0.5, seed 0 only (v6: three seeds; v6 had one reset at +0.3 and at +0.5).
-  ±0.6 is not checked. Board turn as a share of asked: 1.24 / 0.80 at ±0.15,
+- Gait report at 0.3 m/s, first run: pass with no resets at stick 0, ±0.15,
+  ±0.3 and ±0.5 on seed 0 (v6: three seeds; v6 had one reset at +0.3 and at
+  +0.5). Three seeds and ±0.6 are in the steering checks below. Board turn as a share of asked: 1.24 / 0.80 at ±0.15,
   0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5. The largest fore-aft slide along
   the deck is 6.2 to 7.2 cm in every gait run, against the 8 cm reset limit,
   so "no resets" does not mean v10 slides less than v6.
@@ -731,6 +731,48 @@ x25 it rides 0.03 against v6's 0.10, and `board_yaw_0.15` has 1 `board_slid`
   yaw clipped at ±0.6 rad/s, heading hold kp 1.0, clip 0.1, as v6's). It
   passes the robot-side validator (`download_policy.py --validate-only`).
   Checkpoint: `policies/split_steer_v10_model_31996.pt`.
+
+More v10 steering checks, then v11 (2026-11-25). v10's gait report was run
+on three seeds at 0.3 m/s on the hard floor, 23 runs (seed 0 at stick 0,
+±0.15, ±0.3, ±0.5, ±0.6; seeds 1 and 2 at stick 0, ±0.15, ±0.3, ±0.5).
+Evidence: `policies/split_steer_v10_gait.txt`.
+
+- 22 of 23 runs pass. One fails: seed 1, stick -0.5, 1 reset.
+- Board turn as a share of asked, range over seeds: left carves 1.24 to 1.99
+  at 0.15, 0.84 to 1.30 at 0.3, 0.68 to 0.89 at 0.5, 0.59 at 0.6; right
+  carves 0.63 to 0.87 at 0.15, 0.72 to 0.78 at 0.3, 0.79 to 1.01 at 0.5,
+  1.05 at 0.6. So gentle left carves can turn up to about twice what is
+  asked and right carves about 0.6 to 1.0 of asked.
+- Stick 0: mean board yaw rate +0.010, +0.013, +0.007 rad/s on seeds 0, 1, 2,
+  a slight pull to the left (about 2 to 4 degrees in 5 s).
+- Largest fore-aft deck slide 3.8 to 7.2 cm (reset limit 8 cm).
+- ±0.6 passes on seed 0 only; it is not run on seeds 1 and 2, so the stop at
+  about ±0.5 stays.
+
+Steer v11 (run `ioqfatdr`, 2000 of 2000 iterations, resumed from v10, same
+code and ranges, checkpoint `model_33995.pt`) is sim only. Speed as a share
+of asked (resets):
+
+| Row | v10 speed (resets) | v11 speed (resets) |
+| --- | --- | --- |
+| x1 to x3 | 1.02 (0) | 1.03 to 1.04 (0) |
+| x6 | 0.96 (0) | 0.98 (1) |
+| x10 | 0.58 (4) | 0.65 (5) |
+| x15 (stress) | 0.26 (4) | 0.31 (4) |
+| x25 (stress) | 0.03 (1) | 0.09 (4) |
+| `deck_grip_0.4` | pass | **fail**: 1 early `board_drifted` |
+
+- Ride audit: 17 of 21 rows (v10: 18). x10 still misses the bar (0.7 with
+  at most 2 resets), and v11 fails `deck_grip_0.4`, a row v6 and v10 pass.
+- Steering, the same 23 runs: 22 pass; one fails (seed 2, stick -0.5, 1
+  reset). Left carves turn 0.52 to 1.19 of asked, right carves 0.93 to
+  1.65. Stick 0: -0.004, -0.002, -0.008 rad/s. Deck slide 3.6 to 7.0 cm.
+- 2000 more iterations on the same setup moved x10 from 0.58 to 0.65 with
+  one more reset and lost a hard-floor row. v11 is not exported; v10 stays
+  the provisional file, and neither replaces v6.
+- Not determined: whether the x10 gap needs a reward or observation change,
+  or whether real carpet is anywhere near x10. The carpet pull measurement
+  in `HARDWARE_TEST.md` test 0 decides whether this matters.
 
 ## What changed from v1
 

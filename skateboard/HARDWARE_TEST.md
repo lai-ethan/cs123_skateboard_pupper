@@ -232,11 +232,15 @@ at yaw 0. Do not install any `split_ride_*` file.
   (kp 1.0, clip 0.1). In sim it passes 18 of 21 ride audit rows, every row
   v6 passes, and is faster than v6 at drag x6 to x15: 0.96 of the asked
   speed at x6 with no resets; at x10 it reaches only 0.58, with 4
-  `board_drifted` resets on 3 boards. The gait check passes with no resets
-  at stick 0, ±0.15, ±0.3 and ±0.5, on one seed only (v6: three seeds). Its
-  largest fore-aft slide along the deck is 6.2 to 7.2 cm in every gait run,
-  against the 8 cm reset limit, so "no resets" does not mean it slides less
-  than v6. v10: stop at about ±0.5; ±0.6 is not checked in sim.
+  `board_drifted` resets on 3 boards. The gait check was run on three seeds
+  at stick 0, ±0.15, ±0.3 and ±0.5: 22 of 23 runs pass (with ±0.6 on seed 0
+  only), and one resets, on a hard right carve (seed 1, stick -0.5). Its
+  largest fore-aft slide along the deck is 3.8 to 7.2 cm, against the 8 cm
+  reset limit, so "no resets" does not mean it slides less than v6. v10:
+  stop at about ±0.5; ±0.6 is checked on one seed only. Expect, in sim:
+  gentle left carves turn up to about twice what is asked, right carves
+  about 0.6 to 1.0 of asked, and a slight pull to the left with the stick
+  centred (about 2 to 4 degrees in 5 s).
 - If the robot slides along the deck with v6, on a hard floor or once the
   board rolls: try `policies/split_steer_v7_max0.3_policy.json` (run
   `n5m2zsks`, resumed from v6), after v6 and v10. Keep the stick within
@@ -284,7 +288,7 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Speed: the forward stick, clipped at 0.3 m/s. Sim checked only 0.3 m/s.
 - First ride straight at yaw 0. Then carve with a small stick, about 0.15
   rad/s, each way. Only then try more stick, up to full (0.6) for v6 (v10:
-  stop at about ±0.5; ±0.6 is not checked in sim). Partial stick
+  stop at about ±0.5; ±0.6 is checked on one seed only). Partial stick
   is allowed: v6 trained on carves of 0.1 to 0.6 rad/s, and a half stick asks
   for about half the turn. Do not hold the stick right at 0.1: that sits
   between the heading hold and the smallest carve. Back to yaw 0 holds the
