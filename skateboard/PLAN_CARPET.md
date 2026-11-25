@@ -329,3 +329,25 @@ tests, `skateboard/media/` (existing stills only; add no new binary files).
   and marginal at x10. At the lowest deck grip (0.5) the feet may not hold
   the push a high carpet drag needs (untested), so the policy may not reach
   full speed on carpet without grip tape on the deck.
+
+## Known minor gaps (deferred after the final review, 2026-11-25)
+
+- `HARDWARE_TEST.md` test 0's carpet pull says "luggage scale or kitchen
+  scale"; a kitchen scale cannot be hooked. Use a digital luggage scale
+  (expect about 30 g at nominal drag, 140 to 290 g at x5 to x10).
+- The sheet asks for `download_policy.py --validate-only` only on the v10
+  file, though it reads "as for any file".
+- `SIM2REAL.md` step 9 and its table row do not mention v10 and use the
+  shorter "if v6 slides: v7" wording; the intro of `HARDWARE_TEST.md` still
+  calls v7 "its fallback".
+- This plan's background section and one comment in
+  `pupper_skate_split_env_cfg.py` still state the x15 to x25 estimate and
+  that steer v6 ran on 2026-11-24 without the later hedges.
+- `skateboard/README.md` Status has no v10 row and says "As of 2026-11-20".
+- `hold_hard_floor` in `skateboard/tools/policy_loader.py` is silent and has
+  no opt-out, so the sim tools cannot evaluate on the training ranges.
+- Not run: v10 gait checks at ±0.6 and on seeds 1 and 2; the x15 row with
+  grip pinned high (would settle why policies stop pushing at high drag); a
+  committed audit file for v6's x6 to x25 rows.
+- `skateboard/PLAN.md` and `skateboard/PLAN_ROBUST_RIDE.md` contain local
+  home-directory paths from earlier work (public repo; not secrets).
