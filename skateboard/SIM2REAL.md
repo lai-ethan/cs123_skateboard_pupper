@@ -10,7 +10,7 @@ written 2026-11-24, from simulation except the first carpet run (see "Carpet").
 | --- | --- | --- | --- | --- | --- |
 | Split balance | `gt60lfo0` | pass | pass | 21 of 21 | **Yes, first candidate** |
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Yes, with care (see below) |
-| Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; short runs only, Ethan's call |
+| Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready; not to be used this session |
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Candidate for the first steering test, loosened trucks |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; **fail** at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
@@ -111,8 +111,8 @@ All 21 rows pass with zero resets.
 | Board kicked 0.8 m/s | 0.13 | 5.3 cm (board rolls 8 cm) |
 | Several errors at once | 0.25 | 7.2 cm |
 
-- The body leans about 5 degrees toward the deck in every row. That is the
-  stance, not a fault.
+- The body tilts about 5 degrees, right (floor) side lower, in every row. That
+  is the stance, not a fault.
 - Standing on three feet is still not stable: with the front right foot removed
   the centre of mass is 2 cm outside the other three. This matters for riding,
   not for balance.
@@ -193,20 +193,20 @@ signs off before the first powered run (PLAN Task 12).
    floor.
 3. **Split balance, wheels wedged.** One person holds the robot by the handle,
    kill switch in hand. Let go only if it holds still for 5 s. Compare the lean
-   (about 5 degrees toward the deck) with the audit.
+   (about 5 degrees, right side lower, left side higher) with the audit.
 4. **Split balance, wheels free**, same precautions.
 5. **Centred balance, wheels wedged.** Centre the board under the robot to
    within 1 cm. Do not shove it.
 6. **Centred balance, wheels free**, only if step 5 holds for 10 s.
-7. **Split ride `iznjwbka`, hand held,** only after split balance holds
-   (steps 3 and 4), and only if Ethan accepts that it resets on sideways
-   drift on the current task. Start at 0.2 m/s, then 0.3 m/s. Short runs.
+7. **Split ride: skipped this session.** Split ride v4 (`iznjwbka`) is not
+   to be used (see "Short answer"). The straight ride is the first step of
+   step 9, steer v6 at yaw 0 (`HARDWARE_TEST.md`, tests 3 and 5).
 8. **Centred ride `7fyt12i1`, hand held,** last, and only if Ethan accepts
    that it fails the push foot duty limit (`HARDWARE_TEST.md`, test 4).
-9. **Split steer v6, hand held,** only after step 7, on trucks loosened to 9
-   to 18 N·m/rad. Partial stick is allowed; start with a small stick. Short
-   runs, and the robot reset to its marks between runs (`HARDWARE_TEST.md`,
-   test 5). There is no foot stop on the deck. If the robot slides along
+9. **Split steer v6, hand held,** only after split balance holds (steps 3
+   and 4), on trucks loosened to 9 to 18 N·m/rad. Partial stick is allowed;
+   start with a small stick. Short runs, and the robot reset to its marks
+   between runs (`HARDWARE_TEST.md`, test 5). There is no foot stop on the deck. If the robot slides along
    the deck, try v7 instead, with the stick within ±0.3. v5 is the fallback
    for full stick only.
 
@@ -221,12 +221,12 @@ files to use:
 | --- | --- |
 | 3, 4 | `policies/split_balance_v3_policy.json` |
 | 5, 6 | `policies/centred_balance_v2_policy.json` |
-| 7 | `policies/split_ride_v4_max0.3_policy.json` |
+| 7 | none: skipped (split ride v4 is not to be used) |
 | 8 | `policies/centred_ride_v9_max0.3_policy.json` |
 | 9 | `policies/split_steer_v6_max0.3_policy.json` (if it slides: `policies/split_steer_v7_max0.3_policy.json`; full stick only: `policies/split_steer_v5_max0.3_policy.json`) |
 
 On the robot (over SSH), after copying the file there, as in
-`HARDWARE_TEST.md` test 3. These commands come from the robot repo's usage
+`HARDWARE_TEST.md` ("Deploy"). These commands come from the robot repo's usage
 and have not yet been run with a skate policy:
 
 ```bash

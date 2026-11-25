@@ -2,8 +2,8 @@
 
 Date: ________  People: ________________________
 
-Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. Test 3's
-policy passed it on an older task and resets on sideways drift on the current one. Test
+Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. Test 3
+is skipped this session: its policy, split ride v4, is not to be used. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
 one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
 hard right carves. None has run on the robot. Sim first, then robot.
@@ -20,10 +20,13 @@ hard right carves. None has run on the robot. Sim first, then robot.
 - [ ] Fit test with the robot powered off (SIM2REAL "Plan before the first real
       run", step 2).
 
-Deploy: install the local file named in each test, from `policies/`, as in
-test 3. Tests 3 to 5 need the capped `*_max0.3_policy.json` files; tests 1 and
-2 use the `_policy.json` files. Do not use `./deploy.sh mjlab/<run>` for these
-tests: it fetches the run's W&B export, which is not the capped file. The
+Deploy: install the local file named in each test, from `policies/`. Copy it
+to the robot, then in `~/pupper_gait_deploy` run
+`python3 download_policy.py --file <file> --output policies/test_policy.json`
+and `./deploy.sh`. Press square to start the policy; right-stick press is the
+e-stop. Tests 4 and 5 need the capped `*_max0.3_policy.json` files; tests 1
+and 2 use the `_policy.json` files. Do not use `./deploy.sh mjlab/<run>` for
+these tests: it fetches the run's W&B export, which is not the capped file. The
 file table and commands are in [`SIM2REAL.md`](SIM2REAL.md) ("Plan before the
 first real run"). The robot-side commands have not yet been run with a skate
 policy. Do not improvise other commands.
@@ -33,7 +36,7 @@ shakes, the robot leans past the hands, or anything smells hot.
 
 ## Placement (read this first)
 
-The split stance (tests 1, 3, 5 and 6) is not "robot on the board". Every
+The split stance (tests 1, 5 and 6) is not "robot on the board". Every
 split policy trained with the robot standing beside the board:
 
 - Body beside the board and parallel to it, its centre over the floor, outside
@@ -41,14 +44,20 @@ split policy trained with the robot standing beside the board:
 - Left feet (front left, back left) on the deck, on its centre line, one ahead
   of the board's middle and one behind it.
 - Right feet (front right, back right) on the floor, right of the board.
-- The body tilts toward the floor, right side lower.
+- The body tilts toward the floor: right side lower, left side higher.
 
 "Left" is the robot's own left. The deck side is the left in the code
-(`DECK_SIDE = "l"`, `pupper_skate_split_env_cfg.py:64`). The robot faces the
-board's nose: robot and board both start at heading 0, and the board's +x is
-its nose (`skateboard_constants.py:35-36`). The left feet sit about evenly
-either side of the board's middle, so getting nose and tail swapped moves them
-by under 1 cm.
+(`DECK_SIDE = "l"`, `pupper_skate_split_env_cfg.py:64`).
+
+The robot must face the board's nose. Robot and board both start at heading 0,
+and the board's +x is its nose (`skateboard_constants.py:35-36`), so the ride
+goes the way the robot faces, nose first. The deck trace calls the nose the
+"castle end" (`board_geometry.json`, its `frame` note); no doc says how to
+tell that end on the real board beyond that name. The two ends' outlines are
+nearly the same (tip radii 29.6 and 30.1 mm), and the sim treats the end the
+robot faces as the nose. Facing the other way does not move the foot spots
+much, but the front foot then lands on the other spot and the board rolls
+tail first.
 
 The numbers, from the code and the stance tools. Foot numbers are the centre
 of each foot ball, in sim; none of them has been measured on the robot.
@@ -59,12 +68,12 @@ of each foot ball, in sim; none of them has been measured on the robot.
 | Body centre from the board's middle, along | 1 cm ahead of it | same, x -0.01 |
 | Body centre past the deck's right (near) edge | about 6.7 cm (14.6 cm less half the 157.1 mm deck) | `skateboard_constants.py:68`, worked out |
 | Left feet from body centre, sideways | 14.0 cm left | `solve_split_stance.py 0.14 0.064 0.145` |
-| Left feet from the deck centre line | front left 0.6 cm right of it, back left 0.7 cm left of it | `check_split_stance.py`, after 10 s |
-| Left feet to the deck edges | front left 8.3 cm to the left edge, 7.2 cm to the right; back left 6.6 cm and 8.0 cm | `check_split_stance.py` |
+| Left feet from the deck centre line | within about 1 cm of it; varies between runs | `check_split_stance.py`, after 10 s |
+| Left feet to the deck edges | 6.5 to 8.5 cm from either edge; varies between runs | `check_split_stance.py` |
 | Left feet along the board | front left 7.6 cm ahead of the middle, back left 7.4 cm behind it | solver foot x (+6.57, -8.43 cm) plus the 1 cm offset |
 | Left feet to the trucks | front left 10.7 cm behind the front axle, back left 10.8 cm ahead of the rear axle | axles at ±18.25 cm (36.5 cm wheelbase), `skateboard_constants.py:79`, `:193` |
-| Right feet from the board centre line | front right 23.8 cm, back right 22.0 cm, to the right | `check_split_stance.py` |
-| Right feet along the board | front right 7.3 cm ahead of the middle, back right 6.5 cm behind it | `check_split_stance.py` |
+| Right feet from the board centre line | about 22 to 24 cm to the right; varies between runs | `check_split_stance.py` |
+| Right feet along the board | about 6.5 to 7.5 cm ahead of and behind the middle; varies between runs | `check_split_stance.py` |
 | Body centre height above the floor | 15.4 cm | `SKATE_SPLIT_HEIGHT`, `pupper_constants.py:141` |
 | Body tilt | 0.083 rad (4.8 degrees), right side lower | `SKATE_SPLIT_ROLL`, `pupper_constants.py:142` |
 | Gap between torso and deck; how far the torso's left side overhangs the deck | not measured | |
@@ -72,14 +81,18 @@ of each foot ball, in sim; none of them has been measured on the robot.
 How far off it may start: the balance task starts the board within ±3 cm
 along and ±0.05 rad of heading, and the body within ±1 cm
 (`pupper_skate_split_env_cfg.py:340-353`). The ride and steer start the board
-within ±3 cm along, ±2 cm sideways and ±0.15 rad (`:553-557`). Place within
-about 1 cm, square to the board. Tape marks on the deck centre line, about
-7.5 cm ahead of and behind the board's middle, give the two left-foot spots.
+within ±3 cm along, ±2 cm sideways and ±0.15 rad (`:553-557`). So place the
+body within about 1 cm of its spot, the board's middle within about 3 cm of
+the body's along the deck, and the robot square to the board. Tape marks on
+the deck centre line, about 7.5 cm ahead of and behind the board's middle,
+give the two left-foot spots.
 
 ![Split stance in sim](media/split_steer_v6_straight_0.3ms_125.png)
 
-Sim, steer v6 riding straight at 0.3 m/s (frame 125), seen from the robot's
-right: right feet on the floor, left feet on the deck, body beside the board.
+Sim, steer v6 riding straight at 0.3 m/s (frame 125), seen from above and to
+the robot's right: right feet on the floor, left feet on the deck, body
+beside the board. The torso seems to overlap the deck only because of the
+camera angle.
 
 Wrong, as in the 2026-11-24 videos (the TA read them the same way):
 
@@ -97,7 +110,7 @@ Which file to install for each test (all under `policies/`):
 | 0 | none, robot off |
 | 1 | `split_balance_v3_policy.json` |
 | 2 | `centred_balance_v2_policy.json` |
-| 3 | none this session. Do not use split ride v4 (`split_ride_v4_*`): not ready (SIM2REAL "Short answer"). Ride straight with steer v6 at yaw 0, as test 5's first step |
+| 3 | skipped this session: no file. Split ride v4 is not to be used (not ready, SIM2REAL "Short answer"). The straight ride is test 5's first step, steer v6 at yaw 0 |
 | 4 | `centred_ride_v9_max0.3_policy.json` (provisional) |
 | 5 | `split_steer_v6_max0.3_policy.json` (slides: `split_steer_v7_max0.3_policy.json`; full stick only: `split_steer_v5_max0.3_policy.json`) |
 | 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policy.json` |
@@ -135,8 +148,8 @@ says"). Takes five minutes.
 - First because two feet stay on the floor, so a failure is a small one.
 - Placement: split stance, as in "Placement (read this first)". Wheels
   chocked.
-- Watch: right feet stay planted; lean about 5 degrees toward the deck, as in
-  sim; board does not creep.
+- Watch: right feet stay planted; right side about 5 degrees lower, left side
+  higher, as in sim; board does not creep.
 - Pass: holds still for 10 s with hands off. Stop: a right foot lifts, the
   left feet slide, or it shakes.
 - Notes: ____________________________________________
@@ -151,42 +164,20 @@ says"). Takes five minutes.
   shake, any sideways drift.
 - Notes: ____________________________________________
 
-## 3. Split ride at 0.2 m/s, then 0.3 m/s
+## 3. Split ride (skipped this session)
 
-- Policy: `policies/split_ride_v4_policy.json` (run `iznjwbka`)
-- It passed the gait check on 2026-11-17, on the old box deck. It has not
-  passed on the current task: its checkpoint resets on `board_drifted`, the
-  board walking sideways out from under the feet. Run it only if Ethan
-  accepts that. Keep runs short. For now, do not use it: see the file table
-  in "Placement (read this first)".
-- Only if test 1 passes. Wheels free, clear straight path, hands ready.
-- Placement: split stance, as in "Placement (read this first)".
-- Speed command: the forward stick. Full stick asks for 1.5 m/s and the policy
-  clips it. Use `policies/split_ride_v4_max0.3_policy.json` for this
-  session: it clips at 0.3 m/s, so a full push cannot go faster. A light push
-  (about one eighth of the stick) is 0.2 m/s. The uncapped file reaches
-  0.5 m/s, which has no gait check.
-- Install the capped file: copy it to the robot, then in
-  `~/pupper_gait_deploy` run
-  `python3 download_policy.py --file <file> --output policies/test_policy.json`
-  and `./deploy.sh`. Press square to start the policy; right-stick press is
-  the e-stop.
-- Watch: slow planted pushes with the right feet, about 2 strides per second
-  at most; left feet stay on the deck; board rolls straight. Nothing steers.
-- Pass at 0.2 m/s: several pushes, board moves, no fall. Then try 0.3 m/s.
-  Stop: fast or stamping legs, a left foot off the deck, the board curving
-  away, or the board walking sideways from under the left feet.
-- Notes at 0.2 m/s: ____________________________________________
-- Notes at 0.3 m/s: ____________________________________________
+Skipped this session: split ride v4 is not to be used (not ready, SIM2REAL
+"Short answer"). The straight ride is the first step of test 5, with steer v6
+at yaw 0. Do not install any `split_ride_*` file.
 
 ## 4. Centred ride, tripod (provisional: Ethan decides)
 
 - Policy: `policies/centred_ride_v9_max0.3_policy.json` (run `7fyt12i1`).
-  It clips at 0.3 m/s. Install it like the capped file in test 3.
+  It clips at 0.3 m/s. Install it as in "Deploy" above.
 - Gait check: `GAIT: FAIL` on one limit. The push foot is on the floor 20% of
   the time (limit 40%). Every other limit passes at 0.1, 0.2 and 0.3 m/s
   (SIM2REAL "Riding: where it stands"). Run this test only if Ethan accepts
-  that, and only after tests 1 to 3.
+  that, and only after tests 1 and 2.
 - Placement: front right, front left and back left feet on the deck, body
   centred within about 1 cm. Back right foot on the floor beside the board.
   It starts there; it does not step off the deck.
@@ -207,7 +198,7 @@ says"). Takes five minutes.
 - Policy: `policies/split_steer_v6_max0.3_policy.json` (run `hfd3qhwr`,
   resumed from v5). It clips speed at 0.3 m/s and yaw at 0.6 rad/s, and
   passes the robot-side validator (`download_policy.py --validate-only`).
-  Install it like the capped file in test 3.
+  Install it as in "Deploy" above.
 - This is a candidate for the first steering test, not a fully passing policy.
   Ride audit: `PASS` on 16 of 16 rows. Gait check: `GAIT: PASS` at yaw 0,
   ±0.15, -0.3, -0.5 and -0.6. Left carves of +0.3, +0.5 and +0.6 fail on one
@@ -225,7 +216,9 @@ says"). Takes five minutes.
   -0.6) fail in sim on every seed, so it does not get the full stick. The
   cause of the right pull is not known yet. Same heading
   hold as v6 (kp 1.0, clip 0.1). Same placement and trucks.
-- Needs Ethan's OK and a TA sign-off for this test, and test 3 passed first.
+- Needs Ethan's OK and a TA sign-off for this test, and test 1 passed first.
+  It also stands in for test 3: its first step, the straight ride at yaw 0,
+  is the split ride for this session.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
   policy trained only on that range. The stock trucks have not been
   measured; they are assumed much stiffer, and then the board will not turn.
@@ -266,7 +259,7 @@ says"). Takes five minutes.
 ## 6. Voice control (Gemini Pupper)
 
 Not run yet. Needs Ethan's OK on the day, a TA's sign-off for the policy,
-and tests 3 and 5 (split ride, steer by joystick) passed first. The voice
+and test 5 (straight ride and steer by joystick) passed first. The voice
 tools assume the ride and the steer work. Nothing in this test has run on the
 robot: every distance and turn Gemini gives is a sim estimate.
 
