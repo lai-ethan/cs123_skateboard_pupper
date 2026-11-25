@@ -31,6 +31,80 @@ policy. Do not improvise other commands.
 Stop any test at once if: a foot slips off the deck edge, a joint buzzes or
 shakes, the robot leans past the hands, or anything smells hot.
 
+## Placement (read this first)
+
+The split stance (tests 1, 3, 5 and 6) is not "robot on the board". Every
+split policy trained with the robot standing beside the board:
+
+- Body beside the board and parallel to it, its centre over the floor, outside
+  the deck's edge. The body does not rest on the deck.
+- Left feet (front left, back left) on the deck, on its centre line, one ahead
+  of the board's middle and one behind it.
+- Right feet (front right, back right) on the floor, right of the board.
+- The body tilts toward the floor, right side lower.
+
+"Left" is the robot's own left. The deck side is the left in the code
+(`DECK_SIDE = "l"`, `pupper_skate_split_env_cfg.py:64`). The robot faces the
+board's nose: robot and board both start at heading 0, and the board's +x is
+its nose (`skateboard_constants.py:35-36`). The left feet sit about evenly
+either side of the board's middle, so getting nose and tail swapped moves them
+by under 1 cm.
+
+The numbers, from the code and the stance tools. Foot numbers are the centre
+of each foot ball, in sim; none of them has been measured on the robot.
+
+| What | Value | Source |
+| --- | --- | --- |
+| Board centre line from body centre, sideways | 14.6 cm, board to the robot's left | `SKATE_SPLIT_BOARD_OFFSET` y, `pupper_constants.py:144` |
+| Body centre from the board's middle, along | 1 cm ahead of it | same, x -0.01 |
+| Body centre past the deck's right (near) edge | about 6.7 cm (14.6 cm less half the 157.1 mm deck) | `skateboard_constants.py:68`, worked out |
+| Left feet from body centre, sideways | 14.0 cm left | `solve_split_stance.py 0.14 0.064 0.145` |
+| Left feet from the deck centre line | front left 0.6 cm right of it, back left 0.7 cm left of it | `check_split_stance.py`, after 10 s |
+| Left feet to the deck edges | front left 8.3 cm to the left edge, 7.2 cm to the right; back left 6.6 cm and 8.0 cm | `check_split_stance.py` |
+| Left feet along the board | front left 7.6 cm ahead of the middle, back left 7.4 cm behind it | solver foot x (+6.57, -8.43 cm) plus the 1 cm offset |
+| Left feet to the trucks | front left 10.7 cm behind the front axle, back left 10.8 cm ahead of the rear axle | axles at ±18.25 cm (36.5 cm wheelbase), `skateboard_constants.py:79`, `:193` |
+| Right feet from the board centre line | front right 23.8 cm, back right 22.0 cm, to the right | `check_split_stance.py` |
+| Right feet along the board | front right 7.3 cm ahead of the middle, back right 6.5 cm behind it | `check_split_stance.py` |
+| Body centre height above the floor | 15.4 cm | `SKATE_SPLIT_HEIGHT`, `pupper_constants.py:141` |
+| Body tilt | 0.083 rad (4.8 degrees), right side lower | `SKATE_SPLIT_ROLL`, `pupper_constants.py:142` |
+| Gap between torso and deck; how far the torso's left side overhangs the deck | not measured | |
+
+How far off it may start: the balance task starts the board within ±3 cm
+along and ±0.05 rad of heading, and the body within ±1 cm
+(`pupper_skate_split_env_cfg.py:340-353`). The ride and steer start the board
+within ±3 cm along, ±2 cm sideways and ±0.15 rad (`:553-557`). Place within
+about 1 cm, square to the board. Tape marks on the deck centre line, about
+7.5 cm ahead of and behind the board's middle, give the two left-foot spots.
+
+![Split stance in sim](media/split_steer_v6_straight_0.3ms_125.png)
+
+Sim, steer v6 riding straight at 0.3 m/s (frame 125), seen from the robot's
+right: right feet on the floor, left feet on the deck, body beside the board.
+
+Wrong, as in the 2026-11-24 videos (the TA read them the same way):
+
+- Body on top of the deck.
+- Left legs past the far (left) edge of the deck.
+- Body resting on the deck.
+
+Each gives the policy a stance it never trained on, with nothing under the
+left feet.
+
+Which file to install for each test (all under `policies/`):
+
+| Test | File |
+| --- | --- |
+| 0 | none, robot off |
+| 1 | `split_balance_v3_policy.json` |
+| 2 | `centred_balance_v2_policy.json` |
+| 3 | none this session. Do not use split ride v4 (`split_ride_v4_*`): not ready (SIM2REAL "Short answer"). Ride straight with steer v6 at yaw 0, as test 5's first step |
+| 4 | `centred_ride_v9_max0.3_policy.json` (provisional) |
+| 5 | `split_steer_v6_max0.3_policy.json` (slides: `split_steer_v7_max0.3_policy.json`; full stick only: `split_steer_v5_max0.3_policy.json`) |
+| 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policy.json` |
+
+Steer v6 is the ride candidate until steer v9 is evaluated. Steer v9 is being
+trained, not evaluated; it has no file here yet.
+
 ## 0. Board tilt stiffness (robot off, no power)
 
 Decides whether steering is possible at all (SIM2REAL "Steering: what sim
@@ -59,7 +133,8 @@ says"). Takes five minutes.
 
 - Policy: `policies/split_balance_v3_policy.json` (run `gt60lfo0`)
 - First because two feet stay on the floor, so a failure is a small one.
-- Placement: left feet on the deck, right feet on the floor. Wheels chocked.
+- Placement: split stance, as in "Placement (read this first)". Wheels
+  chocked.
 - Watch: right feet stay planted; lean about 5 degrees toward the deck, as in
   sim; board does not creep.
 - Pass: holds still for 10 s with hands off. Stop: a right foot lifts, the
@@ -82,9 +157,10 @@ says"). Takes five minutes.
 - It passed the gait check on 2026-11-17, on the old box deck. It has not
   passed on the current task: its checkpoint resets on `board_drifted`, the
   board walking sideways out from under the feet. Run it only if Ethan
-  accepts that. Keep runs short.
+  accepts that. Keep runs short. For now, do not use it: see the file table
+  in "Placement (read this first)".
 - Only if test 1 passes. Wheels free, clear straight path, hands ready.
-- Placement: left feet on the deck, right feet on the floor.
+- Placement: split stance, as in "Placement (read this first)".
 - Speed command: the forward stick. Full stick asks for 1.5 m/s and the policy
   clips it. Use `policies/split_ride_v4_max0.3_policy.json` for this
   session: it clips at 0.3 m/s, so a full push cannot go faster. A light push
@@ -158,8 +234,8 @@ says"). Takes five minutes.
   the main open risk: in sim the left feet slowly slide toward the nose or
   tail, up to 8.0 cm on left carves. Keep each run short, about 10 s, and
   reset the robot to its marks between runs.
-- Placement: left feet on the deck, right feet on the floor, as in test 3.
-  Place the robot square to the board, body parallel to the deck.
+- Placement: split stance, as in "Placement (read this first)". Place the
+  robot square to the board, body parallel to the deck.
 - This file has the heading hold on (kp 1.0, clip 0.1 rad/s). On the robot the
   hold keeps the robot's own IMU yaw, not the board's heading: it cannot see
   the board. Any yaw between robot and board when the hold captures stays
@@ -218,8 +294,8 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
   stand it. The one "stand up" said on the board (the e-stop step) checks
   that it is refused.
 
-- [ ] Say "lie down". Place Pupper: left feet on the deck, right feet on the
-      floor, body parallel to the board. Say "start skating". Pass: Gemini
+- [ ] Say "lie down". Place Pupper in the split stance ("Placement (read
+      this first)"). Say "start skating". Pass: Gemini
       asks whether Pupper is placed before it starts; Pupper eases into the
       stance and balances for 10 s without rolling.
 - [ ] E-stop check, still balancing, both hands on the harness: press the
@@ -249,8 +325,8 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
       is held, then the motors relax. If a ride is still queued, end_skating
       waits for it: say "stop" first to end at once.
 - [ ] Set up the tip test. Pupper is relaxed on the board from the step
-      above. Place it again if it moved: left feet on the deck, right feet on
-      the floor, body parallel to the board. Say "start skating". Pass:
+      above. Place it again if it moved, in the split stance ("Placement
+      (read this first)"). Say "start skating". Pass:
       Gemini asks whether Pupper is placed before it starts; Pupper eases
       into the stance and balances without rolling.
 - [ ] Tip test, still balancing (no ride queued), both hands on the harness:
@@ -274,3 +350,16 @@ Measure and write down, to replace the sim estimates in `skate/skate.yaml`:
 The sim numbers come from `skateboard/tools/timed_ride.py` on steer v6 (16 envs,
 5 s ride, no resets at any carve level). The turn value is the weaker side's, rounded to
 0.1.
+
+## 2026-11-24 run
+
+Seen in the videos: balance held for 17 to 18 s in two clips. The ride did not
+roll: the floor legs stroked and the board stayed put. In one clip the robot
+crept along the deck toward the nose over about 10 s
+([`PLAN_CARPET.md`](PLAN_CARPET.md)). Placement was not as specified (see
+"Placement (read this first)"), and the policy version was not confirmed as
+specified: `PLAN_CARPET.md` logs the ride as steer v6, but the team may have
+run split ride v4, which is not ready. So the run does not count as a test of
+steer v6. The carpet work
+([`PLAN_CARPET.md`](PLAN_CARPET.md), steer v9) is insurance, not a confirmed
+cause.
