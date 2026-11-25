@@ -165,6 +165,52 @@ GPU.
   `skateboard/policies/README.md`, and update the hardware checklist. If it
   does not: v6 stays, and the report says which bar it missed.
 
+## Result of v9 (2026-11-24): misses the pass bar, v6 stays
+
+Run `d63ab512`, 3000 of 3000 iterations, resumed from v6, L4 GPU. Sim only.
+
+| Wheel drag | v6 speed | v6 resets | v9 speed | v9 resets |
+| --- | --- | --- | --- | --- |
+| x1 to x3 | 0.94 to 0.99 | 0 | 1.04 | 0 |
+| x6 | 0.70 | 4 | 0.95 | 4 |
+| x10 | 0.36 | 12 | 0.45 | 3 |
+| x15 | 0.18 | 25 | 0.07 | 1 |
+| x25 | 0.10 | 41 | 0.00 | 1 |
+
+- Ride audit: 16 of 21 rows. Fails `wheel_drag_x6` (4 `board_slid`),
+  `x10`, `x15`, `x25` and `shove_fwd_0.5` (2 `fell_over`; v6 passed it).
+- Gait report at 0.3 m/s, stick 0: pass, no resets.
+- Above x10 v9 stands still instead of pushing: at x10 the boards range from
+  0.00 to 0.92 of the asked speed. Likely cause, not proven: at x15 to x25
+  the push needed is close to the feet's whole grip, so those boards could
+  not be won and the policy learned to stop when the board feels stuck.
+- The x15 to x25 carpet estimate came from the hardware videos, which the
+  placement error now explains. A rough estimate for low-pile carpet (rolling
+  resistance 0.05 to 0.1 of about 26 N on the wheels) is x5 to x10. Not
+  measured.
+- No v9 policy is exported.
+
+## Task 6: cap the drag range at x10 and train v10
+
+Files: `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`,
+`tests/test_pupper_skate_split.py`, `skateboard/SIM2REAL.md`.
+
+1. `WHEEL_DRAG_SCALE_RANGE = (0.5, 10.0)`, still log-uniform. The comment at
+   the constant gives the v9 table above as the reason and says the x15 and
+   x25 audit rows stay as stress rows.
+2. Update the tests that pin the range (the config test and the log-uniform
+   draw test's range and median). Tests first, seen to fail.
+3. `skateboard/SIM2REAL.md` Carpet section: the v9 result table, the new
+   range, and that the carpet level is still not measured.
+4. Nothing else changes: floor grip, deck body friction, deck height, audit
+   rows and rewards stay as they are.
+
+Then (controller): push, resume from v9 (`d63ab512`, `model_29997.pt`) for
+2000 iterations on the Colab Pro L4, and evaluate as in Task 4 with this
+pass bar: every row v6 passes still passes; `wheel_drag_x6` speed at least
+0.9 with at most 2 resets; `wheel_drag_x10` speed at least 0.7 with at most 2
+resets; gait report passes at stick 0 and ±0.15.
+
 ## Task 5: placement guide in the hardware checklist
 
 The first hardware run (2026-11-24) put the body on top of the deck with the
