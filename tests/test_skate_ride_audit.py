@@ -21,6 +21,7 @@ ROW_NAMES = [
   "nominal_30s",
   "deck_grip_0.4",
   "floor_grip_0.4",
+  "floor_grip_1.6",
   "board_y_+2cm",
   "board_y_-2cm",
   "board_yaw_0.15",
@@ -28,6 +29,10 @@ ROW_NAMES = [
   "shove_fwd_0.5",
   "wheel_drag_x2",
   "wheel_drag_x3",
+  "wheel_drag_x6",
+  "wheel_drag_x10",
+  "wheel_drag_x15",
+  "wheel_drag_x25",
   "truck_x0.5",
   "truck_x4",
   "deck_93mm",
@@ -58,7 +63,7 @@ GOOD = {
 }
 
 
-def test_rows_are_the_sixteen_in_order():
+def test_rows_are_the_twenty_one_in_order():
   assert list(ra.ROWS) == ROW_NAMES
   assert ra.ROWS["nominal_10s"].steps == 500
   assert ra.ROWS["nominal_30s"].steps == 1500
@@ -142,6 +147,45 @@ def test_every_row_configures_the_split_and_tripod_rides():
         events = list(cfg.events)
         draws = [i for i, n in enumerate(events) if n.endswith("foot_friction")]
         assert draws and events.index("audit_deck_grip") > max(draws)
+
+
+CARPET_DRAG_ROWS = {
+  "wheel_drag_x6": 6.0,
+  "wheel_drag_x10": 10.0,
+  "wheel_drag_x15": 15.0,
+  "wheel_drag_x25": 25.0,
+}
+
+
+def test_carpet_drag_rows_pin_the_drag_after_the_task_draw():
+  for name, scale in CARPET_DRAG_ROWS.items():
+    row = ra.ROWS[name]
+    assert row == ra.Row(500, "wheel_drag", scale)
+    cfg = load_env_cfg(SPLIT_RIDE, play=True)
+    ra.configure_row(cfg, row, ra.foot_sides(cfg))
+    events = list(cfg.events)
+    for audit in ("audit_wheel_damping", "audit_wheel_drag"):
+      term = cfg.events[audit]
+      assert term.params["operation"] == "scale"
+      assert term.params["ranges"] == (scale, scale)
+      assert term.params["asset_cfg"].joint_names == ra.WHEEL_SPIN_JOINTS
+      # Both scale the compiled value and run after the task's own draw.
+      assert events.index(audit) > events.index("wheel_drag")
+
+
+def test_floor_grip_1_6_pins_the_floor_feet_after_their_draw():
+  row = ra.ROWS["floor_grip_1.6"]
+  assert row == ra.Row(500, "floor_grip", 1.6)
+  cfg = load_env_cfg(SPLIT_RIDE, play=True)
+  ra.configure_row(cfg, row, ra.foot_sides(cfg))
+  grip = cfg.events["audit_floor_grip"].params
+  assert grip["ranges"] == (1.6, 1.6)
+  assert grip["asset_cfg"].geom_names == (
+    "leg_front_r_3_collision",
+    "leg_back_r_3_collision",
+  )
+  events = list(cfg.events)
+  assert events.index("audit_floor_grip") > events.index("floor_foot_friction")
 
 
 def test_board_pose_rows_are_not_applicable_on_the_tripod_ride():

@@ -18,6 +18,7 @@ from mjlab.tasks.pupper_skate.mdp import (
   PupperVelocityCommandCfg,
   SteerVelocityCommandCfg,
 )
+from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import DECK_HEIGHT_RANGE
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg, load_runner_cls
 
 
@@ -122,6 +123,39 @@ def fix_hold_clip(env_cfg: Any, clip: float) -> None:
     twist.heading_hold_clip = clip
 
 
+# The split ride's ranges before the carpet plan (skateboard/PLAN_CARPET.md):
+# wheel drag x0.5 to x3, drawn uniformly, and floor grip 0.5 to 1.2.
+HARD_FLOOR_WHEEL_DRAG_SCALE_RANGE: tuple[float, float] = (0.5, 3.0)
+HARD_FLOOR_FOOT_FRICTION_RANGE: tuple[float, float] = (0.5, 1.2)
+
+
+def hold_hard_floor(env_cfg: Any) -> None:
+  """Put the split ride's carpet ranges back to the hard-floor ones.
+
+  The split ride and steer train on carpet: wheel drag to x25, floor grip to
+  1.6, the deck geom's own friction drawn, and the deck top to 11.8 cm. The
+  tools judge every policy on the hard floor that steer v6 was judged on, so
+  their numbers stay comparable: drag x0.5 to x3 drawn uniformly, floor grip
+  0.5 to 1.2, the deck geom at its compiled friction (1.0), and balance's deck
+  height range. The ride audit's carpet rows go past these on their own.
+  Tasks without the wheel drag event are left alone.
+  """
+  events = env_cfg.events
+  if "wheel_drag" not in events:
+    return
+  drag = events["wheel_drag"]
+  drag.params = {
+    **drag.params,
+    "scale_range": HARD_FLOOR_WHEEL_DRAG_SCALE_RANGE,
+    "log_uniform": False,
+  }
+  floor = events["floor_foot_friction"]
+  floor.params = {**floor.params, "ranges": HARD_FLOOR_FOOT_FRICTION_RANGE}
+  height = events["deck_height"]
+  height.params = {**height.params, "ranges": DECK_HEIGHT_RANGE}
+  events.pop("deck_friction", None)
+
+
 def load_policy(
   task: str,
   policy_path: Path,
@@ -146,6 +180,8 @@ def load_policy(
   own (see `policy_hold_clip` and `fix_hold_clip`): a `policy.json`'s
   `heading_hold` block, or `hold_clip` for a checkpoint; it is set before the
   yaw rate is checked.
+  The split ride's carpet ranges are held at the hard floor (see
+  `hold_hard_floor`).
   `render_mode` and `viewer` (attributes set on the env's viewer config) are
   only needed for rendering. `configure(env_cfg)`, if given, edits the env
   config after the edits above and before the env is built.
@@ -153,6 +189,7 @@ def load_policy(
   device = "cuda" if torch.cuda.is_available() else "cpu"
   env_cfg = load_env_cfg(task, play=True)
   env_cfg.scene.num_envs = num_envs
+  hold_hard_floor(env_cfg)
   if seed is not None:
     env_cfg.seed = seed
   for key, value in (viewer or {}).items():

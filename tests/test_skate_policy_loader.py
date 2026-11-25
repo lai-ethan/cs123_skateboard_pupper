@@ -7,6 +7,7 @@ import pytest
 
 import mjlab.tasks  # noqa: F401  (registers the tasks)
 from mjlab.tasks.pupper_skate.mdp import PupperVelocityCommandCfg
+from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import DECK_HEIGHT_RANGE
 from mjlab.tasks.registry import load_env_cfg
 
 REPO = Path(__file__).parent.parent
@@ -157,3 +158,39 @@ def test_load_policy_takes_the_hold_clip_flag_for_a_checkpoint(monkeypatch):
   # Without the flag a checkpoint runs on the task's current clip.
   cfg = _capture_env_cfg(monkeypatch, ckpt)
   assert cfg.commands["twist"].heading_hold_clip == 0.1
+
+
+SPLIT_RIDE = "Mjlab-SkateSplit-Ride-Pupper-v3"
+SPLIT_POLICY = POLICIES / "split_ride_v4_policy.json"
+
+
+@pytest.mark.parametrize("task", [SPLIT_RIDE, STEER])
+def test_load_policy_holds_the_carpet_events_at_the_hard_floor(monkeypatch, task):
+  # The tools judge every policy on the conditions v6 was judged on; only the
+  # ride audit's carpet rows go past them.
+  def fake_env(cfg, **_):
+    raise _Built(cfg)
+
+  monkeypatch.setattr(pl, "ManagerBasedRlEnv", fake_env)
+  with pytest.raises(_Built) as built:
+    pl.load_policy(task, SPLIT_POLICY, 0.3)
+  events = built.value.args[0].events
+  assert events["wheel_drag"].params["scale_range"] == (0.5, 3.0)
+  assert events["wheel_drag"].params["log_uniform"] is False
+  assert events["floor_foot_friction"].params["ranges"] == (0.5, 1.2)
+  assert events["deck_foot_friction"].params["ranges"] == (0.5, 1.4)
+  assert events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
+  # The deck geom keeps its compiled friction (1.0), as before.
+  assert "deck_friction" not in events
+
+
+def test_hard_floor_leaves_the_other_skate_tasks_alone():
+  for task in (
+    "Mjlab-Skate-Balance-Pupper-v3",
+    "Mjlab-Skate-Ride-Pupper-v3",
+    "Mjlab-SkateSplit-Balance-Pupper-v3",
+  ):
+    cfg = load_env_cfg(task, play=True)
+    before = repr(cfg.events)
+    pl.hold_hard_floor(cfg)
+    assert repr(cfg.events) == before, task

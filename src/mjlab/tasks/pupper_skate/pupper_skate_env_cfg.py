@@ -93,8 +93,9 @@ JOINT_SPEED_LIMIT: float = 12.0
 # Deck height offset from the nominal [m], and the seconds between shoves to the
 # robot and the board. Nominal is the measured 0.103 m; the range is 6.8 to
 # 11.3 cm, which covers the stock trucks and the planned trucks that sit 2 to
-# 3 cm lower. This range is for balance (both stances) and split ride; centred
-# ride uses RIDE_DECK_HEIGHT_RANGE below.
+# 3 cm lower. This range is for balance (both stances); centred ride uses
+# RIDE_DECK_HEIGHT_RANGE below, split ride and steer SPLIT_RIDE_DECK_HEIGHT_RANGE
+# (pupper_skate_split_env_cfg).
 DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.01)
 PUSH_INTERVAL_S: tuple[float, float] = (2.0, 4.0)
 

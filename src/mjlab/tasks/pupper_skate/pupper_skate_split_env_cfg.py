@@ -2,8 +2,8 @@
 
 One side of the robot stands on the deck, the other on the floor. This is the
 second pair of skate tasks, next to the centred stance in
-``pupper_skate_env_cfg.py``; the deck height range, ride speeds and shove
-interval are shared with it. Two tasks share one scene:
+``pupper_skate_env_cfg.py``; the balance deck height range, ride speeds and
+shove interval are shared with it. Two tasks share one scene:
 
 * balance -- hold the split stance on a board that is free to roll.
 * ride    -- push with the floor-side legs so the board rolls at a commanded
@@ -164,6 +164,36 @@ DECK_FEET_SLIDE_WEIGHT = -20.0
 # it is pinned here too so the split tasks keep it if the shared value moves.
 SPLIT_CONTACT_CONE = "elliptic"
 SPLIT_CONTACT_IMPRATIO = 10.0
+
+# Carpet (split ride and steer). On Gates carpet (hardware, 2026-11-24) steer
+# v6's floor legs stroked but the board did not roll, and in one clip the robot
+# crept from mid-deck to the nose in about 10 s. In sim, steer v6 at 0.3 m/s
+# (16 boards, 10 s) with the wheel drag pinned made 0.94 of the asked speed
+# with no resets at x3 (the old top), 0.70 and 4 resets at x6, 0.36 and 12 at
+# x10, 0.18 and 25 at x15, 0.10 and 41 at x25, nearly all board_slid. x15 to
+# x25 shows both hardware symptoms, so carpet is taken to be x15 to x25 of the
+# nominal drag (4 to 7 N of rolling resistance against about 0.28 N). That is a
+# sim estimate, not a measurement. The draw is uniform in the log, so half the
+# boards are still under about x3.5 (the geometric mean) and the policy keeps
+# its hard-floor ride.
+WHEEL_DRAG_SCALE_RANGE: tuple[float, float] = (0.5, 25.0)
+# Floor grip up to carpet: the TA's advice (2026-11-24) was to randomize the
+# feet's friction on carpet, since Gates carpet differs from other carpets, so
+# the floor feet's draw reaches 1.6, up from 1.2. Unmeasured. The deck feet's
+# draw (the grip tape) is unchanged.
+FLOOR_FOOT_FRICTION_RANGE: tuple[float, float] = (0.5, 1.6)
+DECK_FOOT_FRICTION_RANGE: tuple[float, float] = (0.5, 1.4)
+# The deck geom's own friction. Feet have geom priority 1 and keep their own
+# draw, so this reaches only the body, knee and shin contacts with the deck,
+# which were all at the compiled 1.0 before. The TA's advice was to randomize
+# the torso's friction on the board.
+DECK_BODY_FRICTION_RANGE: tuple[float, float] = (0.3, 1.2)
+# Deck top 6.8 to 11.8 cm: balance's range (DECK_HEIGHT_RANGE) plus 5 mm on
+# top, as the TA advised randomizing the board height. The split stance holds
+# 10 s with zero actions at +1.5 cm (test_split_stance_holds_for_10_s_across_
+# deck_heights; check_split_stance.py --deck-height 0.118: no reset, left feet
+# on the deck and right feet on the floor 100% of the time).
+SPLIT_RIDE_DECK_HEIGHT_RANGE: tuple[float, float] = (-0.035, 0.015)
 
 
 def _contact(
@@ -471,12 +501,14 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
   # Grip per side. Feet have geom priority 1, so a foot contact always takes
   # the foot's own friction: the deck feet's draw is the grip tape, the floor
   # feet's the floor. Each side shares one draw. The deck geom's own friction
-  # then reaches only contacts that end the episode or are charged anyway
-  # (knees, body), so its event is dropped.
+  # then reaches only the body, knee and shin contacts. Those end the episode
+  # or are charged anyway, so the event was dropped once; it is kept now, on
+  # its own range, since a torso or shin resting on the deck can hold the
+  # robot back on carpet.
   feet = cfg.events.pop("foot_friction")
   for name, pattern, ranges in (
-    ("deck_foot_friction", _DECK_FEET, (0.5, 1.4)),
-    ("floor_foot_friction", _GROUND_FEET, (0.5, 1.2)),
+    ("deck_foot_friction", _DECK_FEET, DECK_FOOT_FRICTION_RANGE),
+    ("floor_foot_friction", _GROUND_FEET, FLOOR_FOOT_FRICTION_RANGE),
   ):
     cfg.events[name] = dataclasses.replace(
       feet,
@@ -486,18 +518,23 @@ def pupper_skate_split_ride_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg:
         "ranges": ranges,
       },
     )
-  cfg.events.pop("deck_friction", None)
+  deck = cfg.events["deck_friction"]
+  deck.params = {**deck.params, "ranges": DECK_BODY_FRICTION_RANGE}
   # Wheel bearing drag: damping and frictionloss of all four wheels scaled by
   # one factor per env. The nominal values are guesses, and drag x2 already
-  # cost the 10 s policy a fifth of its speed.
+  # cost the 10 s policy a fifth of its speed; the range reaches carpet (see
+  # WHEEL_DRAG_SCALE_RANGE).
   cfg.events["wheel_drag"] = EventTermCfg(
     mode="startup",
     func=mdp.scale_joint_drag,
     params={
-      "scale_range": (0.5, 3.0),
+      "scale_range": WHEEL_DRAG_SCALE_RANGE,
       "asset_cfg": SceneEntityCfg("board", joint_names=(r"wheel_.*_spin",)),
+      "log_uniform": True,
     },
   )
+  height = cfg.events["deck_height"]
+  height.params = {**height.params, "ranges": SPLIT_RIDE_DECK_HEIGHT_RANGE}
   # Hand placement: the board can start 2 cm to either side and 0.15 rad off
   # the robot's heading. No term reads the board's heading from world x (see
   # the steer docstring); the heading hold below reads it relative to the

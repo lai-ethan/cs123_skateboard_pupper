@@ -15,6 +15,7 @@ from mjlab.utils.lab_api.math import (
   quat_apply,
   quat_from_euler_xyz,
   quat_mul,
+  sample_log_uniform,
   sample_uniform,
   yaw_quat,
 )
@@ -100,18 +101,21 @@ def scale_joint_drag(
   env_ids: torch.Tensor | None,
   scale_range: tuple[float, float],
   asset_cfg: SceneEntityCfg,
+  log_uniform: bool = False,
 ) -> None:
   """Scale the joints' damping and frictionloss by one factor per env.
 
-  The factor is drawn uniformly from ``scale_range`` and applies to every joint
-  of ``asset_cfg`` and to both fields, so a board's wheels all roll as freely
-  as each other. It multiplies the model's compiled values, so the event can
-  run again without compounding.
+  The factor is drawn from ``scale_range``, uniformly, or uniformly in its log
+  when ``log_uniform`` is set (for a range that spans orders of magnitude). It
+  applies to every joint of ``asset_cfg`` and to both fields, so a board's
+  wheels all roll as freely as each other. It multiplies the model's compiled
+  values, so the event can run again without compounding.
   """
   env_ids = resolve_env_ids(env, env_ids)
   asset: Entity = env.scene[asset_cfg.name]
   dofs = asset.indexing.joint_v_adr[asset_cfg.joint_ids]
-  scale = sample_uniform(*scale_range, (len(env_ids), 1), env.device)
+  sample = sample_log_uniform if log_uniform else sample_uniform
+  scale = sample(*scale_range, (len(env_ids), 1), env.device)
   for field in ("dof_damping", "dof_frictionloss"):
     default = env.sim.get_default_field(field)[dofs]
     getattr(env.sim.model, field)[env_ids[:, None], dofs[None, :]] = default * scale

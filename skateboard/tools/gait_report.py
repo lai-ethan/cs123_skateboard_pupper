@@ -10,10 +10,11 @@ Usage (repo root; drop FORCE_CPU=1 on a machine with an NVIDIA GPU):
 
 Rolls out `--envs` environments at once, built from `--seed`, so two runs
 give the same answer. Each env draws its own board (deck height, truck
-stiffness, friction, gains) from the task's ranges. `--deck-height` pins the
-deck top to that many metres above the floor in every env instead, for
-example 0.103 for the stock trucks or the measured height of the lowered
-ones; use it for the check before the robot.
+stiffness, friction, gains) from the task's ranges, with the split ride's
+carpet ranges held at the hard floor (`hold_hard_floor` in policy_loader.py).
+`--deck-height` pins the deck top to that many metres above the floor in every
+env instead, for example 0.103 for the stock trucks or the measured height of
+the lowered ones; use it for the check before the robot.
 
 Drops the first `--skip` steps (settling), then measures, per env, peak joint
 speed (the largest per-joint 99th percentile), time at the torque limit, the

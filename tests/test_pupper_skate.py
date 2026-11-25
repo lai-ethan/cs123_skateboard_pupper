@@ -70,6 +70,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   pupper_skate_ride_env_cfg,
 )
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
+  SPLIT_RIDE_DECK_HEIGHT_RANGE,
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
   pupper_skate_split_steer_env_cfg,
@@ -830,9 +831,11 @@ def test_only_centred_ride_plays_the_push_reference():
     pupper_skate_split_balance_env_cfg(),
     pupper_skate_split_ride_env_cfg(),
   )
-  for cfg, fell in zip(others, (0.5, 0.6, 0.6), strict=True):
+  # The split ride reaches 5 mm higher (SPLIT_RIDE_DECK_HEIGHT_RANGE).
+  deck_ranges = (DECK_HEIGHT_RANGE, DECK_HEIGHT_RANGE, SPLIT_RIDE_DECK_HEIGHT_RANGE)
+  for cfg, fell, deck in zip(others, (0.5, 0.6, 0.6), deck_ranges, strict=True):
     assert "reference_tracking" not in cfg.rewards
-    assert cfg.events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
+    assert cfg.events["deck_height"].params["ranges"] == deck
     assert cfg.terminations["fell_over"].params["limit_angle"] == fell
     policy = cfg.observations["actor"].terms["policy"]
     assert policy.func is mdp.zero_reference_actor_obs

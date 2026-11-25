@@ -1,8 +1,8 @@
 # Sim2real: will Pupper stay balanced on the board?
 
 The TA's concern after the checkpoint report: "I doubt if Pupper can remain balanced
-at this pose on the board." This note is the answer so far. It is version 7,
-written 2026-11-20, from simulation only. Nothing here has been tried on the robot.
+at this pose on the board." This note is the answer so far. It is version 8,
+written 2026-11-24, from simulation except the first carpet run (see "Carpet").
 
 ## Short answer
 
@@ -622,6 +622,44 @@ The runs below show how it got there.
   robot-side validator (`download_policy.py --validate-only`). Checkpoint:
   `policies/split_steer_v7_model_28997.pt`.
 
+## Carpet
+
+On Gates carpet (2026-11-24) the split ride (steer v6) stroked with the floor
+legs but the board did not roll, and in one clip the robot crept from mid-deck
+to the nose over about 10 s. In sim, steer v6 at 0.3 m/s (16 boards, 10 s)
+with the wheel drag pinned (nominal is about 0.28 N of rolling resistance in
+total):
+
+| Wheel drag | Speed (share of asked) | Resets | Main reset |
+| --- | --- | --- | --- |
+| x3 (top of the old trained range) | 0.94 | 0 | - |
+| x6 | 0.70 | 4 | `board_slid`, `board_drifted` |
+| x10 | 0.36 | 12 | `board_slid` |
+| x15 | 0.18 | 25 | `board_slid` |
+| x25 | 0.10 | 41 | `board_slid` |
+
+x15 to x25 shows both hardware symptoms (the board stalls, the feet slide
+along the deck), so carpet is taken to be x15 to x25 of nominal (4 to 7 N).
+**This is a sim estimate, not a measurement of the real board.**
+
+The split ride and steer now train on these ranges (balance and the centred
+ride are unchanged):
+
+| Event | Before | Now |
+| --- | --- | --- |
+| `wheel_drag` | x0.5 to x3, uniform | x0.5 to x25, uniform in the log (half the boards under x3.5) |
+| `floor_foot_friction` | 0.5 to 1.2 | 0.5 to 1.6 |
+| `deck_foot_friction` | 0.5 to 1.4 | 0.5 to 1.4 |
+| `deck_friction` (body, knee and shin on the deck) | not drawn (1.0) | 0.3 to 1.2 |
+| `deck_height` (deck top) | 6.8 to 11.3 cm | 6.8 to 11.8 cm |
+
+The split stance holds 10 s with zero actions at the new 11.8 cm top. The
+sim tools (`gait_report.py`, `timed_ride.py`, `render_policy.py`,
+`ride_audit.py`) hold these events at the old ranges, so their numbers compare
+with v6's; the ride audit's `wheel_drag_x6` to `wheel_drag_x25` and
+`floor_grip_1.6` rows test carpet. The plan is
+[`PLAN_CARPET.md`](PLAN_CARPET.md).
+
 ## What changed from v1
 
 - v1 covered the old split stance on a guessed board, with one policy
@@ -709,6 +747,11 @@ The runs below show how it got there.
 - The v7 export clips yaw at ±0.3 rad/s, not ±0.6 like v6.
 - The plan's step 9, the file table and the short answer now name v7 as the
   slide fallback.
+
+## What changed from v7
+
+- New "Carpet" section: the Gates carpet hardware result, the sim drag table,
+  and the wider randomization the split ride and steer now train on.
 
 ## Accounting
 

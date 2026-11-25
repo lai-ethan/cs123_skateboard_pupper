@@ -13,8 +13,9 @@ The ride phase commands `--speed` and `--yaw-rate` in every env. The coast
 phase commands zero (every env is made a standing env), as the robot's
 controller sees after the voice command ends. Distances are along the
 board's path. An env that resets at any point is dropped and counted in
-`resets`. Each env draws its own board and gains from the task's ranges, so
-the mean and the max differ.
+`resets`. Each env draws its own board and gains from the task's ranges (the
+carpet ranges held at the hard floor, see `hold_hard_floor` in
+policy_loader.py), so the mean and the max differ.
 """
 
 import argparse

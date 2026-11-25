@@ -15,7 +15,10 @@ import torch
 from conftest import get_test_device
 from rsl_rl.modules import MLP, EmpiricalNormalization
 
-from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import SkateboardParams
+from mjlab.asset_zoo.robots.mini_cruiser.skateboard_constants import (
+  DECK_GEOM_NAME,
+  SkateboardParams,
+)
 from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
   JOINT_NAMES,
   PUPPER_EFFORT_LIMIT,
@@ -45,6 +48,7 @@ from mjlab.tasks.pupper_skate.mdp.rewards import stance_target
 from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
   BALANCE_TORQUE_SOFT_RATIO,
   DECK_HEIGHT_RANGE,
+  RIDE_DECK_HEIGHT_RANGE,
   RIDE_SPEED_RANGE,
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -56,9 +60,13 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   BOARD_MAX_SLIDE_ABS,
   BOARD_SIDE_CREEP_WEIGHT,
   BOARD_SLIDE_STD,
+  DECK_BODY_FRICTION_RANGE,
   DECK_FEET_SLIDE_WEIGHT,
+  DECK_FOOT_FRICTION_RANGE,
+  FLOOR_FOOT_FRICTION_RANGE,
   SPLIT_CONTACT_CONE,
   SPLIT_CONTACT_IMPRATIO,
+  SPLIT_RIDE_DECK_HEIGHT_RANGE,
   STEER_CARVE_COMMAND_RANGE,
   STEER_CARVE_GAIN,
   STEER_CARVE_THRESHOLD,
@@ -66,6 +74,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   STEER_STRAIGHT_SHARE,
   STEER_TRUCK_STIFFNESS_SCALE,
   STEER_YAW_MIN_SPEED,
+  WHEEL_DRAG_SCALE_RANGE,
   pupper_skate_split_balance_env_cfg,
   pupper_skate_split_ride_env_cfg,
   pupper_skate_split_steer_env_cfg,
@@ -546,12 +555,18 @@ def test_split_ride_commands_forward_speed_only():
   assert "push_robot" in cfg.events
 
 
-def test_split_cfgs_share_the_deck_height_range():
-  for make_cfg in (pupper_skate_split_balance_env_cfg, pupper_skate_split_ride_env_cfg):
+def test_split_balance_keeps_the_deck_height_range_and_the_rides_reach_higher():
+  # Deck top 6.8 to 11.8 cm for the ride and steer, 6.8 to 11.3 for balance.
+  assert SPLIT_RIDE_DECK_HEIGHT_RANGE == (-0.035, 0.015)
+  for make_cfg, ranges in (
+    (pupper_skate_split_balance_env_cfg, DECK_HEIGHT_RANGE),
+    (pupper_skate_split_ride_env_cfg, SPLIT_RIDE_DECK_HEIGHT_RANGE),
+    (pupper_skate_split_steer_env_cfg, SPLIT_RIDE_DECK_HEIGHT_RANGE),
+  ):
     for play in (False, True):
       events = make_cfg(play=play).events
       assert events["deck_height"].mode == "startup"
-      assert events["deck_height"].params["ranges"] == DECK_HEIGHT_RANGE
+      assert events["deck_height"].params["ranges"] == ranges
       assert ("push_robot" in events) is not play
 
 
@@ -590,7 +605,7 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
     assert cfg.episode_length_s == 20.0
   events = cfg.events
   # Grip per side: two draws that split the four feet between them.
-  assert "foot_friction" not in events and "deck_friction" not in events
+  assert "foot_friction" not in events
   deck, floor = events["deck_foot_friction"], events["floor_foot_friction"]
   for term in (deck, floor):
     assert term.func is dr.geom_friction
@@ -598,13 +613,23 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
     assert term.params["operation"] == "abs"
     assert term.params["shared_random"] is True
   assert deck.params["ranges"] == (0.5, 1.4)
-  assert floor.params["ranges"] == (0.5, 1.2)
+  assert floor.params["ranges"] == (0.5, 1.6)
   assert _matched_geoms(deck) == set(_DECK_FEET_GEOMS)
   assert _matched_geoms(floor) == set(_FLOOR_FEET_GEOMS)
-  # Wheel drag: one factor per env for all four wheels' bearings.
+  # The deck geom's own friction, which reaches only body, knee and shin
+  # contacts (the feet take their own).
+  body = events["deck_friction"]
+  assert body.func is dr.geom_friction and body.mode == "startup"
+  assert body.params["operation"] == "abs"
+  assert body.params["ranges"] == (0.3, 1.2)
+  assert body.params["asset_cfg"].name == "board"
+  assert body.params["asset_cfg"].geom_names == (DECK_GEOM_NAME,)
+  # Wheel drag: one factor per env for all four wheels' bearings, log-uniform
+  # from hard floor to carpet.
   drag = events["wheel_drag"]
   assert drag.func is mdp.scale_joint_drag and drag.mode == "startup"
-  assert drag.params["scale_range"] == (0.5, 3.0)
+  assert drag.params["scale_range"] == (0.5, 25.0)
+  assert drag.params["log_uniform"] is True
   assert drag.params["asset_cfg"].name == "board"
   assert drag.params["asset_cfg"].joint_names == (r"wheel_.*_spin",)
   # Placement and shoves.
@@ -659,6 +684,28 @@ def test_split_ride_trains_for_long_rides_grip_drag_and_placement(play):
   assert cfg.rewards["termination"].weight == -100.0
 
 
+def test_carpet_constants():
+  assert WHEEL_DRAG_SCALE_RANGE == (0.5, 25.0)
+  assert FLOOR_FOOT_FRICTION_RANGE == (0.5, 1.6)
+  assert DECK_FOOT_FRICTION_RANGE == (0.5, 1.4)
+  assert DECK_BODY_FRICTION_RANGE == (0.3, 1.2)
+  assert SPLIT_RIDE_DECK_HEIGHT_RANGE == (-0.035, 0.015)
+
+
+@pytest.mark.parametrize(
+  "make_cfg", [pupper_skate_split_ride_env_cfg, pupper_skate_split_steer_env_cfg]
+)
+@pytest.mark.parametrize("play", [False, True])
+def test_split_ride_and_steer_train_on_carpet(make_cfg, play):
+  events = make_cfg(play=play).events
+  assert events["wheel_drag"].params["scale_range"] == WHEEL_DRAG_SCALE_RANGE
+  assert events["wheel_drag"].params["log_uniform"] is True
+  assert events["floor_foot_friction"].params["ranges"] == FLOOR_FOOT_FRICTION_RANGE
+  assert events["deck_foot_friction"].params["ranges"] == DECK_FOOT_FRICTION_RANGE
+  assert events["deck_friction"].params["ranges"] == DECK_BODY_FRICTION_RANGE
+  assert events["deck_height"].params["ranges"] == SPLIT_RIDE_DECK_HEIGHT_RANGE
+
+
 PROTECTED_TASKS = (
   pupper_skate_balance_env_cfg,
   pupper_skate_ride_env_cfg,
@@ -683,6 +730,11 @@ def test_other_skate_tasks_have_none_of_the_long_ride_changes(make_cfg):
       _DECK_FEET_GEOMS + _FLOOR_FEET_GEOMS
     )
     assert events["deck_friction"].params["ranges"] == (0.6, 1.2)
+    assert events["deck_height"].params["ranges"] == (
+      RIDE_DECK_HEIGHT_RANGE
+      if make_cfg is pupper_skate_ride_env_cfg
+      else DECK_HEIGHT_RANGE
+    )
     assert events["reset_board"].params["pose_range"] == {
       "x": (-0.03, 0.03),
       "yaw": (-0.05, 0.05),
@@ -940,7 +992,8 @@ def test_split_stance_holds_with_zero_actions(split_env):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("deck_offset", [-0.035, 0.0, 0.01])
+# +1.5 cm is the top of the split ride's deck height range.
+@pytest.mark.parametrize("deck_offset", [-0.035, 0.0, 0.01, 0.015])
 def test_split_stance_holds_for_10_s_across_deck_heights(deck_offset):
   cfg = _calm_split_cfg(1, spawn_noise=False, deck_offset=deck_offset)
   env = ManagerBasedRlEnv(cfg=cfg, device=get_test_device())
@@ -1045,6 +1098,70 @@ def test_split_ride_observations_and_actions_keep_their_size(ride_env):
   assert ride_env.action_manager.total_action_dim == 12
 
 
+def _drag_env(num_envs: int) -> tuple[Any, SceneEntityCfg]:
+  """A fake env for scale_joint_drag: 5 dofs, the 4 wheels at dofs 1 to 4."""
+  damping = torch.tensor([7.0, 0.1, 0.2, 0.3, 0.4])
+  friction = torch.tensor([9.0, 0.01, 0.02, 0.03, 0.04])
+  defaults = {"dof_damping": damping, "dof_frictionloss": friction}
+  model = SimpleNamespace(
+    dof_damping=damping.repeat(num_envs, 1),
+    dof_frictionloss=friction.repeat(num_envs, 1),
+  )
+  env = SimpleNamespace(
+    num_envs=num_envs,
+    device="cpu",
+    scene={
+      "board": SimpleNamespace(indexing=SimpleNamespace(joint_v_adr=torch.arange(5)))
+    },
+    sim=SimpleNamespace(model=model, get_default_field=defaults.__getitem__),
+  )
+  asset_cfg = SceneEntityCfg("board")
+  asset_cfg.joint_ids = [1, 2, 3, 4]
+  return env, asset_cfg
+
+
+def _drag_factors(env: Any) -> tuple[torch.Tensor, torch.Tensor]:
+  """Each env's damping and frictionloss factors on the four wheels."""
+  model = env.sim.model
+  damping = model.dof_damping[:, 1:] / torch.tensor([0.1, 0.2, 0.3, 0.4])
+  friction = model.dof_frictionloss[:, 1:] / torch.tensor([0.01, 0.02, 0.03, 0.04])
+  return damping, friction
+
+
+def test_scale_joint_drag_log_uniform_spans_hard_floor_to_carpet():
+  env, asset_cfg = _drag_env(4096)
+  torch.manual_seed(0)
+  mdp.scale_joint_drag(env, None, (0.5, 25.0), asset_cfg, log_uniform=True)
+  damping, friction = _drag_factors(env)
+  # One factor per env for all four wheels and both fields.
+  torch.testing.assert_close(damping, damping[:, :1].expand_as(damping))
+  torch.testing.assert_close(friction, damping)
+  factor = damping[:, 0]
+  assert torch.all((factor >= 0.5 - 1e-5) & (factor <= 25.0 + 1e-5))
+  # Uniform in the log: the median is the geometric mean, not the midpoint.
+  median = factor.median().item()
+  assert abs(median / math.sqrt(0.5 * 25.0) - 1.0) < 0.15
+  # The other dof is untouched.
+  assert torch.all(env.sim.model.dof_damping[:, 0] == 7.0)
+  assert torch.all(env.sim.model.dof_frictionloss[:, 0] == 9.0)
+
+
+def test_scale_joint_drag_uniform_is_unchanged_for_a_fixed_seed():
+  env, asset_cfg = _drag_env(64)
+  torch.manual_seed(3)
+  mdp.scale_joint_drag(env, None, (0.5, 3.0), asset_cfg, log_uniform=False)
+  damping, friction = _drag_factors(env)
+  torch.manual_seed(3)
+  expected = torch.rand(64, 1) * (3.0 - 0.5) + 0.5
+  torch.testing.assert_close(damping, expected.expand(64, 4))
+  torch.testing.assert_close(friction, damping)
+  # And the default draw is the uniform one.
+  env, asset_cfg = _drag_env(64)
+  torch.manual_seed(3)
+  mdp.scale_joint_drag(env, None, (0.5, 3.0), asset_cfg)
+  torch.testing.assert_close(_drag_factors(env)[0], expected.expand(64, 4))
+
+
 @pytest.mark.slow
 def test_wheel_drag_shares_one_factor_per_env(ride_env):
   board = ride_env.scene["board"]
@@ -1059,7 +1176,7 @@ def test_wheel_drag_shares_one_factor_per_env(ride_env):
   torch.testing.assert_close(damping, damping[:, :1].expand_as(damping))
   torch.testing.assert_close(friction, damping)
   factor = damping[:, 0]
-  assert torch.all((factor >= 0.5) & (factor <= 3.0))
+  assert torch.all((factor >= 0.5) & (factor <= 25.0))
   assert factor.max() - factor.min() > 0.1
 
 
@@ -1077,12 +1194,18 @@ def test_split_ride_draws_grip_per_side(ride_env):
   torch.testing.assert_close(deck[:, 1], deck[:, 0])
   torch.testing.assert_close(floor[:, 1], floor[:, 0])
   assert torch.all((deck >= 0.5) & (deck <= 1.4))
-  assert torch.all((floor >= 0.5) & (floor <= 1.2))
+  assert torch.all((floor >= 0.5) & (floor <= 1.6))
   assert not torch.allclose(deck[:, 0], floor[:, 0])
+  # The deck geom draws its own friction for the body, knee and shin contacts.
+  board = ride_env.scene["board"]
+  deck_geom = board.indexing.geom_ids[board.geom_names.index(DECK_GEOM_NAME)].item()
+  body = mu[:, deck_geom]
+  assert torch.all((body >= 0.3) & (body <= 1.2))
+  assert body.max() - body.min() > 0.05
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("deck_offset", DECK_HEIGHT_RANGE)
+@pytest.mark.parametrize("deck_offset", SPLIT_RIDE_DECK_HEIGHT_RANGE)
 def test_board_drifted_allows_placement_noise_and_ends_a_7_cm_drift(deck_offset):
   env = ManagerBasedRlEnv(cfg=_calm_ride_cfg(5, deck_offset), device=get_test_device())
   env.reset()
