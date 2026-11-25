@@ -146,14 +146,25 @@ BOARD_CREEP_CAP = 0.02
 # across the deck while loaded (5 to 10 N, in contact 99% of steps), and that
 # slide is 0.8 to 5.1 cm of the 6 cm in the last 2 s. No term charged it
 # before the -100. A lean is a held offset, so it costs nothing once held.
-BOARD_SIDE_CREEP_WEIGHT = -1.0
+# Steer v8 (69e4d6b) trained it at -1.0 and failed its pass bar. v9 resumes from
+# steer v6, which had no such term, and changes one thing at a time (only the
+# carpet ranges), so it is 0.0 here. The term stays, and the notebook table can
+# turn it back on.
+BOARD_SIDE_CREEP_WEIGHT = 0.0
 
 # The creep in steer v6 is a ratchet: when one right foot pushes alone, the
 # deck foot on the same end drops to 1 to 2 N and scuffs about 5 mm, and about
 # 1 mm of that stays each stride. At weight -2 deck_feet_slide cost 0.0015 to
 # 0.011 per step, against 0.07 to 0.33 for board_creep, so the scuff was all
-# but free. Ten times that puts it at 0.015 to 0.11.
+# but free. Ten times that puts it at 0.015 to 0.11. The split ride has
+# trained at -20 since then.
 DECK_FEET_SLIDE_WEIGHT = -20.0
+# Steer's own scuff weight. Steer v6 (9743be3) trained at -2. Steer v7 (5d32fdf)
+# took the ride's -20 and pulled right at stick 0 and lost the board in hard
+# right carves. v9 resumes from v6 and changes only the carpet ranges, so steer
+# is back at v6's -2. v7's fore-aft slide from the episode start stays: it is
+# the stricter check and the sim tools read it.
+STEER_DECK_FEET_SLIDE_WEIGHT = -2.0
 
 # Split tasks: strict friction on the contacts. MuJoCo's soft contacts let a
 # loaded foot slip slowly under a steady sideways load; real grip tape holds.
@@ -747,13 +758,13 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   The board turns only when the deck tilts, so this task trains on loosened
   trucks (STEER_TRUCK_STIFFNESS_SCALE) that Pupper's weight can tilt. The
   board's turn is paid, not how the lean is made: a tight tracking term plus
-  board_turn_progress, which pays from the first bit of turn. Outside carves
-  the tracking term pays a rolling board for not turning. The ride's robot
+  board_turn_progress, which pays from the first bit of turn. The ride's robot
   yaw-rate term stays, with a carve asking the body for the board's rate.
   Board alignment is twice as wide sideways as the ride's, since a lean needs
-  the deck feet about 4 cm off the centre line, and board_side_creep charges
-  the board sliding sideways while it slides, as board_creep does along the
-  deck. Every other term is the ride's: none of them reads a world-frame
+  the deck feet about 4 cm off the centre line. The deck feet's scuff is
+  charged at steer v6's weight, a tenth of the ride's, and board_side_creep
+  (charging a sideways board slide as board_creep does along the deck) ships
+  at weight 0. Every other term is the ride's: none of them reads a world-frame
   heading (forward speed is along the board's own axis, board alignment is in
   the robot's heading frame, board drift and slide in the board's, foot slide
   and the shoves are the same in every direction), so they hold once the board
@@ -805,19 +816,14 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   # pay differently: a board turning at a 0.02 rad/s target under a 0.06
   # command keeps 2% of the term. Riding straight under a 0.01 to 0.06 rad/s
   # target pays 78 to 0%; board_turn_progress pays from the first bit of turn.
-  # Outside carves, at speed commands of STEER_YAW_MIN_SPEED or more, it pays
-  # for a board that does not turn. Steer v7 pulled 0.013 rad/s at stick 0,
-  # which board_yaw_rate charged 8.5e-5 a step; here it keeps 66% of the term,
-  # so it costs 0.69 a step. Standing envs get 0, as before.
+  # Outside carves it pays 0. Steer v8 (69e4d6b) also paid a rolling board for
+  # not turning there (straight_min_speed at STEER_YAW_MIN_SPEED) and failed its
+  # pass bar; v9 resumes from steer v6, which trained without it, and changes
+  # only the carpet ranges. track_board_yaw_rate keeps the option.
   r["track_board_yaw_rate"] = RewardTermCfg(
     func=mdp.track_board_yaw_rate,
     weight=2.0,
-    params={
-      "command_name": "twist",
-      "std": 0.02,
-      "straight_min_speed": STEER_YAW_MIN_SPEED,
-      **carve,
-    },
+    params={"command_name": "twist", "std": 0.02, **carve},
   )
   r["board_turn_progress"] = RewardTermCfg(
     func=mdp.board_turn_progress,
@@ -831,8 +837,11 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   # A lean needs the deck feet about 4 cm off the centre line, which the
   # ride's 3 cm width charges 83% of the term for. The yaw width is the ride's.
   r["board_alignment"].params = {**r["board_alignment"].params, "std_pos": 0.06}
-  # The slow sideways slide that ends hard carves in board_drifted, charged
-  # while it happens (see the constants).
+  # The deck feet's scuff at steer v6's weight, not the ride's (see the
+  # constants).
+  r["deck_feet_slide"].weight = STEER_DECK_FEET_SLIDE_WEIGHT
+  # The slow sideways slide that ends hard carves in board_drifted, off by
+  # default (see the constants).
   r["board_side_creep"] = RewardTermCfg(
     func=mdp.board_side_creep,
     weight=BOARD_SIDE_CREEP_WEIGHT,

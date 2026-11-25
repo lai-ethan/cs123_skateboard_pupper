@@ -199,10 +199,13 @@ if SPLIT:
   else:
     REWARD_WEIGHTS["board_still"] = -2.0
   if STEER:
+    # Steer v6's weights: the ride's deck-foot scuff at a tenth (v7 tried the
+    # ride's -20) and no sideways creep charge (v8 tried -1.0).
     REWARD_WEIGHTS.update({
       "track_board_yaw_rate": 2.0,
       "board_turn_progress": 1.0,
-      "board_side_creep": -1.0,
+      "deck_feet_slide": -2.0,
+      "board_side_creep": 0.0,
     })
 else:
   REWARD_WEIGHTS = {
@@ -392,7 +395,7 @@ out = [
     " than `push_stride` asks for; a tap with no stance costs the full weight |\n"
     "| `feet_slide` | n/a | -2.0 | a right foot slides while on the floor |\n"
     "| `deck_feet_slide` | n/a | -20.0 | a left foot slides over the deck (measured"
-    " against the deck, which moves) |\n"
+    " against the deck, which moves; steer: -2.0) |\n"
     "| `push_foot_idle` | n/a | -0.5 | a right foot held in the air for more than"
     " 0.5 s |\n"
     "| `push_leg_pose` | n/a | 0.3 | right legs stay loosely near the keyframe |\n"

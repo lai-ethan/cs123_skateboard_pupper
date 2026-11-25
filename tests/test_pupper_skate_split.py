@@ -70,6 +70,7 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   STEER_CARVE_COMMAND_RANGE,
   STEER_CARVE_GAIN,
   STEER_CARVE_THRESHOLD,
+  STEER_DECK_FEET_SLIDE_WEIGHT,
   STEER_HEADING_HOLD_CLIP,
   STEER_STRAIGHT_SHARE,
   STEER_TRUCK_STIFFNESS_SCALE,
@@ -1880,6 +1881,27 @@ def test_only_the_steer_charges_side_creep_and_a_straight_pull(make_cfg):
     assert "straight_min_speed" not in term.params, name
 
 
+def test_steer_trains_on_steer_v6s_rewards():
+  # v9 resumes from steer v6 and changes only the carpet ranges, so the steer
+  # task's rewards are v6's (commit 9743be3): the deck-foot scuff at -2, not
+  # v7's -20; no sideways creep charge and no straight-line board tracking
+  # (v8's). The split ride keeps the -20 it has trained on since v7.
+  for play in (False, True):
+    steer = pupper_skate_split_steer_env_cfg(play=play)
+    ride = pupper_skate_split_ride_env_cfg(play=play)
+    slide = steer.rewards["deck_feet_slide"]
+    assert slide.weight == STEER_DECK_FEET_SLIDE_WEIGHT == -2.0
+    assert slide.params == ride.rewards["deck_feet_slide"].params
+    assert steer.rewards["board_side_creep"].weight == 0.0
+    yaw = steer.rewards["track_board_yaw_rate"]
+    assert "straight_min_speed" not in yaw.params
+    assert ride.rewards["deck_feet_slide"].weight == DECK_FEET_SLIDE_WEIGHT == -20.0
+    assert _weights(ride) == pytest.approx(SPLIT_RIDE_WEIGHTS)
+    # v7's slide from the episode start stays: the stricter check.
+    slid = steer.terminations["board_slid"].params
+    assert slid == {"max_slide": BOARD_MAX_SLIDE, "max_slide_abs": BOARD_MAX_SLIDE_ABS}
+
+
 def test_steer_is_the_split_ride_plus_a_carve_command():
   for play in (False, True):
     ride = pupper_skate_split_ride_env_cfg(play=play)
@@ -1887,20 +1909,17 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     expected = _weights(ride)
     expected["track_board_yaw_rate"] = 2.0
     expected["board_turn_progress"] = 1.0
-    expected["board_side_creep"] = -1.0
+    expected["board_side_creep"] = 0.0
+    expected["deck_feet_slide"] = -2.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
-    assert term.params == {
-      "command_name": "twist",
-      "std": 0.02,
-      "straight_min_speed": STEER_YAW_MIN_SPEED,
-      **_CARVE,
-    }
-    # The sideways twin of board_creep, at its rate and averages.
+    assert term.params == {"command_name": "twist", "std": 0.02, **_CARVE}
+    # The sideways twin of board_creep, at its rate and averages, off by default
+    # (steer v8's experiment, turned back on from the notebook table).
     term = steer.rewards["board_side_creep"]
     assert term.func is mdp.board_side_creep
-    assert term.weight == BOARD_SIDE_CREEP_WEIGHT == -1.0
+    assert term.weight == BOARD_SIDE_CREEP_WEIGHT == 0.0
     assert term.params == {"tau": BOARD_CREEP_TAU, "rate_cap": BOARD_CREEP_CAP}
     term = steer.rewards["board_turn_progress"]
     assert term.func is mdp.board_turn_progress

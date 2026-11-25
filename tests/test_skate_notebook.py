@@ -130,10 +130,10 @@ def test_train_cell_resumes_only_when_asked():
   assert "wandb_run_path=RESUME_FROM" in resume
 
 
-def test_steer_trains_side_creep_and_the_straight_pull():
-  # The train cell's own loop, on the registered steer cfg: board_side_creep
-  # trains at -1.0 and track_board_yaw_rate keeps its straight_min_speed (the
-  # loop only sets weights). The ride has neither.
+def test_steer_trains_on_steer_v6s_rewards():
+  # The train cell's own loop, on the registered steer cfg: steer trains on
+  # v6's rewards (deck_feet_slide -2, board_side_creep off, no straight pull);
+  # the split ride keeps deck_feet_slide -20 and has no side creep term.
   train = [c for c in _code_cells() if "launch_training(" in c]
   assert len(train) == 1
   lines = train[0].splitlines()
@@ -147,12 +147,17 @@ def test_steer_trains_side_creep_and_the_straight_pull():
     exec(apply, scope)
     rewards = scope["env_cfg"].rewards
     if "-Steer-" in task:
-      assert scope["REWARD_WEIGHTS"]["board_side_creep"] == -1.0
+      assert scope["REWARD_WEIGHTS"]["deck_feet_slide"] == -2.0
+      assert rewards["deck_feet_slide"].weight == -2.0
+      # Still in the table, so the experiment can be turned back on.
+      assert scope["REWARD_WEIGHTS"]["board_side_creep"] == 0.0
       assert rewards["board_side_creep"].func is mdp.board_side_creep
-      assert rewards["board_side_creep"].weight == -1.0
+      assert rewards["board_side_creep"].weight == 0.0
       yaw = rewards["track_board_yaw_rate"]
-      assert yaw.weight == 2.0 and yaw.params["straight_min_speed"] == 0.1
+      assert yaw.weight == 2.0 and "straight_min_speed" not in yaw.params
     else:
+      assert scope["REWARD_WEIGHTS"]["deck_feet_slide"] == -20.0
+      assert rewards["deck_feet_slide"].weight == -20.0
       assert "board_side_creep" not in scope["REWARD_WEIGHTS"]
       assert "board_side_creep" not in rewards
   assert "board_side_creep" in NOTEBOOK.read_text()

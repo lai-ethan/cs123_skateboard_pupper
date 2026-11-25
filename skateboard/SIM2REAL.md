@@ -660,6 +660,9 @@ with v6's; the ride audit's `wheel_drag_x6` to `wheel_drag_x25` and
 `floor_grip_1.6` rows test carpet. The plan is
 [`PLAN_CARPET.md`](PLAN_CARPET.md).
 
+Steer v9 trains on steer v6's rewards (`deck_feet_slide` -2, `board_side_creep`
+0, no straight-line board tracking), so the carpet ranges are the only change.
+
 ## What changed from v1
 
 - v1 covered the old split stance on a guessed board, with one policy
