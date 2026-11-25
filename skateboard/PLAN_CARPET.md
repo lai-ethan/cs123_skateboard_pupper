@@ -211,6 +211,63 @@ pass bar: every row v6 passes still passes; `wheel_drag_x6` speed at least
 0.9 with at most 2 resets; `wheel_drag_x10` speed at least 0.7 with at most 2
 resets; gait report passes at stick 0 and ±0.15.
 
+## Result of v10 (2026-11-25): better than v6 on every row, misses the bar at x10
+
+Run `74jsd4gb`, 2000 of 2000 iterations, resumed from v9, drag range x0.5 to
+x10, T4 GPU. Checkpoint `model_31996.pt`. Sim only.
+
+| Wheel drag | v6 speed (resets) | v9 speed (resets) | v10 speed (resets) |
+| --- | --- | --- | --- |
+| x1 to x3 | 0.94 to 0.99 (0) | 1.04 (0) | 1.02 (0) |
+| x6 | 0.70 (4) | 0.95 (4) | 0.96 (0) |
+| x10 | 0.36 (12) | 0.45 (3) | 0.58 (4) |
+| x15 (stress) | 0.18 (25) | 0.07 (1) | 0.26 (4) |
+| x25 (stress) | 0.10 (41) | 0.00 (1) | 0.03 (1) |
+
+- Ride audit: 18 of 21 rows. Every row v6 passes, v10 passes; `nominal_30s`
+  has no reset (v6 had 1) and `shove_fwd_0.5` passes again.
+- `wheel_drag_x6`: 0.96, no resets. Meets the bar.
+- `wheel_drag_x10`: 0.58 with 4 `board_drifted`. Misses the bar (0.7, at
+  most 2 resets). Boards range from 0.01 to 0.93 of the asked speed.
+- Gait report at 0.3 m/s: pass with no resets at stick 0, ±0.15, ±0.3 and
+  ±0.5 (v6 had one reset at +0.3 and at +0.5). Board turn as a share of
+  asked: 1.24 / 0.80 at ±0.15, 0.84 / 0.78 at ±0.3, 0.68 / 1.01 at ±0.5.
+- Decision: the bar is missed, so v10 does not replace v6. It is exported as
+  a provisional second candidate for the hardware test, because it is at
+  least as good as v6 on every sim row.
+
+## Task 7: export v10 as a provisional candidate
+
+Inputs (outside the repo): checkpoint
+`/Users/ethan/.claude/jobs/bc321137/tmp/v10/model_31996.pt`, its audit rows
+`.../tmp/v10/audit.txt` and gait lines `.../tmp/v10/gait.txt`.
+
+Files: `skateboard/policies/` (new `split_steer_v10_*` files),
+`skateboard/policies/README.md`, `skateboard/HARDWARE_TEST.md`,
+`skateboard/SIM2REAL.md`.
+
+1. Add to `skateboard/policies/`, named and produced exactly the way the
+   `split_steer_v6_*` files were (find how from the repo's docs, tools and
+   git history; do not invent a new export path):
+   `split_steer_v10_model_31996.pt`, `split_steer_v10_max0.3_policy.json`
+   (speed clipped to 0 to 0.3 m/s, same yaw clip and heading-hold settings
+   as v6's capped file) and `split_steer_v10_audit.txt`.
+2. Check the exported json the way v6's was checked (parity against the
+   checkpoint, and the repo's deploy-contract validation if there is one).
+   Compare its `command_clip`, `heading_hold` and `obs_spec` with
+   `split_steer_v6_max0.3_policy.json` and report every difference.
+3. `skateboard/policies/README.md`: rows for v9 (run `d63ab512`, not
+   exported, why) and v10 (run `74jsd4gb`, resumes `d63ab512`, provisional),
+   in the table's existing style.
+4. `skateboard/HARDWARE_TEST.md`: in the placement section's file table and
+   in test 5, steer v6 stays the file to run first; v10 is "provisional,
+   run second, same placement and steps, to compare on carpet". One line
+   saying what to record for each: distance in 5 s, whether the feet slid
+   along the deck.
+5. `skateboard/SIM2REAL.md`: the v10 table above in the Carpet section, and
+   the readiness table row for v10 marked provisional.
+6. No code changes. No change to the Gemini Pupper repo.
+
 ## Task 5: placement guide in the hardware checklist
 
 The first hardware run (2026-11-24) put the body on top of the deck with the
