@@ -277,6 +277,45 @@ Files: `skateboard/policies/` (new `split_steer_v10_*` files),
    the readiness table row for v10 marked provisional.
 6. No code changes. No change to the Gemini Pupper repo.
 
+## More v10 steering checks and v11 (2026-11-25): v11 is not better, v10 stays
+
+**v10 steering, 0.3 m/s, hard-floor drag, 23 runs** (seed 0 at stick 0,
+±0.15, ±0.3, ±0.5, ±0.6; seeds 1 and 2 at stick 0, ±0.15, ±0.3, ±0.5):
+
+- 22 pass. One fails: seed 1, stick -0.5, 1 reset.
+- Board turn as a share of asked, range over seeds: left carves 1.24 to 1.99
+  at 0.15, 0.84 to 1.30 at 0.3, 0.68 to 0.89 at 0.5, 0.59 at 0.6; right
+  carves 0.63 to 0.87 at 0.15, 0.72 to 0.78 at 0.3, 0.79 to 1.01 at 0.5,
+  1.05 at 0.6.
+- Stick 0: mean board yaw rate +0.010, +0.013, +0.007 rad/s on seeds 0, 1, 2
+  (a slight pull to the left, about 2 to 4 degrees in 5 s).
+- Largest fore-aft deck slide 3.8 to 7.2 cm (reset limit 8 cm).
+- ±0.6 passes on seed 0 only; it is not run on seeds 1 and 2.
+
+**v11**: run `ioqfatdr`, 2000 of 2000 iterations, resumed from v10, same code
+and ranges, T4 GPU. Checkpoint `model_33995.pt`. Sim only. Not exported.
+
+| Row | v10 speed (resets) | v11 speed (resets) |
+| --- | --- | --- |
+| x1 to x3 | 1.02 (0) | 1.03 to 1.04 (0) |
+| x6 | 0.96 (0) | 0.98 (1) |
+| x10 | 0.58 (4) | 0.65 (5) |
+| x15 (stress) | 0.26 (4) | 0.31 (4) |
+| x25 (stress) | 0.03 (1) | 0.09 (4) |
+| `deck_grip_0.4` | pass | **fail**: 1 early `board_drifted` |
+
+- Ride audit: 17 of 21 rows (v10: 18). x10 still misses the bar (0.7 with
+  at most 2 resets), and v11 fails `deck_grip_0.4`, a row v6 and v10 pass.
+- Steering, the same 23 runs: 22 pass; one fails (seed 2, stick -0.5, 1
+  reset). Left carves turn 0.52 to 1.19 of asked, right carves 0.93 to
+  1.65. Stick 0: -0.004, -0.002, -0.008 rad/s. Deck slide 3.6 to 7.0 cm.
+- Reading: 2000 more iterations on the same setup moved x10 from 0.58 to
+  0.65 with one more reset and lost a hard-floor row. More of the same
+  training is not closing the x10 gap. v10 stays the provisional file.
+- Not determined: whether the x10 gap needs a reward or observation change,
+  or whether real carpet is anywhere near x10. The carpet pull measurement
+  in `HARDWARE_TEST.md` test 0 decides whether this matters.
+
 ## Task 5: placement guide in the hardware checklist
 
 The first hardware run (2026-11-24) put the body on top of the deck with the
