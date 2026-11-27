@@ -132,11 +132,12 @@ def test_train_cell_resumes_only_when_asked():
   assert "wandb_run_path=RESUME_FROM" in resume
 
 
-def test_steer_trains_on_steer_v6s_rewards():
+def test_steer_trains_on_steer_v13s_rewards():
   # The train cell's own loop, on the registered steer cfg: steer trains on
-  # v6's weights (deck_feet_slide -2, board_side_creep off) and v13's board
-  # yaw-rate params, which the table leaves alone (it sets weights only); the
-  # split ride keeps deck_feet_slide -20 and has no side creep term.
+  # v13's weights (deck_feet_slide -2, board_side_creep and board_heading_hold
+  # off) and v13's board yaw-rate params, which the table leaves alone (it sets
+  # weights only); the split ride keeps deck_feet_slide -20 and has neither
+  # term.
   train = [c for c in _code_cells() if "launch_training(" in c]
   assert len(train) == 1
   lines = train[0].splitlines()
@@ -156,6 +157,9 @@ def test_steer_trains_on_steer_v6s_rewards():
       assert scope["REWARD_WEIGHTS"]["board_side_creep"] == 0.0
       assert rewards["board_side_creep"].func is mdp.board_side_creep
       assert rewards["board_side_creep"].weight == 0.0
+      assert scope["REWARD_WEIGHTS"]["board_heading_hold"] == 0.0
+      assert rewards["board_heading_hold"].func is mdp.board_heading_hold
+      assert rewards["board_heading_hold"].weight == 0.0
       yaw = rewards["track_board_yaw_rate"]
       assert yaw.weight == 2.0
       assert yaw.params["straight_min_speed"] == 0.1
@@ -166,17 +170,21 @@ def test_steer_trains_on_steer_v6s_rewards():
       assert rewards["deck_feet_slide"].weight == -20.0
       assert "board_side_creep" not in scope["REWARD_WEIGHTS"]
       assert "board_side_creep" not in rewards
+      assert "board_heading_hold" not in scope["REWARD_WEIGHTS"]
+      assert "board_heading_hold" not in rewards
   assert "board_side_creep" in NOTEBOOK.read_text()
+  assert "board_heading_hold" in NOTEBOOK.read_text()
 
 
 @pytest.mark.parametrize("task", (*TASKS, "Mjlab-SkateSplit-Steer-Pupper-v3"))
-def test_only_the_steer_table_pays_the_board_heading_hold(task):
-  # A term missing from the table could train at the wrong weight.
+def test_only_the_steer_table_carries_the_board_heading_hold(task):
+  # A term missing from the table could train at the wrong weight. Steer v14
+  # trained it at 1.0 and did not improve on v13, so the table keeps it at 0.
   scope: dict = {"TASK": task}
   exec(_reward_weights_cell(), scope)
   weights = scope["REWARD_WEIGHTS"]
   if "-Steer-" in task:
-    assert weights["board_heading_hold"] == 1.0
+    assert weights["board_heading_hold"] == 0.0
   else:
     assert "board_heading_hold" not in weights
 

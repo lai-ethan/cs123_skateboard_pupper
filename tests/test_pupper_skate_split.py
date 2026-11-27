@@ -1988,10 +1988,11 @@ def test_steer_pays_the_board_for_answering_the_hold():
     assert "track_board_yaw_rate" not in ride.rewards
 
 
-def test_steer_pays_the_board_for_holding_the_hold_heading():
-  # v14: the board is paid for staying on the hold's target heading. At the
-  # 1.5 degree rotation v13 measured, the term pays 0.47.
-  assert BOARD_HEADING_HOLD_WEIGHT == 1.0
+def test_steer_carries_the_board_heading_hold_at_weight_0():
+  # The board paid for staying on the hold's target heading: at the 1.5 degree
+  # rotation v13 measured, the term pays 0.47. Steer v14 trained it at 1.0 and
+  # did not improve on v13, so it is off; the notebook table can turn it on.
+  assert BOARD_HEADING_HOLD_WEIGHT == 0.0
   assert BOARD_HEADING_HOLD_STD == 0.03
   rotated = math.radians(1.5) / BOARD_HEADING_HOLD_STD
   assert math.exp(-(rotated**2)) == pytest.approx(0.47, abs=0.005)
@@ -1999,7 +2000,7 @@ def test_steer_pays_the_board_for_holding_the_hold_heading():
     steer = pupper_skate_split_steer_env_cfg(play=play)
     term = steer.rewards["board_heading_hold"]
     assert term.func is mdp.board_heading_hold
-    assert term.weight == 1.0
+    assert term.weight == 0.0
     assert term.params == {
       "command_name": "twist",
       "std": 0.03,
@@ -2020,18 +2021,27 @@ def test_steer_pays_the_board_for_holding_the_hold_heading():
     pupper_skate_split_ride_env_cfg,
   ],
 )
-def test_only_the_steer_pays_the_board_heading_hold(make_cfg):
+def test_only_the_steer_has_the_board_heading_hold(make_cfg):
   for play in (False, True):
     rewards = make_cfg(play=play).rewards
     assert "board_heading_hold" not in rewards
     assert all(t.func is not mdp.board_heading_hold for t in rewards.values())
 
 
-def test_steer_trains_on_steer_v6s_rewards():
-  # v9 resumes from steer v6 and changes only the carpet ranges, so the steer
-  # task's weights are v6's (commit 9743be3): the deck-foot scuff at -2, not
-  # v7's -20, and no sideways creep charge (v8's). The split ride keeps the -20
-  # it has trained on since v7. v13's yaw-rate and alignment params are below.
+def test_steer_trains_on_steer_v13s_rewards():
+  # The steer task trains steer v13's rewards. Its weights are v6's (commit
+  # 9743be3), which v9 to v13 kept: the deck-foot scuff at -2, not v7's -20,
+  # and no sideways creep charge (v8's). v14's board_heading_hold is in the
+  # config at weight 0, so it adds nothing. The split ride keeps the -20 it has
+  # trained on since v7. v13's yaw-rate and alignment params are below.
+  v13 = {
+    **SPLIT_RIDE_WEIGHTS,
+    "track_board_yaw_rate": 2.0,
+    "board_turn_progress": 1.0,
+    "board_side_creep": 0.0,
+    "deck_feet_slide": -2.0,
+    "board_heading_hold": 0.0,
+  }
   for play in (False, True):
     steer = pupper_skate_split_steer_env_cfg(play=play)
     ride = pupper_skate_split_ride_env_cfg(play=play)
@@ -2041,6 +2051,8 @@ def test_steer_trains_on_steer_v6s_rewards():
     assert steer.rewards["board_side_creep"].weight == 0.0
     assert ride.rewards["deck_feet_slide"].weight == DECK_FEET_SLIDE_WEIGHT == -20.0
     assert _weights(ride) == pytest.approx(SPLIT_RIDE_WEIGHTS)
+    assert _weights(steer) == pytest.approx(v13)
+    assert steer.rewards["board_heading_hold"].weight == 0.0
     # v7's slide from the episode start stays: the stricter check.
     slid = steer.terminations["board_slid"].params
     assert slid == {"max_slide": BOARD_MAX_SLIDE, "max_slide_abs": BOARD_MAX_SLIDE_ABS}
@@ -2055,7 +2067,7 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     expected["board_turn_progress"] = 1.0
     expected["board_side_creep"] = 0.0
     expected["deck_feet_slide"] = -2.0
-    expected["board_heading_hold"] = 1.0
+    expected["board_heading_hold"] = 0.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
@@ -2455,12 +2467,22 @@ def test_heading_hold_state_is_the_hold_that_made_the_command(hold_env):
   term = env.command_manager.get_term("twist")
   assert isinstance(term, mdp.BoardHeadingHoldCommand)
   board = env.scene["board"]
+  robot = env.scene["robot"]
+  # The board yawed 0.1 rad from the robot, so a target captured from the
+  # board's heading and one captured from the robot's differ by 0.1.
+  pose = board.data.root_link_pose_w.clone()
+  zeros = torch.zeros(2, device=env.device)
+  yaw = torch.tensor([0.1, -0.1], device=env.device)
+  pose[:, 3:7] = quat_mul(pose[:, 3:7], quat_from_euler_xyz(zeros, zeros, yaw))
+  board.write_root_link_pose_to_sim(pose)
+  env.sim.forward()
   term._hh_prev_active[:] = False
   env.step(torch.zeros(2, 12, device=env.device))
   active, target = term.heading_hold_state()
   assert active.dtype == torch.bool and bool(active.all())
   torch.testing.assert_close(target, board.data.heading_w, atol=0.01, rtol=0)
-  assert torch.equal(target, term._hh_target)
+  off_robot = wrap_to_pi(target - robot.data.heading_w).abs()
+  assert bool((off_robot > 0.05).all())
   reward = mdp.board_heading_hold(
     env, command_name="twist", std=0.03, min_speed=STEER_YAW_MIN_SPEED
   )

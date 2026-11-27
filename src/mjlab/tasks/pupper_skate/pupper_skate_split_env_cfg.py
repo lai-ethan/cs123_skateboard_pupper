@@ -118,15 +118,18 @@ HOLD_BOARD_GAIN = 0.3
 # cannot see; the ride's 0.1 rad width charged 3% of the term for it, this one
 # 17%.
 STEER_BOARD_ALIGN_STD_YAW = 0.04
-# Steer v14: board_heading_hold pays the board for staying on the hold's
-# target heading (the board's own heading when the hold engaged). Over a 25 s
-# ride on 16 boards, v13 held the robot to 0.29 degrees (mean size) of that
-# target, but the board sat -1.49 degrees against the robot (negative on all
-# 16, -0.18 to -3.58), a board heading error of 1.38 degrees, all of the
-# remaining drift (-15.5 cm mean). The hold measures the robot, so it cannot
-# see this; board_alignment at its 0.04 yaw width pays 0.65 at 1.5 degrees and
-# the policy gave that third up. A 0.03 rad (1.7 degree) width pays 0.47 there.
-BOARD_HEADING_HOLD_WEIGHT = 1.0
+# Steer only: board_heading_hold pays the board for staying on the hold's
+# target heading. The target is captured from the board's heading when the hold
+# engages, but the hold measures its error from the robot's heading. Over a 25 s
+# ride on 16 boards, steer v13 held the robot to 0.29 degrees (mean size) of
+# that target while the board sat -1.49 degrees against the robot (negative on
+# all 16, -0.18 to -3.58). A 0.03 rad (1.7 degree) width pays 0.47 at 1.5
+# degrees. Steer v14 (run rd2np6mb) trained it at weight 1.0, resumed from v13,
+# and the 25 s drift did not improve: mean size / worst board / mean signed
+# 17.0 / 44.2 / -16.1 cm against v13's 16.8 / 41.4 / -15.5 cm. So it is 0.0
+# here, and the steer task trains steer v13's rewards. The term stays, and the
+# notebook table can turn it back on.
+BOARD_HEADING_HOLD_WEIGHT = 0.0
 BOARD_HEADING_HOLD_STD = 0.03
 
 
@@ -803,9 +806,11 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
   board_turn_progress, which pays from the first bit of turn. Outside carves
   the same tracking term pays a rolling board for turning at HOLD_BOARD_GAIN
   times the hold's correction, so it answers the hold and does not pull by
-  itself, and board_heading_hold pays a rolling board for staying on the
-  hold's target heading, which the hold itself cannot see (it measures the
-  robot). The ride's robot yaw-rate term stays, with a carve asking the body
+  itself. board_heading_hold (paying a rolling board for staying on the hold's
+  target heading, which the hold measures from the robot's heading) ships at
+  weight 0: steer v14 trained it at 1.0 and its 25 s drift was no better than
+  steer v13's, so this task trains v13's rewards. The ride's robot yaw-rate
+  term stays, with a carve asking the body
   for the board's rate. Board alignment is twice as wide sideways as the
   ride's, since a lean needs the deck feet about 4 cm off the centre line, and
   tighter in yaw (STEER_BOARD_ALIGN_STD_YAW), so the robot stands square on the
@@ -880,8 +885,8 @@ def pupper_skate_split_steer_env_cfg(play: bool = False) -> ManagerBasedRlEnvCfg
       "straight_gain": HOLD_BOARD_GAIN,
     },
   )
-  # A rolling board on the hold's target heading, while the hold is on (see
-  # the constants).
+  # A rolling board on the hold's target heading, while the hold is on, off by
+  # default (see the constants).
   r["board_heading_hold"] = RewardTermCfg(
     func=mdp.board_heading_hold,
     weight=BOARD_HEADING_HOLD_WEIGHT,
