@@ -668,8 +668,9 @@ pure sine (the detrend), so they are upper estimates.
 - Neither speed nor drift has been measured on the robot. No retrain follows
   from this: there is no hardware number yet, and the policy has no sideways
   position to observe. A tighter heading hold would be separate work.
-  (Later: steer v13 and v14 retrained for this drift in sim; v13 nearly
-  halves the spread but misses its bar. See [`PLAN_HEADING.md`](PLAN_HEADING.md).)
+  (Later: steer v13 and v14 retrained for this drift in sim; v13's 25 s
+  drift is mean size 16.8 cm against v10's 29.0, worst board 41.4 against
+  84.7, and it misses its bar. See [`PLAN_HEADING.md`](PLAN_HEADING.md).)
 - Not modelled: the gamepad cable dragging from the body or any other tug,
   and the wheels scrubbing sideways on carpet. Not exercised: truck stiffness
   outside the loosened 9 to 18 N·m/rad range (the robot's trucks on the day

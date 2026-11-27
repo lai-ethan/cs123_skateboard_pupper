@@ -18,8 +18,8 @@ largest `coast_m_max` over the seven runs, rounded up to 1 decimal.
 v6's runs are recorded in `PLAN_GEMINI_VOICE.md`. v10 turns less to the left than
 to the right at every carve level, so its turn estimates are the left-carve values.
 v13 does too, so its turn estimates are also the left-carve values. v13 is
-provisional (`../PLAN_HEADING.md`, "Result of v14") and is not in
-Gemini Pupper's catalogue yet.
+provisional (`../PLAN_HEADING.md`, "Result of v14"); its catalogue entry's
+`tested` line says what it has done on the robot.
 
 ## steer v10 runs (2026-11-27, no resets, every turn the right way)
 

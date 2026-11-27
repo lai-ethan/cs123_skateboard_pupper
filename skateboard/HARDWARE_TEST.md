@@ -385,9 +385,13 @@ and test 5 (straight ride and steer by joystick) passed first. The voice
 tools assume the ride and the steer work. Nothing in this test has run on the
 robot: every distance and turn Gemini gives is a sim estimate. The operator
 runbook is gemini_pupper's `skate/DEMO.md`. Its `skate/skate.yaml` is a
-catalogue: `policy:` selects one entry under `policies:` (now `steer_v6` or
-`steer_v10`), and the files are in `skate/policies/`. Steer v13 is not in
-the catalogue.
+catalogue: `policy:` selects one entry under `policies:`, and the files are
+in `skate/policies/`. Read the entries from `skate/skate.yaml` on the day.
+Select only an entry whose `tested` line you have read and whose file has a
+TA's OK. An entry whose `tested` says "sim only" (steer v13's does) has
+never run on the robot: do not select it for voice until that file has
+passed test 5 by gamepad with a TA's OK. If an entry has no TA sign-off, do
+not select it; use one that has.
 
 Setup, by Ethan on the robot:
 
