@@ -1,0 +1,231 @@
+##### seed 0 yaw 0.0
+board yaw rate (not part of the verdict): mean 0.006 rad/s, mean size 0.016 rad/s over all envs
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.061 m in env 4
+PASS  peak_joint_speed = 5.484 (need <= 12.0)  env 14
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.608 (need >= 0.4)  env 5
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.968 (need >= 0.5)  env 10
+PASS  board_speed_ratio = 1.032 (need <= 1.5)  env 5
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 0 yaw 0.15
+board yaw rate (not part of the verdict): mean 0.016 rad/s, mean size 0.022 rad/s over all envs, 1.06 of the 0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.068 m in env 12
+PASS  peak_joint_speed = 5.755 (need <= 12.0)  env 0
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.595 (need >= 0.4)  env 12
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.947 (need >= 0.5)  env 11
+PASS  board_speed_ratio = 1.068 (need <= 1.5)  env 5
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 0 yaw -0.15
+board yaw rate (not part of the verdict): mean -0.026 rad/s, mean size 0.027 rad/s over all envs, 1.73 of the -0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.058 m in env 4
+PASS  peak_joint_speed = 5.408 (need <= 12.0)  env 14
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.598 (need >= 0.4)  env 12
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.998 (need >= 0.5)  env 4
+PASS  board_speed_ratio = 1.054 (need <= 1.5)  env 14
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 0 yaw 0.3
+board yaw rate (not part of the verdict): mean 0.023 rad/s, mean size 0.027 rad/s over all envs, 0.76 of the 0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.080 m in env 12
+PASS  peak_joint_speed = 5.758 (need <= 12.0)  env 11
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.595 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.968 (need >= 0.5)  env 10
+PASS  board_speed_ratio = 1.089 (need <= 1.5)  env 5
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 0 yaw -0.3
+board yaw rate (not part of the verdict): mean -0.034 rad/s, mean size 0.034 rad/s over all envs, 1.12 of the -0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.060 m in env 4
+PASS  peak_joint_speed = 5.798 (need <= 12.0)  env 12
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.600 (need >= 0.4)  env 5
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 1.015 (need >= 0.5)  env 4
+PASS  board_speed_ratio = 1.076 (need <= 1.5)  env 14
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 0 yaw 0.5
+board yaw rate (not part of the verdict): mean 0.027 rad/s, mean size 0.028 rad/s over all envs, 0.54 of the 0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.095 m in env 12
+PASS  peak_joint_speed = 6.009 (need <= 12.0)  env 11
+PASS  saturated_fraction = 0.005 (need <= 0.05)  env 12
+PASS  min_foot_duty = 0.590 (need >= 0.4)  env 5
+PASS  max_stride_rate = 2.000 (need <= 2.0)  env 12
+PASS  board_speed_ratio = 0.975 (need >= 0.5)  env 11
+PASS  board_speed_ratio = 1.118 (need <= 1.5)  env 5
+FAIL  1 resets while measuring (envs 12): a policy that falls does not pass
+GAIT: FAIL
+##### seed 0 yaw -0.5
+board yaw rate (not part of the verdict): mean -0.044 rad/s, mean size 0.044 rad/s over all envs, 0.89 of the -0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.056 m in env 4
+PASS  peak_joint_speed = 5.653 (need <= 12.0)  env 0
+PASS  saturated_fraction = 0.003 (need <= 0.05)  env 15
+PASS  min_foot_duty = 0.600 (need >= 0.4)  env 5
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 1.033 (need >= 0.5)  env 0
+PASS  board_speed_ratio = 1.099 (need <= 1.5)  env 14
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw 0.0
+board yaw rate (not part of the verdict): mean 0.006 rad/s, mean size 0.010 rad/s over all envs
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.048 m in env 0
+PASS  peak_joint_speed = 5.387 (need <= 12.0)  env 2
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.608 (need >= 0.4)  env 9
+PASS  max_stride_rate = 1.875 (need <= 2.0)  env 2
+PASS  board_speed_ratio = 0.954 (need >= 0.5)  env 3
+PASS  board_speed_ratio = 1.062 (need <= 1.5)  env 1
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw 0.15
+board yaw rate (not part of the verdict): mean 0.022 rad/s, mean size 0.022 rad/s over all envs, 1.46 of the 0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.050 m in env 0
+PASS  peak_joint_speed = 5.667 (need <= 12.0)  env 10
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.595 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.966 (need >= 0.5)  env 3
+PASS  board_speed_ratio = 1.058 (need <= 1.5)  env 13
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw -0.15
+board yaw rate (not part of the verdict): mean -0.023 rad/s, mean size 0.024 rad/s over all envs, 1.51 of the -0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.041 m in env 5
+PASS  peak_joint_speed = 5.557 (need <= 12.0)  env 2
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.605 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.958 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.100 (need <= 1.5)  env 1
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw 0.3
+board yaw rate (not part of the verdict): mean 0.030 rad/s, mean size 0.030 rad/s over all envs, 1.00 of the 0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.052 m in env 0
+PASS  peak_joint_speed = 5.651 (need <= 12.0)  env 12
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.595 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.962 (need >= 0.5)  env 3
+PASS  board_speed_ratio = 1.080 (need <= 1.5)  env 6
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw -0.3
+board yaw rate (not part of the verdict): mean -0.028 rad/s, mean size 0.028 rad/s over all envs, 0.92 of the -0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.040 m in env 0
+PASS  peak_joint_speed = 5.613 (need <= 12.0)  env 2
+PASS  saturated_fraction = 0.003 (need <= 0.05)  env 10
+PASS  min_foot_duty = 0.605 (need >= 0.4)  env 9
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.962 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.111 (need <= 1.5)  env 1
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw 0.5
+board yaw rate (not part of the verdict): mean 0.032 rad/s, mean size 0.033 rad/s over all envs, 0.64 of the 0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.054 m in env 5
+PASS  peak_joint_speed = 5.792 (need <= 12.0)  env 11
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.593 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.972 (need >= 0.5)  env 3
+PASS  board_speed_ratio = 1.102 (need <= 1.5)  env 10
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 1 yaw -0.5
+board yaw rate (not part of the verdict): mean -0.040 rad/s, mean size 0.040 rad/s over all envs, 0.81 of the -0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.039 m in env 0
+PASS  peak_joint_speed = 5.765 (need <= 12.0)  env 2
+PASS  saturated_fraction = 0.003 (need <= 0.05)  env 6
+PASS  min_foot_duty = 0.600 (need >= 0.4)  env 11
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.982 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.133 (need <= 1.5)  env 1
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw 0.0
+board yaw rate (not part of the verdict): mean 0.010 rad/s, mean size 0.014 rad/s over all envs
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.041 m in env 3
+PASS  peak_joint_speed = 5.463 (need <= 12.0)  env 13
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.605 (need >= 0.4)  env 0
+PASS  max_stride_rate = 1.875 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.969 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.029 (need <= 1.5)  env 15
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw 0.15
+board yaw rate (not part of the verdict): mean 0.029 rad/s, mean size 0.029 rad/s over all envs, 1.91 of the 0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.045 m in env 3
+PASS  peak_joint_speed = 5.723 (need <= 12.0)  env 10
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.585 (need >= 0.4)  env 13
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.970 (need >= 0.5)  env 10
+PASS  board_speed_ratio = 1.060 (need <= 1.5)  env 13
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw -0.15
+board yaw rate (not part of the verdict): mean -0.013 rad/s, mean size 0.016 rad/s over all envs, 0.87 of the -0.015 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.039 m in env 3
+PASS  peak_joint_speed = 5.346 (need <= 12.0)  env 13
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.593 (need >= 0.4)  env 4
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.986 (need >= 0.5)  env 2
+PASS  board_speed_ratio = 1.059 (need <= 1.5)  env 15
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw 0.3
+board yaw rate (not part of the verdict): mean 0.036 rad/s, mean size 0.036 rad/s over all envs, 1.20 of the 0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.042 m in env 14
+PASS  peak_joint_speed = 5.653 (need <= 12.0)  env 10
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.585 (need >= 0.4)  env 13
+PASS  max_stride_rate = 1.875 (need <= 2.0)  env 13
+PASS  board_speed_ratio = 0.976 (need >= 0.5)  env 10
+PASS  board_speed_ratio = 1.086 (need <= 1.5)  env 13
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw -0.3
+board yaw rate (not part of the verdict): mean -0.020 rad/s, mean size 0.021 rad/s over all envs, 0.67 of the -0.030 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.038 m in env 3
+PASS  peak_joint_speed = 5.529 (need <= 12.0)  env 13
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.593 (need >= 0.4)  env 4
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.988 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.070 (need <= 1.5)  env 15
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw 0.5
+board yaw rate (not part of the verdict): mean 0.037 rad/s, mean size 0.038 rad/s over all envs, 0.73 of the 0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.045 m in env 3
+PASS  peak_joint_speed = 6.074 (need <= 12.0)  env 5
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.583 (need >= 0.4)  env 13
+PASS  max_stride_rate = 1.875 (need <= 2.0)  env 13
+PASS  board_speed_ratio = 0.990 (need >= 0.5)  env 1
+PASS  board_speed_ratio = 1.118 (need <= 1.5)  env 13
+PASS  no resets while measuring
+GAIT: PASS
+##### seed 2 yaw -0.5
+board yaw rate (not part of the verdict): mean -0.039 rad/s, mean size 0.039 rad/s over all envs, 0.78 of the -0.050 the command asks for
+largest fore-aft slide along the deck, sampled after the auto-reset (not part of the verdict): 0.039 m in env 3
+PASS  peak_joint_speed = 5.609 (need <= 12.0)  env 13
+PASS  saturated_fraction = 0.000 (need <= 0.05)  env 0
+PASS  min_foot_duty = 0.600 (need >= 0.4)  env 14
+PASS  max_stride_rate = 1.750 (need <= 2.0)  env 0
+PASS  board_speed_ratio = 0.998 (need >= 0.5)  env 14
+PASS  board_speed_ratio = 1.089 (need <= 1.5)  env 11
+PASS  no resets while measuring
+GAIT: PASS
