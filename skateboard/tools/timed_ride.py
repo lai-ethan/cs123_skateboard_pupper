@@ -28,10 +28,18 @@ heading at the first ride step and left is 90 degrees to its left.
   ride, mean over the envs that went at least 0.05 m forward (null if none).
   The tangent of the angle the board drifted off its first heading.
 - `yaw_swing_deg_mean`: the nose swing. The board's yaw over the ride after
-  its first 1.0 s, less its best straight line (so a steady turn counts as
-  no swing), peak to peak in degrees, mean over envs.
-- `side_swing_cm_mean`: the same for the board's leftward position, in cm.
-Both swings are null for a ride shorter than 1.5 s.
+  its first 1.0 s, less its least-squares straight line (which removes a
+  steady turn), peak to peak in degrees, mean over envs.
+- `side_swing_cm_mean`: the sway. The board's leftward position over the same
+  window, less its least-squares quadratic (which removes the path's curve:
+  a steady turn bends the path away from the first heading), peak to peak in
+  cm, mean over envs.
+Both swings are null for a ride shorter than 1.5 s. The fit takes part of a
+wobble unless the window happens to suit its period and phase. With at least
+two cycles of the wobble in the window, a pure sine reads high by up to about
+15% (the quadratic a little more) and never low; with fewer cycles the fit
+can swallow some of it and read low. Swing numbers are only comparable
+between runs at the same `--ride-s`.
 """
 
 import argparse
@@ -74,10 +82,14 @@ def forward_and_left(pos: np.ndarray, yaw0: np.ndarray) -> np.ndarray:
   return np.stack([fwd, left], axis=-1)
 
 
-def detrended_swing(x: np.ndarray) -> np.ndarray:
-  """Peak to peak of each column of `x` (N, E) less its least-squares line."""
-  t = np.arange(x.shape[0], dtype=float)
-  a = np.stack([t, np.ones_like(t)], axis=1)
+def detrended_swing(x: np.ndarray, degree: int = 1) -> np.ndarray:
+  """Peak to peak of each column of `x` (N, E) less its least-squares fit.
+
+  The fit is a polynomial in the step index of `degree` (1: a line, 2: a
+  quadratic).
+  """
+  t = np.linspace(-1.0, 1.0, x.shape[0])
+  a = np.stack([t**k for k in range(degree + 1)], axis=1)
   coef, *_ = np.linalg.lstsq(a, x, rcond=None)
   rest = x - a @ coef
   return rest.max(axis=0) - rest.min(axis=0)
@@ -137,7 +149,7 @@ def straightness(
     heading = np.degrees(np.unwrap(yaw, axis=0))[skip:]
     out["yaw_swing_deg_mean"] = float(detrended_swing(heading).mean())
     side_cm = 100.0 * frame[skip:, :, 1]
-    out["side_swing_cm_mean"] = float(detrended_swing(side_cm).mean())
+    out["side_swing_cm_mean"] = float(detrended_swing(side_cm, degree=2).mean())
   return out
 
 

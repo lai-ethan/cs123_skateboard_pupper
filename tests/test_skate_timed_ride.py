@@ -143,12 +143,28 @@ def test_steady_turn_has_no_yaw_swing():
 
 
 def test_nose_swing_on_a_steady_turn_is_its_peak_to_peak():
-  # 3 s after the skip, 4.5 cycles: the fitted line takes none of the wobble.
+  # The phase-0 case over a whole window: 3 s after the skip, 4.5 cycles.
   t = _times(4.0)
   yaw = 0.4 * t + np.radians(2.0 * np.sin(2 * np.pi * 1.5 * t))
   pos, yaw = _ride(0.3 * t, 0.0 * t, yaw)
   row = tr.summarise(pos, yaw, len(t) - 1, DT, keep=np.array([True]))
   assert row["yaw_swing_deg_mean"] == pytest.approx(4.0, abs=0.1)
+
+
+def test_nose_swing_over_phases_at_the_default_ride():
+  # The fitted line takes part of the wobble unless the window suits its
+  # period and phase, so the reading can overstate a pure sine by up to about
+  # 15%; with 6 cycles in the window it never understates it.
+  t = _times(5.0)
+  phases = np.linspace(0.0, 2 * np.pi, 16, endpoint=False)
+  readings = []
+  for phase in phases:
+    yaw = 0.4 * t + np.radians(2.0 * np.sin(2 * np.pi * 1.5 * t + phase))
+    pos, yaw = _ride(0.3 * t, 0.0 * t, yaw)
+    row = tr.summarise(pos, yaw, len(t) - 1, DT, keep=np.array([True]))
+    readings.append(row["yaw_swing_deg_mean"])
+  assert min(readings) >= 4.0 - 1e-6
+  assert 4.0 <= np.mean(readings) <= 4.6
 
 
 def test_side_swing_is_in_cm_after_the_first_second():
@@ -157,7 +173,23 @@ def test_side_swing_is_in_cm_after_the_first_second():
   left = 0.01 * np.sin(2 * np.pi * 1.5 * t) + np.where(t < 0.5, 0.0, 1.0)
   pos, yaw = _ride(0.3 * t, left, 0.0 * t)
   row = tr.summarise(pos, yaw, len(t) - 1, DT, keep=np.array([True]))
-  assert row["side_swing_cm_mean"] == pytest.approx(2.0, abs=0.05)
+  # 2 cm peak to peak; the fitted quadratic takes a little of the sine, so the
+  # reading is up to about 15% high (2.22 here), never low.
+  assert 2.0 <= row["side_swing_cm_mean"] <= 2.3
+
+
+def test_steady_turn_has_no_side_swing():
+  # A turn at 3 degrees a second curves the path away from the first heading:
+  # that curve is not sway.
+  t = _times(5.0)
+  heading = np.radians(3.0) * t
+  dx, dy = 0.3 * DT * np.cos(heading[:-1]), 0.3 * DT * np.sin(heading[:-1])
+  x = np.concatenate([[0.0], np.cumsum(dx)])
+  y = np.concatenate([[0.0], np.cumsum(dy)])
+  pos, yaw = _ride(x, y, heading)
+  row = tr.summarise(pos, yaw, len(t) - 1, DT, keep=np.array([True]))
+  assert row["side_m_mean"] > 0.05  # it did curve left
+  assert row["side_swing_cm_mean"] < 0.1
 
 
 def test_swings_are_null_on_a_short_ride():
@@ -190,7 +222,10 @@ def test_wheel_drag_pins_both_wheel_terms_in_every_env():
     term = cfg.events[audit]
     assert term.params["operation"] == "scale"
     assert term.params["ranges"] == (6.0, 6.0)
-    assert term.params["asset_cfg"].joint_names == (r"wheel_.*_spin",)
+    # The same wheel joints as the task's own drag draw.
+    own = cfg.events["wheel_drag"].params["asset_cfg"]
+    assert term.params["asset_cfg"].name == own.name
+    assert term.params["asset_cfg"].joint_names == own.joint_names
     # Scales the compiled value after the task's own draw, so it wins.
     assert events.index(audit) > events.index("wheel_drag")
 
