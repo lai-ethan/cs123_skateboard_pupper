@@ -398,10 +398,35 @@ Written 2026-11-27. Repos: **GP** = `gemini_pupper`, branch `skate-voice` (`752b
 - GP's `skate/skate.yaml` is a catalogue of three policies: `steer_v6` (the
   default `policy:`), and `steer_v10` and `steer_v13` as options. v13's
   `tested` line says sim only.
-- GP's desk suite: 526 checks pass.
+- GP's desk suite: 629 checks pass (on the fake robot, after the final
+  review's fixes).
 - The runbook is GP `skate/DEMO.md`.
 - Nothing in this plan has run on the robot. Task 6 Step 5 (the pushes) is
   not done.
+
+## Left for later (parked after the final review, 2026-11-27)
+
+None of these blocks a robot run; each was judged minor or safe as it is.
+
+- The desk tests' `Rig` does not stub the controller spawner, so a future
+  regression that reaches the lazy spawn path would shell out to `ros2` from a
+  desk test instead of failing a check.
+- `GET /system/status` reports `controller: "missing"` without asking the
+  controller manager when no skate config is loaded, even if `gemini_skate`
+  is active; `robot_status` and `end_skating` are right in that state.
+- No desk check covers a tilt fall in `gemini_skate` while skate mode is off.
+- A queued job that the controller manager refuses has already told the
+  person its result (for example "The motors will relax"); the failure goes
+  only to the log. The server's state stays right and the guards hold.
+- The fake controller manager accepts unknown controller names. The code
+  never sends one (checked with a strict fake), but the fake would hide it.
+- A policy file replaced in place under the same name is not detected by the
+  running-policy check: always `robot/stop.sh` before `robot/start.sh`.
+- A Disconnect landing in the instant the switch into skate mode completes
+  can relax Pupper on the board without the hold check (legs relax only).
+- A `stop` during `start_skating`'s upright wait after a fall says
+  "balancing" while the controller is latched; rides stay refused.
+- Some paths still wait on the controller manager with a blocking call.
 
 ## Accounting
 
