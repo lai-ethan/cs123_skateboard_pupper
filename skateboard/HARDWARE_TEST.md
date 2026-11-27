@@ -6,9 +6,12 @@ Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. T
 is skipped this session: its policy, split ride v4, is not to be used. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
 one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
-hard right carves. None has been tested on the robot: a first run on
-2026-11-24 had the wrong placement and an unconfirmed policy, so it does not
-count as a test ("2026-11-24 run" below). Sim first, then robot.
+hard right carves. The first run that counts as a test was on 2026-11-26, with
+the placement guide: split balance held, and steer v6 and v10 rolled the board
+forward on carpet ("2026-11-26 run" below). It recorded no speed or distance,
+and the other tests have not been run. The run on 2026-11-24 had the wrong
+placement and an unconfirmed policy, so it does not count ("2026-11-24 run"
+below). Sim first, then robot.
 
 ## Safety, before any power
 
@@ -254,9 +257,23 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
   yaw stick only. It trained only on full carves and fails 2 of 16 ride
   audit rows. Its heading hold clip is 0.3, not 0.1.
-- Record for v6 and for v10: distance in 5 s (straight ride, full forward
-  stick, from the first push; the hard-floor sim expectation is about 1.4 to
-  1.5 m), and whether the feet slid along the deck.
+- Straight ride, for v6 and then v10, before any carve. The 2026-11-26 clips
+  show the nose swinging on each kick and the board drifting to one side;
+  this measures how much.
+  - Gamepad cable held slack above the robot, or a wireless gamepad: the
+    cable dragged from the robot in both 2026-11-26 clips.
+  - Note whether the trucks are stock or loosened (test 0 reading). If the
+    board swings, repeat once with the trucks tightened.
+  - Lay a 2 m tape line on the floor, board on the line. Fix the camera (not
+    hand-held) looking down the line.
+  - Stick fully forward for 5 s from the first push. Record the distance along
+    the line, the sideways distance from the line at the end, whether the nose
+    swings on each kick, and whether the feet slid along the deck.
+  - Sim, steer v6 and v10 on a hard floor (`PLAN_STRAIGHT.md`, baseline): about
+    1.4 to 1.5 m in 5 s. At wheel drag x6, about 1.4 m for v10 and about 1.05
+    m for v6. A few cm of drift to one side (the worst sim board 8 to 12 cm)
+    and about 1 degree of nose swing. More than that on the robot is the
+    sim-to-real gap this test measures.
 - On carpet, compare the straight ride first; carve only if the board rolls.
   Carves at carpet drag are not checked in sim for either file.
 - If neither file rolls on carpet with correct placement, repeat the straight
@@ -306,8 +323,12 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Notes carve left, small stick: ____________________________________________
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
-- v6 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
-- v10 on carpet: distance in 5 s ______ m; feet slid along the deck (y/n) ____
+- v6 on carpet: distance in 5 s ______ m; sideways from the line ______ cm;
+  nose swings on each kick (y/n) ____; feet slid along the deck (y/n) ____;
+  trucks stock / loosened / tightened ____; cable slack (y/n) ____
+- v10 on carpet: distance in 5 s ______ m; sideways from the line ______ cm;
+  nose swings on each kick (y/n) ____; feet slid along the deck (y/n) ____;
+  trucks stock / loosened / tightened ____; cable slack (y/n) ____
 - v10 stood still or the board crept sideways (y/n, which): ________________
 - Hard floor, only if neither rolled on carpet: v6 ______ m, slid (y/n) ____;
   v10 ______ m, slid (y/n) ____
@@ -400,6 +421,26 @@ Measure and write down, to replace the sim estimates in `skate/skate.yaml`:
 The sim numbers come from `skateboard/tools/timed_ride.py` on steer v6 (16 envs,
 5 s ride, no resets at any carve level). The turn value is the weaker side's, rounded to
 0.1.
+
+## 2026-11-26 run
+
+Gates carpet, with the placement guide. This is the first run that counts as
+a test, though it is video only and nothing was measured. From the
+teammates' report and clips:
+
+- Split balance held.
+- Steer v6 and steer v10 each rolled the board forward for the whole clip,
+  about 29 s and 28 s as reported. The clip-to-policy match (29 s is v6, 28 s
+  is v10) comes from those lengths, not from a check.
+- The nose swung a little on each kick and the board drifted to one side.
+- Speed and distance were not measured. The camera moved.
+- A wired gamepad cable dragged from the robot in both clips.
+- Truck tightness was not recorded.
+
+Sim shows no such swing (`PLAN_STRAIGHT.md`, baseline), so the cable, truck
+lean and the carpet are the suspects. None is measured. This run does not
+say v10 passed its bar or replaces v6. The straight ride block in test 5
+measures it.
 
 ## 2026-11-24 run
 

@@ -617,12 +617,63 @@ The runs below show how it got there.
   alternative for riding straight and gentle carves: try it if v6 slides
   along the deck on the robot. Its export clips yaw at ±0.3 rad/s, so the
   robot cannot ask it for the hard right carves that fail in sim. The cause
-  of the right pull is not known yet. Neither v6 nor v7 has been tested on
-  the robot (the 2026-11-24 run does not count, see "Carpet").
+  of the right pull is not known yet. v7 has not been run on the
+  robot. v6 rolled a board on carpet on 2026-11-26, video only (see "Carpet" and
+  "Straightness").
   Policy: `policies/split_steer_v7_max0.3_policy.json` (speed 0 to 0.3 m/s,
   yaw clipped at ±0.3 rad/s, heading hold kp 1.0, clip 0.1). It passes the
   robot-side validator (`download_policy.py --validate-only`). Checkpoint:
   `policies/split_steer_v7_model_28997.pt`.
+
+## Straightness
+
+The 2026-11-26 clips (`HARDWARE_TEST.md`, "2026-11-26 run") show the nose
+swinging on each kick and the board drifting to one side. `timed_ride.py`,
+stick 0, 16 boards, 5 s ride, hard-floor ranges with the wheel drag pinned
+(`--wheel-drag X`). Sim only.
+
+| Policy | Asked m/s | Drag | Speed (share of asked) | Resets | Turn (deg/s) | Drift (m sideways per m forward) | Worst board's drift (cm) | Nose swing (deg) | Side sway (cm) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| v6 | 0.3 | x1 | 1.01 | 0 | -0.29 | -0.015 | 9.5 | 0.89 | 0.20 |
+| v6 | 0.3 | x3 | 0.92 | 0 | -0.30 | -0.013 | 8.5 | 0.82 | 0.14 |
+| v6 | 0.3 | x6 | 0.70 | 2 | -0.59 | -0.024 | 8.0 | 0.65 | 0.10 |
+| v6 | 0.15 | x1 | 1.04 | 0 | -0.43 | -0.018 | 3.9 | 0.33 | 0.05 |
+| v6 | 0.15 | x3 | 0.89 | 0 | -0.38 | -0.015 | 3.0 | 0.34 | 0.04 |
+| v6 | 0.15 | x6 | 0.59 | 0 | -0.29 | -0.013 | 1.6 | 0.30 | 0.04 |
+| v10 | 0.3 | x1 | 1.02 | 0 | -0.38 | -0.024 | 11.9 | 0.85 | 0.20 |
+| v10 | 0.3 | x3 | 0.99 | 0 | -0.29 | -0.018 | 10.7 | 0.95 | 0.21 |
+| v10 | 0.3 | x6 | 0.92 | 0 | -0.27 | -0.015 | 9.5 | 1.06 | 0.20 |
+| v10 | 0.15 | x1 | 1.10 | 0 | -0.45 | -0.020 | 4.1 | 0.28 | 0.05 |
+| v10 | 0.15 | x3 | 1.05 | 0 | -0.35 | -0.016 | 3.6 | 0.37 | 0.06 |
+| v10 | 0.15 | x6 | 0.97 | 0 | -0.31 | -0.014 | 3.2 | 0.48 | 0.07 |
+
+Negative turn and drift are to the right. Swings read 6 to 15% high for a
+pure sine (the detrend), so they are upper estimates.
+
+- Sim rides straight: v10's nose swing is at most 1.06 degrees and its mean
+  drift at most 2.4 cm per metre. So the swing seen on the robot is not in
+  sim, and it is a sim-to-real gap, not something a reward can train out.
+- The worst single board drifts 8 to 12 cm over a 5 s ride at 0.3 m/s, so
+  some drift is expected on the robot too.
+- Not modelled, so the likely causes on the robot: the gamepad cable dragging
+  from the body, the trucks leaning under each kick if they are loose, and the
+  wheels scrubbing sideways on carpet. None is measured. The straight ride in
+  `HARDWARE_TEST.md` test 5 measures the ride.
+- At x6 drag v10 holds 0.92 of the asked speed at 0.3 m/s and 0.97 at 0.15
+  m/s; v6 holds 0.70 and 0.59. If the robot is slower than asked on carpet,
+  v10 should be the faster of the two.
+
+To rerun a row (repo root; drop `FORCE_CPU=1` on a machine with an NVIDIA GPU):
+
+```bash
+FORCE_CPU=1 uv run python skateboard/tools/timed_ride.py \
+  skateboard/policies/split_steer_v10_max0.3_policy.json \
+  --speed 0.3 --ride-s 5 --wheel-drag 6
+```
+
+The straightness fields are `side_m_mean`, `side_m_abs_max`, `side_per_m_mean`,
+`yaw_swing_deg_mean` and `side_swing_cm_mean`. Swings are only comparable
+between runs at the same `--ride-s` (the tool's docstring says why).
 
 ## Carpet
 

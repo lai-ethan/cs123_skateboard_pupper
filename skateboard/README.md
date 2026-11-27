@@ -31,9 +31,14 @@ notebook pick the stance from the task id: `SkateSplit` in the id means split.
 
 ## Status
 
-As of 2026-11-20. Nothing has been tested on the robot: a first run on
-2026-11-24 had the wrong placement and an unconfirmed policy and does not
-count as a test ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-24 run").
+As of 2026-11-26. The first run that counts as a test was on 2026-11-26, on
+Gates carpet with the placement guide: split balance held, and steer v6 and
+steer v10 each rolled the board forward for the whole clip (about 29 s and 28
+s, matched to the policies by clip length as reported). The nose swung on each
+kick and the board drifted to one side; speed and distance were not measured,
+and the trucks and gamepad cable were not controlled. The run on 2026-11-24 had
+the wrong placement and an unconfirmed policy and does not count
+([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-26 run" and "2026-11-24 run").
 
 | Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
 | --- | --- | --- | --- | --- | --- |
@@ -41,7 +46,8 @@ count as a test ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-24 run").
 | Centred balance | `zdctdcyf` | pass | pass | 14 of 21 | Second, with careful placement |
 | Split ride v4 | `iznjwbka` | pass | passed at 0.2, 0.3, 0.4 m/s on 2026-11-17, older task; resets on `board_drifted` on the current one | not run | Not ready: Ethan's call, short runs only |
 | Centred ride (tripod) | `7fyt12i1` | pass | fail on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
-| Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Steering candidate, loosened trucks, Ethan's call |
+| Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Steering candidate, loosened trucks, Ethan's call; rolled a board on carpet on 2026-11-26 (video only) |
+| Split steer v10 | `74jsd4gb` | not checked | 22 of 23 runs pass at stick 0, ±0.15, ±0.3, ±0.5 (±0.6 on seed 0 only); 1 reset, at -0.5 | ride audit 18 of 21 rows; misses its pass bar at wheel drag x10 | Provisional, run second after v6; rolled a board on carpet on 2026-11-26 (video only); does not replace v6 |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; fail at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Steering fallback, full stick only |
 
@@ -52,7 +58,7 @@ count as a test ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-24 run").
 - Steering: split steer v6 (`hfd3qhwr`, resumed from v5) is the candidate for the first hardware steering test, not a fully passing policy. It leans to steer on trucks loosened to 9 to 18 N·m/rad and trained on partial turns, so it turns in proportion to the stick. At 0.3 m/s it passes all 16 ride audit rows. In the gait check (seed 0) the board turns 0.82 to 0.86 of the asked rate at stick ±0.15 and ±0.6, but only 0.58 to 0.63 at ±0.3. One of 16 boards, the same one each time, slides past the 8 cm limit on left carves of 0.3 to 0.6; on two more seeds there was no reset, so 1 board in 48. There will be no foot stop or ridge on the deck, so sliding is the main open risk: the test uses short runs, starts with a small stick and resets the robot to its marks between runs. Policy: `policies/split_steer_v6_max0.3_policy.json`. Split steer v5 (`bxke67fj`) is the fallback: it trained only on full carves, so it needs the full yaw stick, and it fails 2 of 16 ride audit rows. Test sheet: [`HARDWARE_TEST.md`](HARDWARE_TEST.md), tests 0 and 5. A hardware run needs Ethan's OK and a TA sign-off.
 - Split steer v7 (`n5m2zsks`, resumed from v6) charges deck-foot scuffing ten times harder and counts the slide from the episode start ([`PLAN_DECK_SLIDE.md`](PLAN_DECK_SLIDE.md)). It fixes the slide: no `board_slid` reset in 27 gait runs, 0 of 16 boards slid out under soft leg gains (v6: 4 of 16), and creep halved (still above the 0.1 cm/s target). But it hurts turning: it pulls right, hard right carves (stick -0.5, -0.6) fail on every seed on `board_drifted`, hard left carves turn less (0.58 of asked at +0.6, v6 0.80) and gentle right carves overshoot (2.1 times asked at -0.15). The cause of the right pull is not known yet. It did not meet the plan's pass bar, so v6 stays the steering candidate. v7 is the fallback for straight riding and gentle carves if v6 slides along the deck on the robot. Policy: `policies/split_steer_v7_max0.3_policy.json`, yaw clipped at ±0.3 rad/s.
 - Heading hold is off in every skate export (kp 0) except split steer v6 and v7 (kp 1.0, clip 0.1 rad/s) and v5 (kp 1.0, clip 0.3 rad/s).
-- Not done: a centred ride policy that passes the gait check, measuring truck stiffness and wheel drag, anything on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md); the test sheet is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
+- Not done: a centred ride policy that passes the gait check, measuring truck stiffness and wheel drag, a measured speed, distance or drift on the robot. The steps before the first real run are in [`SIM2REAL.md`](SIM2REAL.md); the test sheet is [`HARDWARE_TEST.md`](HARDWARE_TEST.md).
 
 Five tasks are registered:
 
