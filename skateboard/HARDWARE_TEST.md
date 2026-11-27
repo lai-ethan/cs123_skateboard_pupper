@@ -7,9 +7,10 @@ is skipped this session: its policy, split ride v4, is not to be used. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
 one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
 hard right carves. The first run that counts as a test was on 2026-11-26, with
-the placement guide: split balance held, and steer v6 and v10 rolled the board
-forward on carpet ("2026-11-26 run" below). It recorded no speed or distance,
-and the other tests have not been run. The run on 2026-11-24 had the wrong
+the placement guide: split balance held (test 1, seen in video only), and steer v6
+and v10 rolled the board forward on carpet ("2026-11-26 run" below). It
+recorded no speed or distance, so no test is recorded on this sheet yet: test 1
+still needs a recorded pass, and tests 2, 4 and 6 are not run. The run on 2026-11-24 had the wrong
 placement and an unconfirmed policy, so it does not count ("2026-11-24 run"
 below). Sim first, then robot.
 
@@ -260,25 +261,27 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Straight ride, for v6 and then v10, before any carve. The 2026-11-26 clips
   show the nose swinging on each kick and the board drifting to one side;
   this measures how much.
-  - Gamepad cable held slack above the robot, or a wireless gamepad: the
-    cable dragged from the robot in both 2026-11-26 clips.
+  - Wireless gamepad, or a second person holds the cable slack above the
+    robot: the cable dragged from the robot in both 2026-11-26 clips.
   - Note whether the trucks are stock or loosened (test 0 reading). If the
-    board swings, repeat once with the trucks tightened.
+    board swings, repeat once with the trucks tightened. The loosened run
+    comes first; the tightened repeat is out of the trained range, so stop if
+    the board will not roll.
   - Lay a 2 m tape line on the floor, board on the line. Fix the camera (not
     hand-held) looking down the line.
   - Stick fully forward for 5 s from the first push. Record the distance along
-    the line, the sideways distance from the line at the end, whether the nose
+    the line, the sideways distance of the deck's middle from the line at the end, whether the nose
     swings on each kick, and whether the feet slid along the deck.
   - Sim, steer v6 and v10 on a hard floor (`PLAN_STRAIGHT.md`, baseline): about
-    1.4 to 1.5 m in 5 s. At wheel drag x6, about 1.4 m for v10 and about 1.05
-    m for v6. A few cm of drift to one side (the worst sim board 8 to 12 cm)
+    1.5 m in 5 s. At wheel drag x6, about 1.4 m for v10 and about 1.05 m for
+    v6. A few cm of drift to one side (the worst sim board 8 to 12 cm)
     and about 1 degree of nose swing. More than that on the robot is the
     sim-to-real gap this test measures.
 - On carpet, compare the straight ride first; carve only if the board rolls.
   Carves at carpet drag are not checked in sim for either file.
 - If neither file rolls on carpet with correct placement, repeat the straight
-  ride on a hard floor, hands on, and record it (distance in 5 s, feet slid
-  y/n). That run tells "placement or policy" apart from "carpet".
+  ride on a hard floor, hands on, and record the same things as the straight ride
+  (distance, sideways cm, nose swing y/n, feet slid y/n). That run tells "placement or policy" apart from "carpet".
 - v10 standing still without stroking, or the board creeping sideways, is its
   known sim behaviour at high drag (at x15 it rides 0.26 of asked, at x25
   0.03, and the board drifts sideways at x10 and x15): stop and note it.
@@ -330,8 +333,9 @@ at yaw 0. Do not install any `split_ride_*` file.
   nose swings on each kick (y/n) ____; feet slid along the deck (y/n) ____;
   trucks stock / loosened / tightened ____; cable slack (y/n) ____
 - v10 stood still or the board crept sideways (y/n, which): ________________
-- Hard floor, only if neither rolled on carpet: v6 ______ m, slid (y/n) ____;
-  v10 ______ m, slid (y/n) ____
+- Hard floor, only if neither rolled on carpet: v6 ______ m, ______ cm
+  sideways, swing (y/n) ____, slid (y/n) ____; v10 ______ m, ______ cm
+  sideways, swing (y/n) ____, slid (y/n) ____
 - Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
 
 ## 6. Voice control (Gemini Pupper)

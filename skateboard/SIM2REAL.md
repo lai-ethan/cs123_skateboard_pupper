@@ -660,7 +660,7 @@ pure sine (the detrend), so they are upper estimates.
   wheels scrubbing sideways on carpet. None is measured. The straight ride in
   `HARDWARE_TEST.md` test 5 measures the ride.
 - At x6 drag v10 holds 0.92 of the asked speed at 0.3 m/s and 0.97 at 0.15
-  m/s; v6 holds 0.70 and 0.59. If the robot is slower than asked on carpet,
+  m/s; v6 holds 0.70 (with 2 resets) and 0.59. If the robot is slower than asked on carpet,
   v10 should be the faster of the two.
 
 To rerun a row (repo root; drop `FORCE_CPU=1` on a machine with an NVIDIA GPU):

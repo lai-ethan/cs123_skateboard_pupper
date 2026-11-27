@@ -36,8 +36,8 @@ Gates carpet with the placement guide: split balance held, and steer v6 and
 steer v10 each rolled the board forward for the whole clip (about 29 s and 28
 s, matched to the policies by clip length as reported). The nose swung on each
 kick and the board drifted to one side; speed and distance were not measured,
-and the trucks and gamepad cable were not controlled. The run on 2026-11-24 had
-the wrong placement and an unconfirmed policy and does not count
+and the cable dragged and truck tightness was not recorded. The run on
+2026-11-24 had the wrong placement and an unconfirmed policy and does not count
 ([`HARDWARE_TEST.md`](HARDWARE_TEST.md), "2026-11-26 run" and "2026-11-24 run").
 
 | Policy | W&B run | Curves | Gait check | Stance audit | Robot test? |
