@@ -211,3 +211,89 @@ resets in either run):
 - Not determined: whether the remaining -15.5 cm is the stance rotation
   (inferred from the investigation, not measured on v13); whether more
   iterations would close the last 2 cm; anything on hardware.
+
+## What is left after v13 (measured 2026-11-27)
+
+Same 25 s ride, with the board's and the robot's headings recorded
+separately (means over 2 to 25 s, 16 boards):
+
+| | v10 | v13 |
+| --- | --- | --- |
+| Robot heading error against the hold's target, mean size | 1.36 deg | 0.29 deg |
+| Board rotated against the robot, mean | -1.17 deg size | -1.49 deg (negative on all 16 boards, -0.18 to -3.58) |
+| Board heading error, mean size | 2.34 deg | 1.38 deg |
+| Board yaw rate per unit of hold command | 0.008 (closed loop) | 0.198 |
+| Hold command at the clip | 5% of steps | 0.5% of steps |
+
+- The hold now works: the robot keeps its heading to 0.3 degrees and the
+  board answers the hold's command.
+- All of the remaining drift is the board sitting rotated about 1.5 degrees
+  to the right of the robot. The hold measures the robot's heading, so it
+  cannot see this. Per-board drift is predicted by the board's heading to
+  within 0.3 cm.
+- `board_alignment` at yaw std 0.04 pays 0.65 at 1.5 degrees, and its episode
+  value ended at 0.67: the policy gives up a third of that reward rather than
+  stand square, so something in the push pays more for the rotated stance.
+
+## Task 4: pay the board for holding the hold's heading (steer v14)
+
+The hold's target in sim is the board's heading when the hold engaged. Pay
+the board directly for staying on it, so the policy can either stand square
+or carry its robot heading a little off to keep the board on line. On the
+robot the target is the robot's own yaw at capture; with the robot placed
+square to the board the two are the same.
+
+Files: `src/mjlab/tasks/velocity/mdp/velocity_command.py` (a read-only
+accessor only), `src/mjlab/tasks/pupper_skate/mdp/rewards.py`,
+`mdp/__init__.py`, `src/mjlab/tasks/pupper_skate/pupper_skate_split_env_cfg.py`,
+`skateboard/tools/make_notebook.py`, `notebooks/CS123_Pupper_Skate.ipynb`
+(regenerated with the tool), `tests/test_pupper_skate_split.py`,
+`tests/test_skate_notebook.py`.
+
+1. The velocity command term gets a small read-only way to get, per env,
+   whether the heading hold is active this step and its target heading. It
+   must not change what the hold computes or emits.
+2. New reward `board_heading_hold(env, command_name, std, min_speed,
+   board_cfg)`: in envs where the hold is active and the forward speed
+   command is at least `min_speed`, `exp(-(wrap(board heading - hold target)
+   / std) ** 2)`; 0 in every other env (carves, standing, hold not active).
+3. Steer config only: `r["board_heading_hold"]`, weight
+   `BOARD_HEADING_HOLD_WEIGHT = 1.0`, `std = BOARD_HEADING_HOLD_STD = 0.03`
+   (1.7 degrees; the 1.5 degree rotation then pays 0.47), `min_speed =
+   STEER_YAW_MIN_SPEED`. A comment at the constants with the numbers from the
+   table above. The steer docstring's list of what is paid is updated.
+   Everything v13 set stays: `HOLD_BOARD_GAIN = 0.3`,
+   `STEER_BOARD_ALIGN_STD_YAW = 0.04`, `board_side_creep` 0.0,
+   `deck_feet_slide` -2.0.
+4. `make_notebook.py`'s steer reward table carries `board_heading_hold` at
+   1.0, and the notebook is regenerated with the tool. A term missing from
+   that table can train at the wrong weight.
+5. Tests first, seen to fail:
+   - the accessor returns the same active mask and target the hold used, and
+     the command the term emits is unchanged for a fixed seed;
+   - `board_heading_hold`: a hold-active env at speed with the board on the
+     target gets 1.0; 0.03 rad off gets `exp(-1)` to 3 decimals; an error
+     across the ±pi wrap is treated as small; a carve env, a standing env and
+     an env under `min_speed` get 0;
+   - the steer config carries the term with weight 1.0 and std 0.03; the
+     split ride, both balance tasks and the centred ride do not have it and
+     build the rewards they build today;
+   - the notebook table has `board_heading_hold` at 1.0 for the steer task
+     only, and the regenerated notebook matches the tool's output.
+6. No change to the hold's formula, gain, clip or thresholds, to
+   observations, actions or terminations, or to the exported file's
+   `heading_hold` block.
+
+## Task 5: train v14 (controller, Colab)
+
+Push, then resume from steer v13 (`k43t9fqw`, `model_33995.pt`) for 2000
+iterations, 4096 envs.
+
+## Task 6: evaluate and decide (controller)
+
+The same checks as Task 3, with the same pass bar, plus: the mean signed
+drift after 25 s is within ±8 cm (v10 and v13: -15.5 cm). If v14 passes it is
+exported as a provisional file after v6 and v10. If it does not, the better
+of v13 and v14 on drift is exported as provisional with its numbers and the
+bar it missed stated, since both already improve on v10 without losing an
+audit row.
