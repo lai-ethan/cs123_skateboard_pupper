@@ -132,8 +132,9 @@ def test_train_cell_resumes_only_when_asked():
 
 def test_steer_trains_on_steer_v6s_rewards():
   # The train cell's own loop, on the registered steer cfg: steer trains on
-  # v6's rewards (deck_feet_slide -2, board_side_creep off, no straight pull);
-  # the split ride keeps deck_feet_slide -20 and has no side creep term.
+  # v6's weights (deck_feet_slide -2, board_side_creep off) and v13's board
+  # yaw-rate params, which the table leaves alone (it sets weights only); the
+  # split ride keeps deck_feet_slide -20 and has no side creep term.
   train = [c for c in _code_cells() if "launch_training(" in c]
   assert len(train) == 1
   lines = train[0].splitlines()
@@ -154,7 +155,10 @@ def test_steer_trains_on_steer_v6s_rewards():
       assert rewards["board_side_creep"].func is mdp.board_side_creep
       assert rewards["board_side_creep"].weight == 0.0
       yaw = rewards["track_board_yaw_rate"]
-      assert yaw.weight == 2.0 and "straight_min_speed" not in yaw.params
+      assert yaw.weight == 2.0
+      assert yaw.params["straight_min_speed"] == 0.1
+      assert yaw.params["straight_gain"] == 0.3
+      assert rewards["board_alignment"].params["std_yaw"] == 0.04
     else:
       assert scope["REWARD_WEIGHTS"]["deck_feet_slide"] == -20.0
       assert rewards["deck_feet_slide"].weight == -20.0

@@ -64,9 +64,11 @@ from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   DECK_FEET_SLIDE_WEIGHT,
   DECK_FOOT_FRICTION_RANGE,
   FLOOR_FOOT_FRICTION_RANGE,
+  HOLD_BOARD_GAIN,
   SPLIT_CONTACT_CONE,
   SPLIT_CONTACT_IMPRATIO,
   SPLIT_RIDE_DECK_HEIGHT_RANGE,
+  STEER_BOARD_ALIGN_STD_YAW,
   STEER_CARVE_COMMAND_RANGE,
   STEER_CARVE_GAIN,
   STEER_CARVE_THRESHOLD,
@@ -1784,6 +1786,46 @@ def test_track_board_yaw_rate_pays_a_straight_board_when_asked():
   assert torch.equal(unset, old)
 
 
+def test_track_board_yaw_rate_answers_the_hold_outside_carves():
+  # Rows, (speed, yaw) command and board yaw rate: the hold's largest 0.1 with
+  # the board on its 0.03 target and not turning; a quiet 0 with the board
+  # still; standing and under the minimum, which pay 0; a 0.5 carve on its 0.05
+  # target and a partial 0.2 carve at 0.06.
+  rows = [
+    ((0.3, 0.1), 0.03),
+    ((0.3, 0.1), 0.0),
+    ((0.3, 0.0), 0.0),
+    ((0.0, 0.0), 0.0),
+    ((0.05, 0.1), 0.03),
+    ((0.3, 0.5), 0.05),
+    ((0.3, 0.2), 0.06),
+  ]
+  command = [[vx, 0.0, wz] for (vx, wz), _ in rows]
+  env = _fake_yaw_env(command, [rate for _, rate in rows])
+  std = 0.02
+
+  def reward(**kwargs: Any) -> torch.Tensor:
+    return mdp.track_board_yaw_rate(
+      env, command_name="twist", std=std, **_CARVE, **kwargs
+    )
+
+  hold = reward(straight_min_speed=STEER_YAW_MIN_SPEED, straight_gain=0.3)
+  assert hold[0].item() == pytest.approx(1.0)
+  assert hold[1].item() == pytest.approx(math.exp(-((0.03 / std) ** 2)), abs=5e-4)
+  assert hold[2].item() == pytest.approx(1.0)
+  assert hold[3].item() == 0.0 and hold[4].item() == 0.0
+  # Carves pay exactly what they do today.
+  today = reward()
+  assert torch.equal(hold[5:], today[5:])
+  # A zero gain is the target-zero term (v8's); no minimum speed is today's.
+  zero = reward(straight_min_speed=STEER_YAW_MIN_SPEED, straight_gain=0.0)
+  v8 = reward(straight_min_speed=STEER_YAW_MIN_SPEED)
+  assert torch.equal(zero, v8)
+  assert zero[0].item() == pytest.approx(math.exp(-((0.03 / std) ** 2)), abs=5e-4)
+  assert zero[1].item() == pytest.approx(1.0)
+  assert torch.equal(reward(straight_min_speed=None, straight_gain=0.3), today)
+
+
 def test_board_turn_progress_pays_only_carves_against_the_scaled_target():
   # Rows: half, all, more and the wrong way of a 0.5 carve's 0.05 target, half
   # of a -0.6 carve's -0.06, half of a partial 0.2 carve's 0.02, then hold
@@ -1879,13 +1921,32 @@ def test_only_the_steer_charges_side_creep_and_a_straight_pull(make_cfg):
   assert "board_side_creep" not in cfg.rewards
   for name, term in cfg.rewards.items():
     assert "straight_min_speed" not in term.params, name
+    assert "straight_gain" not in term.params, name
+
+
+def test_steer_pays_the_board_for_answering_the_hold():
+  # v13: outside carves the board's yaw rate tracks HOLD_BOARD_GAIN times the
+  # hold's command, and board alignment's yaw width is tighter than the ride's.
+  # Every weight stays what it was.
+  assert HOLD_BOARD_GAIN == 0.3
+  assert STEER_BOARD_ALIGN_STD_YAW == 0.04
+  for play in (False, True):
+    steer = pupper_skate_split_steer_env_cfg(play=play)
+    ride = pupper_skate_split_ride_env_cfg(play=play)
+    yaw = steer.rewards["track_board_yaw_rate"]
+    assert yaw.weight == 2.0 and yaw.params["std"] == 0.02
+    assert yaw.params["straight_min_speed"] == STEER_YAW_MIN_SPEED
+    assert yaw.params["straight_gain"] == 0.3
+    assert steer.rewards["board_alignment"].params["std_yaw"] == 0.04
+    assert ride.rewards["board_alignment"].params["std_yaw"] == 0.1
+    assert "track_board_yaw_rate" not in ride.rewards
 
 
 def test_steer_trains_on_steer_v6s_rewards():
   # v9 resumes from steer v6 and changes only the carpet ranges, so the steer
-  # task's rewards are v6's (commit 9743be3): the deck-foot scuff at -2, not
-  # v7's -20; no sideways creep charge and no straight-line board tracking
-  # (v8's). The split ride keeps the -20 it has trained on since v7.
+  # task's weights are v6's (commit 9743be3): the deck-foot scuff at -2, not
+  # v7's -20, and no sideways creep charge (v8's). The split ride keeps the -20
+  # it has trained on since v7. v13's yaw-rate and alignment params are below.
   for play in (False, True):
     steer = pupper_skate_split_steer_env_cfg(play=play)
     ride = pupper_skate_split_ride_env_cfg(play=play)
@@ -1893,8 +1954,6 @@ def test_steer_trains_on_steer_v6s_rewards():
     assert slide.weight == STEER_DECK_FEET_SLIDE_WEIGHT == -2.0
     assert slide.params == ride.rewards["deck_feet_slide"].params
     assert steer.rewards["board_side_creep"].weight == 0.0
-    yaw = steer.rewards["track_board_yaw_rate"]
-    assert "straight_min_speed" not in yaw.params
     assert ride.rewards["deck_feet_slide"].weight == DECK_FEET_SLIDE_WEIGHT == -20.0
     assert _weights(ride) == pytest.approx(SPLIT_RIDE_WEIGHTS)
     # v7's slide from the episode start stays: the stricter check.
@@ -1914,7 +1973,13 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
-    assert term.params == {"command_name": "twist", "std": 0.02, **_CARVE}
+    assert term.params == {
+      "command_name": "twist",
+      "std": 0.02,
+      **_CARVE,
+      "straight_min_speed": STEER_YAW_MIN_SPEED,
+      "straight_gain": HOLD_BOARD_GAIN,
+    }
     # The sideways twin of board_creep, at its rate and averages, off by default
     # (steer v8's experiment, turned back on from the notebook table).
     term = steer.rewards["board_side_creep"]
@@ -1940,11 +2005,13 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
       "carve_threshold": STEER_CARVE_THRESHOLD,
     }
     assert ride.rewards["board_yaw_rate"].params == {}
-    # Board alignment twice as wide sideways; the ride keeps 3 cm.
+    # Board alignment twice as wide sideways and tighter in yaw; the ride
+    # keeps 3 cm and 0.1 rad.
     align = steer.rewards["board_alignment"].params
     ride_align = ride.rewards["board_alignment"].params
     assert align["std_pos"] == 0.06 and ride_align["std_pos"] == 0.03
-    assert {**align, "std_pos": 0.03} == ride_align
+    assert align["std_yaw"] == 0.04 and ride_align["std_yaw"] == 0.1
+    assert {**align, "std_pos": 0.03, "std_yaw": 0.1} == ride_align
     changed = ("board_yaw_rate", "track_yaw_rate", "board_alignment")
     for name in ride.rewards:
       if name not in changed:

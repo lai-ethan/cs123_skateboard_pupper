@@ -24,6 +24,7 @@ heading at the first ride step and left is 90 degrees to its left.
 - `side_m_mean`: the board's leftward displacement at the end of the ride, in
   m, signed (negative is right), mean over envs.
 - `side_m_abs_max`: the largest size of that displacement in any env.
+- `side_m_abs_mean`: the mean size of that displacement over envs.
 - `side_per_m_mean`: leftward over forward displacement at the end of the
   ride, mean over the envs that went at least 0.05 m forward (null if none).
   The tangent of the angle the board drifted off its first heading.
@@ -138,6 +139,7 @@ def straightness(
   out = {
     "side_m_mean": float(left.mean()),
     "side_m_abs_max": float(np.abs(left).max()),
+    "side_m_abs_mean": float(np.abs(left).mean()),
     "side_per_m_mean": float((left[moved] / fwd[moved]).mean())
     if moved.any()
     else None,

@@ -135,6 +135,19 @@ def test_side_per_m_skips_boards_that_barely_move():
   assert row["side_per_m_mean"] is None
 
 
+def test_side_abs_mean_is_the_mean_size_of_the_drift():
+  # Two boards ride 1.2 m straight ahead and end 0.1 m left and 0.3 m right.
+  t = _times(4.0)
+  pos = np.zeros((len(t), 2, 2))
+  pos[:, :, 0] = 0.3 * t[:, None]
+  pos[:, 0, 1] = 0.1 * t / t[-1]
+  pos[:, 1, 1] = -0.3 * t / t[-1]
+  row = tr.summarise(pos, np.zeros((len(t), 2)), len(t) - 1, DT, np.array([True] * 2))
+  assert row["side_m_abs_mean"] == pytest.approx(0.2)
+  assert row["side_m_mean"] == pytest.approx(-0.1)
+  assert row["side_m_abs_max"] == pytest.approx(0.3)
+
+
 def test_steady_turn_has_no_yaw_swing():
   t = _times(5.0)
   pos, yaw = _ride(0.3 * t, 0.0 * t, 0.4 * t)

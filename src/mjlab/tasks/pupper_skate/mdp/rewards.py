@@ -275,6 +275,7 @@ def track_board_yaw_rate(
   carve_threshold: float | None = None,
   carve_gain: float = 1.0,
   straight_min_speed: float | None = None,
+  straight_gain: float = 0.0,
 ) -> torch.Tensor:
   """Reward the board turning at the commanded yaw rate (steer task).
 
@@ -288,8 +289,10 @@ def track_board_yaw_rate(
   turns the robot, not the board, and a quiet env then pays what the ride pays.
 
   With ``straight_min_speed`` set as well, an env outside a carve whose speed
-  command (dim 0) is at least that is paid for a board that does not turn:
-  the target is 0, with the same ``std``. Standing envs, under it, still get 0.
+  command (dim 0) is at least that is paid for a board that answers the hold:
+  the target is ``straight_gain`` times the yaw command (the hold's correction),
+  with the same ``std``. The default gain of 0 pays a board that does not turn.
+  Standing envs, under the speed, still get 0.
   """
   board: Entity = env.scene[board_cfg.name]
   command = env.command_manager.get_command(command_name)
@@ -304,7 +307,8 @@ def track_board_yaw_rate(
   if straight_min_speed is None:
     return reward * carving.float()
   rolling = command[:, 0] >= straight_min_speed
-  straight = torch.exp(-torch.square(board_wz) / std**2) * rolling.float()
+  hold = straight_gain * cmd_wz
+  straight = torch.exp(-torch.square(hold - board_wz) / std**2) * rolling.float()
   return torch.where(carving, reward, straight)
 
 
