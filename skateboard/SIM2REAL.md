@@ -15,6 +15,7 @@ the first carpet run (see "Carpet").
 | Centred ride (tripod) | `7fyt12i1` | pass | **fail** on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 (on v10's 21 rows it fails wheel drag x6 to x25; no `floor_grip_1.6` row) | Candidate for the first steering test, loosened trucks |
 | Split steer v10 | `74jsd4gb` | not checked | three seeds at yaw 0, ±0.15, ±0.3, ±0.5 (±0.6 on seed 0 only): 22 of 23 runs pass, 1 reset at -0.5 (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run second after v6, to compare on carpet |
+| Split steer v13 | `k43t9fqw` | not checked | three seeds at yaw 0, ±0.15, ±0.3, ±0.5: 20 of 21 runs pass, 1 reset at +0.5 (0.3 m/s) | ride audit 18 of 21 (fails wheel drag x10, x15, x25) | Provisional: run third after v6 and v10; 25 s drift (sim, x3) mean size 16.8 cm against v10's 29.0, misses its 15 cm bar ([`PLAN_HEADING.md`](PLAN_HEADING.md)) |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; **fail** at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Fallback for the steering test, full stick only |
 
@@ -225,7 +226,7 @@ files to use:
 | 5, 6 | `policies/centred_balance_v2_policy.json` |
 | 7 | none: skipped (split ride v4 is not to be used) |
 | 8 | `policies/centred_ride_v9_max0.3_policy.json` |
-| 9 | `policies/split_steer_v6_max0.3_policy.json` first, then `policies/split_steer_v10_max0.3_policy.json` (provisional, to compare on carpet) (if v6 slides: `policies/split_steer_v7_max0.3_policy.json`; full stick only: `policies/split_steer_v5_max0.3_policy.json`) |
+| 9 | `policies/split_steer_v6_max0.3_policy.json` first, then `policies/split_steer_v10_max0.3_policy.json` (provisional, to compare on carpet), then `policies/split_steer_v13_max0.3_policy.json` (provisional, third) (if v6 slides: `policies/split_steer_v7_max0.3_policy.json`; full stick only: `policies/split_steer_v5_max0.3_policy.json`) |
 
 On the robot (over SSH), after copying the file there, as in
 `HARDWARE_TEST.md` ("Deploy"). These commands come from the robot repo's usage
@@ -667,6 +668,8 @@ pure sine (the detrend), so they are upper estimates.
 - Neither speed nor drift has been measured on the robot. No retrain follows
   from this: there is no hardware number yet, and the policy has no sideways
   position to observe. A tighter heading hold would be separate work.
+  (Later: steer v13 and v14 retrained for this drift in sim; v13 nearly
+  halves the spread but misses its bar. See [`PLAN_HEADING.md`](PLAN_HEADING.md).)
 - Not modelled: the gamepad cable dragging from the body or any other tug,
   and the wheels scrubbing sideways on carpet. Not exercised: truck stiffness
   outside the loosened 9 to 18 N·m/rad range (the robot's trucks on the day

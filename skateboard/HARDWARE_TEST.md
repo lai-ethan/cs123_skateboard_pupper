@@ -118,13 +118,15 @@ Which file to install for each test (all under `policies/`):
 | 2 | `centred_balance_v2_policy.json` |
 | 3 | skipped this session: no file. Split ride v4 is not to be used (not ready, SIM2REAL "Short answer"). The straight ride is test 5's first step, steer v6 at yaw 0 |
 | 4 | `centred_ride_v9_max0.3_policy.json` (provisional) |
-| 5 | `split_steer_v6_max0.3_policy.json` first; then `split_steer_v10_max0.3_policy.json` (provisional, run second, same placement and steps, to compare on carpet); `split_steer_v7_max0.3_policy.json` only if v6 slides along the deck, on a hard floor or once the board rolls (fallback, full stick only: `split_steer_v5_max0.3_policy.json`) |
-| 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policy.json` |
+| 5 | `split_steer_v6_max0.3_policy.json` first; then `split_steer_v10_max0.3_policy.json` (provisional, run second, same placement and steps, to compare on carpet); then `split_steer_v13_max0.3_policy.json` (provisional, run third, same placement and steps); `split_steer_v7_max0.3_policy.json` only if v6 slides along the deck, on a hard floor or once the board rolls (fallback, full stick only: `split_steer_v5_max0.3_policy.json`) |
+| 6 | `split_steer_v6_max0.3_policy.json`, as gemini_pupper's `skate/policies/split_steer_v6_max0.3_policy.json` (catalogue entry `steer_v6`, selected by `policy:` in `skate/skate.yaml`) |
 
 Steer v6 stays the ride candidate and the file to run first. Steer v9 was
 evaluated and not exported. Steer v10 is provisional and does not replace
 v6: it passes every ride audit row v6 passes, and is faster at wheel drag x6
-to x15, but misses its pass bar at x10.
+to x15, but misses its pass bar at x10. Steer v13 is provisional too and
+does not replace v6 or v10: in sim its 25 s straight ride spreads less
+than v10's but misses the drift bar.
 
 ## 0. Board tilt stiffness (robot off, no power)
 
@@ -248,9 +250,23 @@ at yaw 0. Do not install any `split_ride_*` file.
   about 0.6 to 1.0 of asked, and a slight pull with the stick centred to
   either side, depending on the board: a few degrees in 5 s (the two sim
   tools disagree on its sign; they use different windows).
+- Steer v13, third: `policies/split_steer_v13_max0.3_policy.json` (run
+  `k43t9fqw`, resumed from v10). Provisional, run after v6 and v10, same
+  placement and steps. It has never run on the robot and needs a TA's OK
+  before its first run, like any new policy; check it with
+  `python3 download_policy.py --validate-only <file>` first. Same clips as
+  v10 (speed 0 to 0.3 m/s, yaw ±0.6 rad/s) and same heading hold (kp 1.0,
+  clip 0.1). In sim, 25 s straight ride at drag x3, 16 boards: sideways
+  drift mean size 16.8 cm, worst board 41.4 cm (v10: 29.0 and 84.7), and
+  both end about 15.5 cm to the right on average; it misses its drift bar
+  (15 cm, 40 cm, signed within ±8 cm). Ride audit 18 of 21 rows, the same
+  three failures as v10: 0.91 of the asked speed at x6, 0.51 at x10, no
+  resets at either. Gait check on three seeds: 20 of 21 runs pass; one
+  resets on a left carve (seed 0, stick +0.5). Look for: on the tape-line
+  check, does the board hold a straighter line than v10's.
 - If the robot slides along the deck with v6, on a hard floor or once the
   board rolls: try `policies/split_steer_v7_max0.3_policy.json` (run
-  `n5m2zsks`, resumed from v6), after v6 and v10. Keep the stick within
+  `n5m2zsks`, resumed from v6), after v6, v10 and v13. Keep the stick within
   ±0.3; the file clips yaw at ±0.3 rad/s
   anyway. It passes the validator and all 16 ride audit rows, and no sim
   board slid out in 27 gait runs. But it pulls right, gentle right carves
@@ -261,7 +277,7 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Fallback: `policies/split_steer_v5_max0.3_policy.json` (`bxke67fj`), full
   yaw stick only. It trained only on full carves and fails 2 of 16 ride
   audit rows. Its heading hold clip is 0.3, not 0.1.
-- Straight ride, for v6 and then v10, before any carve. The 2026-11-26 clips
+- Straight ride, for v6, then v10, then v13, before any carve. The 2026-11-26 clips
   show the nose swinging on each kick and the board drifting to one side;
   this measures how much.
   - Wireless gamepad, or a second person holds the cable slack above the
@@ -350,6 +366,9 @@ at yaw 0. Do not install any `split_ride_*` file.
   nose travel on each kick ______ cm (or swings y/n ____); feet slid along
   the deck (y/n) ____; trucks stock / loosened / tightened ____; cable slack
   (y/n) ____
+- v13 on carpet: distance in 5 s ______ m; sideways from the line ______ cm;
+  nose travel on each kick ______ cm (or swings y/n ____); feet slid along
+  the deck (y/n) ____; straighter line than v10 (y/n) ____
 - Tightened repeat, if run (v6 / v10): ____; distance in 5 s ______ m;
   sideways ______ cm; nose travel ______ cm (or swings y/n ____); rolled
   (y/n) ____
@@ -364,19 +383,31 @@ at yaw 0. Do not install any `split_ride_*` file.
 Not run yet. Needs Ethan's OK on the day, a TA's sign-off for the policy,
 and test 5 (straight ride and steer by joystick) passed first. The voice
 tools assume the ride and the steer work. Nothing in this test has run on the
-robot: every distance and turn Gemini gives is a sim estimate.
+robot: every distance and turn Gemini gives is a sim estimate. The operator
+runbook is gemini_pupper's `skate/DEMO.md`. Its `skate/skate.yaml` is a
+catalogue: `policy:` selects one entry under `policies:` (now `steer_v6` or
+`steer_v10`), and the files are in `skate/policies/`. Steer v13 is not in
+the catalogue.
 
 Setup, by Ethan on the robot:
 
 - [ ] `git pull` the `skate-voice` branch of gemini_pupper on the robot. The
       robot's copy may be ahead of the Mac snapshot: merge, do not overwrite.
 - [ ] `python3 lab/test.py skate` on the robot: all checks pass.
+- [ ] `policy:` in `skate/skate.yaml` names the catalogue entry to run
+      (`steer_v6`; each entry under `policies:` gives its `file`, in
+      `skate/policies/`). The robot stack reads it
+      at start: change it before `robot/start.sh`, or restart after.
 - [ ] `robot/start.sh`, with Pupper lying on the floor, away from the board.
       In `/tmp/gemini-pupper/robot.log` the spawner lists `gemini_skate` as
       loaded.
 - [ ] `ros2 control list_controllers` lists `gemini_skate` as inactive. It
       must not be active before "start skating".
-- [ ] `ros2 param get /gemini_skate model_path` ends in `skate/policy.json`.
+- [ ] `ros2 param get /gemini_skate model_path` ends in that entry's file,
+      for `steer_v6` `skate/policies/split_steer_v6_max0.3_policy.json`.
+- [ ] `GET /system/status` (http://localhost:8000/system/status): its
+      `skate` block has `installed: true`, the `policy` you chose, its
+      `tested` text, `error: null` and `controller: "inactive"`.
 - [ ] Joystick connected. Right-stick press is the e-stop and outranks
       Gemini.
 
@@ -435,7 +466,8 @@ Run, hands on the harness the whole time, 4 m of clear floor ahead:
 Stop the test (e-stop) if a left foot nears the deck edge, a right foot
 lands on the deck, the board heads for anything, or a motor faults.
 
-Measure and write down, to replace the sim estimates in `skate/skate.yaml`:
+Measure and write down, to replace the sim estimates in the policy's entry
+under `policies:` in `skate/skate.yaml` (the numbers below are steer v6's):
 
 | What | Sim estimate | Measured |
 | --- | --- | --- |

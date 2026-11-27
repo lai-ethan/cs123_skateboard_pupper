@@ -48,6 +48,7 @@ and the cable dragged and truck tightness was not recorded. The run on
 | Centred ride (tripod) | `7fyt12i1` | pass | fail on push foot duty only, at 0.1, 0.2, 0.3 m/s | not run | Provisional, last, Ethan's call |
 | Split steer v6 | `hfd3qhwr` | not checked | pass at yaw 0, ±0.15, -0.3, -0.5, -0.6; 1 reset at +0.3, +0.5, +0.6 (0.3 m/s) | ride audit 16 of 16 | Steering candidate, loosened trucks, Ethan's call; rolled a board on carpet on 2026-11-26 (video only) |
 | Split steer v10 | `74jsd4gb` | not checked | 22 of 23 runs pass at stick 0, ±0.15, ±0.3, ±0.5 (±0.6 on seed 0 only); 1 reset, at -0.5 | ride audit 18 of 21 rows; misses its pass bar at wheel drag x10 | Provisional, run second after v6; rolled a board on carpet on 2026-11-26 (video only); does not replace v6 |
+| Split steer v13 | `k43t9fqw` | not checked | 20 of 21 runs pass at stick 0, ±0.15, ±0.3, ±0.5 on three seeds; 1 reset, at +0.5 | ride audit 18 of 21 rows; sim 25 s drift mean size 16.8 cm (v10 29.0), misses its 15 cm bar | Provisional, run third after v6 and v10; never run on the robot; does not replace v6 or v10 |
 | Split steer v7 | `n5m2zsks` | not checked | pass at yaw 0, ±0.15, ±0.3, +0.5, +0.6; fail at -0.5, -0.6 on every seed (`board_drifted`) | ride audit 16 of 16 | Fallback if v6 slides along the deck; stick within ±0.3 |
 | Split steer v5 | `bxke67fj` | not checked | pass at yaw 0, +0.5, -0.5 (0.3 m/s) | ride audit 14 of 16 | Steering fallback, full stick only |
 
