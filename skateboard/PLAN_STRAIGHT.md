@@ -241,3 +241,25 @@ Files: `skateboard/HARDWARE_TEST.md`, `skateboard/SIM2REAL.md`,
 - Assumed: the clips are v6 (IMG_9606) and v10 (IMG_9610), from their
   lengths.
 - Issues: there is no hardware number for speed or drift yet, only video.
+
+## Known minor gaps (deferred after the final review, 2026-11-26)
+
+- `skateboard/README.md` Status still says the 2026-11-26 run was "the first
+  run that counts as a test"; the sheet's wording is "the first run with the
+  right setup; nothing was measured, so no test is recorded".
+- The sheet's test 0 says "the one exception" for the tightened straight
+  repeat; the straight-ride block allows one repeat per policy, so up to two.
+- "0.5 to 1.5 degrees per kick" is the detrended swing per board over a 1 to
+  5 s window, not a per-kick measurement.
+- The sheet's 1 cm nose-travel figure is an estimate (1 degree at about 0.3 m
+  from the board's middle), and the long-ride drift it quotes was run at x3
+  drag.
+- If the loosened trucks read outside 9 to 18 N·m/rad in test 0, test 5 is
+  blocked and the sheet does not say what to do about the tightened repeat.
+- The "What is not known" and Task 4 text above predate the baseline and the
+  long ride; where they differ, the result sections govern.
+- `timed_ride.py`: swings are reported as a mean only (no per-board max), and
+  on a long ride they are dominated by slow wander; it imports the private
+  `_wheel_drag` from `ride_audit.py`.
+- Open work, not in this plan: a tighter hold on heading, which is what
+  could reduce the sideways drift in training.
