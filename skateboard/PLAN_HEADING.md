@@ -284,12 +284,12 @@ accessor only), `src/mjlab/tasks/pupper_skate/mdp/rewards.py`,
    observations, actions or terminations, or to the exported file's
    `heading_hold` block.
 
-## Task 5: train v14 (controller, Colab)
+## Task 5: train v14 (controller, Colab) (done 2026-11-27)
 
 Push, then resume from steer v13 (`k43t9fqw`, `model_33995.pt`) for 2000
 iterations, 4096 envs.
 
-## Task 6: evaluate and decide (controller)
+## Task 6: evaluate and decide (controller) (done 2026-11-27)
 
 The same checks as Task 3, with the same pass bar, plus: the mean signed
 drift after 25 s is within ±8 cm (v10 and v13: -15.5 cm). If v14 passes it is
@@ -297,3 +297,37 @@ exported as a provisional file after v6 and v10. If it does not, the better
 of v13 and v14 on drift is exported as provisional with its numbers and the
 bar it missed stated, since both already improve on v10 without losing an
 audit row.
+
+## Result of v14 (2026-11-27): no better than v13; v13 exported as provisional
+
+Run `rd2np6mb`, 2000 of 2000 iterations, resumed from v13 (`k43t9fqw`,
+`model_33995.pt`) with `board_heading_hold` added. Checkpoint
+`model_35994.pt`. Sim only. Not exported.
+
+25 s ride (`timed_ride.py`, 0.3 m/s, stick 0, x3 drag, 16 boards, seed 0, no
+resets in any of the three runs):
+
+| | v10 | v13 | v14 | Bar |
+| --- | --- | --- | --- | --- |
+| Mean size of sideways drift | 29.0 cm | 16.8 cm | 17.0 cm | at most 15 |
+| Worst board | 84.7 cm | 41.4 cm | 44.2 cm | at most 40 |
+| Mean drift (signed) | -15.5 cm | -15.5 cm | -16.1 cm | within ±8 |
+| Speed | 0.303 m/s | 0.297 m/s | 0.287 m/s | - |
+| Distance | 7.57 m | 7.44 m | 7.18 m | - |
+
+- Drift: v14 misses all three drift lines, and is no better than v13 on any
+  of them. The board-heading reward did not remove the constant sideways
+  offset to the right. The cause of the remaining offset is not established.
+- Not run on v14: the ride audit and the gait report. It fails the drift bar
+  and is not the export candidate, so they would not change the decision.
+- Decision, per Task 6: v14 does not pass. v13 is the better of the two on
+  drift, so v13 is exported as provisional
+  (`skateboard/policies/split_steer_v13_max0.3_policy.json`, speed clip 0 to
+  0.3 m/s), third after v6 and v10. The bar it missed: 25 s drift, mean size
+  16.8 cm against 15, worst board 41.4 cm against 40, mean signed drift
+  -15.5 cm against ±8. Its ride audit (18 of 21 rows, the same three
+  failures as v10) and gait report (20 of 21 runs) are in the v13 result
+  above and in `skateboard/policies/split_steer_v13_audit.txt` and
+  `split_steer_v13_gait.txt`.
+- Not determined: the cause of the remaining offset in v13 and v14; whether
+  v13 holds a straighter line than v10 on the robot (never run there).
