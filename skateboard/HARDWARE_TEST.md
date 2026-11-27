@@ -258,12 +258,18 @@ at yaw 0. Do not install any `split_ride_*` file.
   v10 (speed 0 to 0.3 m/s, yaw ±0.6 rad/s) and same heading hold (kp 1.0,
   clip 0.1). In sim, 25 s straight ride at drag x3, 16 boards: sideways
   drift mean size 16.8 cm, worst board 41.4 cm (v10: 29.0 and 84.7), and
-  both end about 15.5 cm to the right on average; it misses its drift bar
-  (15 cm, 40 cm, signed within ±8 cm). Ride audit 18 of 21 rows, the same
+  both end about 15.5 cm to the right on average; it misses both lines of
+  its own drift bar (16.8 against 15 cm, 41.4 against 40 cm) and the signed
+  line (within ±8 cm) added for v14. Ride audit 18 of 21 rows, the same
   three failures as v10: 0.91 of the asked speed at x6, 0.51 at x10, no
   resets at either. Gait check on three seeds: 20 of 21 runs pass; one
   resets on a left carve (seed 0, stick +0.5). Look for: on the tape-line
-  check, does the board hold a straighter line than v10's.
+  check, does the board hold a straighter line than v10's. v13 is the first
+  policy paid to turn the board with the hold's command, and on the robot
+  that command comes from IMU yaw, whose drift is not measured: with the
+  stick centred, a slow steady curve may be the board following IMU yaw
+  drift (the hold's command is clipped at 0.1). Note which way and roughly
+  how much.
 - If the robot slides along the deck with v6, on a hard floor or once the
   board rolls: try `policies/split_steer_v7_max0.3_policy.json` (run
   `n5m2zsks`, resumed from v6), after v6, v10 and v13. Keep the stick within
@@ -411,7 +417,10 @@ Setup, by Ethan on the robot:
       for `steer_v6` `skate/policies/split_steer_v6_max0.3_policy.json`.
 - [ ] `GET /system/status` (http://localhost:8000/system/status): its
       `skate` block has `installed: true`, the `policy` you chose, its
-      `tested` text, `error: null` and `controller: "inactive"`.
+      `tested` text, `error: null` and `controller: "inactive"`. While the
+      stack is still starting it can read `controller: "unknown"`: the server
+      or the controller manager is not ready yet, or asking it failed. Wait
+      and reload; do not go on until it reads `"inactive"`.
 - [ ] Joystick connected. Right-stick press is the e-stop and outranks
       Gemini.
 

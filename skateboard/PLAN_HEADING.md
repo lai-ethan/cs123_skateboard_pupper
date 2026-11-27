@@ -29,13 +29,16 @@ How the hold works (same formula in sim and on the robot):
 Why the heading settles several degrees off:
 
 - The policy turns the board only about 0.185 rad/s per unit of that command
-  (0.06 to 0.34 across boards), so the hold has at most about 0.019 rad/s of
-  authority.
+  (0.06 to 0.34 across boards; open-loop probe: the hold's command forced to
+  +0.08 and -0.08 for 5 s each, board yaw rate averaged in each window), so
+  the hold has at most about 0.019 rad/s of authority.
 - With a zero command the policy still turns the board by itself: -0.032 to
   +0.019 rad/s across boards (mean -0.008, mean size 0.015). The heading
   settles where the weak correction balances that pull.
-- The robot also stands rotated about 1 degree against the board (the same
-  way in 15 of 16 boards), which the hold cannot see.
+- The board's heading also sits about 1 degree to the right of the robot's
+  (mean size 1.17 degrees, the same sign in 15 of 16 boards), which the hold
+  cannot see. That the robot stands rotated on the board is the reading of
+  that measurement, not a separate one.
 - Sideways drift is explained by board heading alone (predicted per board to
   within 0.8 cm).
 - Why the policy follows corrections weakly: ignoring a 0.05 correction costs
@@ -179,7 +182,8 @@ Push to the team repo, then resume from steer v10 (`74jsd4gb`,
 ## Result of v13 (2026-11-27): drift nearly halved, narrowly misses the drift bar
 
 Run `k43t9fqw`, 2000 of 2000 iterations, resumed from v10, T4 GPU.
-Checkpoint `model_33995.pt`. Sim only. Not exported.
+Checkpoint `model_33995.pt`. Sim only. Not exported. (Superseded: see Result
+of v14; v13 was exported as provisional there.)
 
 25 s ride (`timed_ride.py`, 0.3 m/s, stick 0, x3 drag, 16 boards, seed 0, no
 resets in either run):
@@ -193,21 +197,26 @@ resets in either run):
 
 - Drift: misses the bar on both lines, by 1.8 cm and 1.4 cm. The spread
   between boards is much smaller; the mean drift to the right is unchanged
-  at -15.5 cm, so the steady offset (the robot standing about 1 degree
-  rotated on the board, which the hold cannot see) is still there. The
+  at -15.5 cm, so the steady offset is still there. The investigation read
+  it as the robot standing about 1 degree rotated on the board, which the
+  hold cannot see; that is an inference, not measured on v13 here. The
   tighter `board_alignment` did not remove it: that reward's episode value
   ended at 0.67.
 - Ride audit: 18 of 21 rows, the same three failures as v10 (`wheel_drag_x10`,
-  `x15`, `x25`). Every row v10 passes still passes, and no row has more than
-  one reset. `wheel_drag_x6` holds 0.91 of the asked speed (v10 0.96; bar
+  `x15`, `x25`). Every row v10 passes still passes, and no passing row has
+  more than one reset (`wheel_drag_x15`, a failing row, has 3 envs reset, 4
+  resets in all). `wheel_drag_x6` holds 0.91 of the asked speed (v10 0.96; bar
   0.9). `wheel_drag_x10` 0.51 with no resets (v10 0.58 with 4).
 - Gait report, stick 0, ±0.15, ±0.3, ±0.5 on seeds 0, 1, 2: 20 of 21 runs
-  pass (bar: at most 1 failing). The failure is seed 0 at +0.5: one board
-  slid 9.5 cm along the deck (limit 8). At ±0.3 and ±0.5 the board turns 0.54
+  pass (bar: at most 1 failing). The failure is seed 0 at +0.5: one reset,
+  in env 12. The gait file's largest slide along the deck in that run is
+  0.095 m, in env 12, sampled after the auto-reset; the file does not name
+  the reset's cause. At ±0.3 and ±0.5 the board turns 0.54
   to 1.20 of what is asked on every seed (bar 0.5 to 1.5). At ±0.15 it turns
   0.87 to 1.91. Stick 0: +0.006, +0.006, +0.010 rad/s.
 - Decision, per the pass bar: v13 misses the drift bar, so it is not
-  exported. v6 stays first and v10 the provisional second file.
+  exported. v6 stays first and v10 the provisional second file. (Superseded:
+  see Result of v14.)
 - Not determined: whether the remaining -15.5 cm is the stance rotation
   (inferred from the investigation, not measured on v13); whether more
   iterations would close the last 2 cm; anything on hardware.
@@ -215,25 +224,39 @@ resets in either run):
 ## What is left after v13 (measured 2026-11-27)
 
 Same 25 s ride, with the board's and the robot's headings recorded
-separately (means over 2 to 25 s, 16 boards):
+separately (time means over 2 to 25 s per board, 16 boards; "mean size" is
+the mean over boards of the size of each board's time mean):
 
 | | v10 | v13 |
 | --- | --- | --- |
 | Robot heading error against the hold's target, mean size | 1.36 deg | 0.29 deg |
-| Board rotated against the robot, mean | -1.17 deg size | -1.49 deg (negative on all 16 boards, -0.18 to -3.58) |
-| Board heading error, mean size | 2.34 deg | 1.38 deg |
-| Board yaw rate per unit of hold command | 0.008 (closed loop) | 0.198 |
+| Board heading against the robot's, mean | -1.16 deg (mean size 1.17; negative on 15 of 16 boards, -2.82 to +0.02) | -1.49 deg (negative on all 16 boards, -0.18 to -3.58) |
+| Board heading error (from its heading at the start), mean size | 2.34 deg | 1.38 deg |
+| Board yaw rate per unit of hold command, closed loop | 0.008 | 0.198 (per board 0.09 to 0.88) |
 | Hold command at the clip | 5% of steps | 0.5% of steps |
 
-- The hold now works: the robot keeps its heading to 0.3 degrees and the
-  board answers the hold's command.
-- All of the remaining drift is the board sitting rotated about 1.5 degrees
-  to the right of the robot. The hold measures the robot's heading, so it
-  cannot see this. Per-board drift is predicted by the board's heading to
-  within 0.3 cm.
+How each line was obtained: the first three are time means of the recorded
+headings over 2 to 25 s. The yaw-rate line is one least-squares fit, pooled
+over boards, of the board's yaw rate on the hold's command, both smoothed
+over 1 s, from 2 s on, during the ordinary ride (the hold closing its own
+loop). It is not the open-loop probe behind v10's 0.185 above (forced
++0.08 and -0.08 commands), so 0.008 and 0.185 are different measurements of
+v10, not a contradiction. The last line is the share of steps with the
+command's size at 0.0999 or more.
+
+- The robot now keeps its heading to 0.3 degrees of the hold's target. In
+  the closed-loop fit the board's yaw rate moves with the hold's command far
+  more than v10's does (0.198 against 0.008 per unit), with a wide spread
+  between boards.
+- The board's heading error (1.38 degrees) is close to the board's heading
+  against the robot's (-1.49 degrees), since the robot's own error is small.
+  Per-board drift is predicted by the board's heading to within 0.3 cm. The
+  hold measures the robot's heading, so it cannot see the board's. Reading
+  this as the board standing rotated about 1.5 degrees to the right of the
+  robot, and that rotation as the cause of the drift, is an inference; v14
+  (below) did not confirm it.
 - `board_alignment` at yaw std 0.04 pays 0.65 at 1.5 degrees, and its episode
-  value ended at 0.67: the policy gives up a third of that reward rather than
-  stand square, so something in the push pays more for the rotated stance.
+  value ended at 0.67. Why the policy keeps that rotation was not measured.
 
 ## Task 4: pay the board for holding the hold's heading (steer v14)
 
@@ -304,6 +327,10 @@ Run `rd2np6mb`, 2000 of 2000 iterations, resumed from v13 (`k43t9fqw`,
 `model_33995.pt`) with `board_heading_hold` added. Checkpoint
 `model_35994.pt`. Sim only. Not exported.
 
+The export rule changed after v13 missed: Task 3 said no export on a miss;
+Task 6, written afterwards, exports the better of v13 and v14 as provisional
+even if both miss.
+
 25 s ride (`timed_ride.py`, 0.3 m/s, stick 0, x3 drag, 16 boards, seed 0, no
 resets in any of the three runs):
 
@@ -329,5 +356,31 @@ resets in any of the three runs):
   failures as v10) and gait report (20 of 21 runs) are in the v13 result
   above and in `skateboard/policies/split_steer_v13_audit.txt` and
   `split_steer_v13_gait.txt`.
+- After v14 the steer task keeps `board_heading_hold` in its config and the
+  notebook table at weight 0 (as `board_side_creep` after v8), so the task
+  trains v13's rewards.
 - Not determined: the cause of the remaining offset in v13 and v14; whether
   v13 holds a straighter line than v10 on the robot (never run there).
+
+What the code shows (not a measured cause):
+
+- The sim hold captures its target from the board's heading
+  (`BoardHeadingHoldCommand._heading_hold_reference`) but measures its error
+  from the robot's heading (`wrap_to_pi(target - robot heading)` in
+  `UniformVelocityCommand.compute`). With the board rotated a fixed angle
+  against the robot, the board can sit on the target only while the robot is
+  off it by that angle, so only while the hold's command is not zero.
+- In that state v13's `track_board_yaw_rate` term (weight 2.0, std 0.02)
+  asks the board to turn at 0.3 times that command, so it charges a board
+  that holds still there. At a 1.5 degree rotation (command 0.026) the charge
+  is about 0.29 against the 0.53 that `board_heading_hold` (weight 1.0, std
+  0.03) adds for putting the board on target, so the net is roughly half.
+- The actor does not observe the board's pose: `board_pose` and the other
+  board terms are critic-only observations. It can learn a constant bias,
+  not a per-board correction.
+- In training the hold recaptures its target every time it re-engages
+  (after a carve, a stop or an episode reset), commands resample every 3 to
+  8 s and episodes last 20 s. The drift test pins the command (0.3 m/s,
+  stick 0), so it is one 25 s hold with one capture.
+- Which of these, if any, explains the result is not established, nor why
+  the stance is rotated.

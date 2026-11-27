@@ -8,16 +8,17 @@
 
 **Tech Stack:** Python 3 (FastAPI server, ROS 2 `ros2_control` through `robot/robot_api.py`), PyYAML, the repo's own desk test harness (`lab/test.py` → `robot/test_tools.py`, fake robot `Rig`). Sim measurements come from the pupper-mjlab repo (`skateboard/tools/timed_ride.py`).
 
-Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pupper`, branch `skate-voice` (HEAD `752b7c2`, pushed). **MJ** = `/Users/ethan/claude/cs123/pupper-mjlab`, branch `skateboard`.
+Written 2026-11-27. Repos: **GP** = `gemini_pupper`, branch `skate-voice` (`752b7c2` was its pushed head when this plan was written). **MJ** = `pupper-mjlab`, branch `skateboard`.
 
 ## What we know (2026-11-27)
 
-- Hardware, 2026-11-26, Gates carpet, gamepad (not through Gemini Pupper):
-  split balance held; steer v6 and steer v10 both rolled the board forward
-  for a whole clip (about 29 s and 28 s; which clip is which is as reported).
-  Nothing was measured. The skate tools in GP have never run on the robot.
-- Sim: v10 passes every ride audit row v6 passes and holds 0.92 of the asked
-  speed at x6 wheel drag (v6 0.70). v13 and v14 (heading work,
+- Hardware: on 2026-11-26, by gamepad, steer v6 and steer v10 each rolled
+  the board forward on carpet for a whole clip; nothing was measured. The
+  skate tools in GP have never run on the robot.
+- Sim: v10 passes every ride audit row v6 passes. At x6 wheel drag it holds
+  0.92 of the asked speed in `timed_ride.py` (5 s ride, 16 boards, stick 0;
+  v6 0.70; `PLAN_STRAIGHT.md` baseline) and 0.96 in the ride audit's
+  `wheel_drag_x6` row (`policies/split_steer_v10_audit.txt`). v13 and v14 (heading work,
   `PLAN_HEADING.md`) cut sideways drift; one of them is exported at the end of
   that plan.
 - GP `skate-voice` today: one policy file (`skate/policy.json`, steer v6), 313
@@ -86,7 +87,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 **Files:**
 - Create: `skateboard/policies/VOICE_ESTIMATES.md` (MJ)
 
-- [ ] **Step 1:** For each exported policy that will ship in GP (steer v10
+- [x] **Step 1:** For each exported policy that will ship in GP (steer v10
   now; the heading policy when `PLAN_HEADING.md` exports one), run, one at a
   time:
 
@@ -97,14 +98,14 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 
   for `<y>` in `0.0 0.15 -0.15 0.3 -0.3 0.5 -0.5` (16 envs, 5 s ride, 4 s
   coast: the tool's defaults).
-- [ ] **Step 2:** Stop if any run has `resets > 0` or a turn of the wrong sign.
-- [ ] **Step 3:** Record every JSON line in `VOICE_ESTIMATES.md` with the
+- [x] **Step 2:** Stop if any run has `resets > 0` or a turn of the wrong sign.
+- [x] **Step 3:** Record every JSON line in `VOICE_ESTIMATES.md` with the
   rounding rule used for v6 (`PLAN_GEMINI_VOICE.md`): `travel_m_per_s` =
   straight-run `m_per_s` to 2 decimals; each turn estimate = the smaller of
   the left and right `turn_deg_per_s` sizes, to 1 decimal; `coast_m` = the
   largest `coast_m_max` over the seven runs, rounded up to 1 decimal. v6's
   recorded values: 0.29; 1.1 / 1.4 / 2.2; 0.1.
-- [ ] **Step 4:** Commit in MJ: `docs: add voice estimates for the shipped skate policies`.
+- [x] **Step 4:** Commit in MJ: `docs: add voice estimates for the shipped skate policies`.
 
 ### Task 2: A policy catalogue that cannot take the robot down
 
@@ -131,7 +132,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   - `not_installed_message(error: str | None) -> str`.
   - `Robot.skate_error: str | None`.
 
-- [ ] **Step 1: New yaml schema.** Rewrite `skate/skate.yaml` as:
+- [x] **Step 1: New yaml schema.** Rewrite `skate/skate.yaml` as:
 
   ```yaml
   # Skate mode for Gemini Pupper. Read by robot/skateboard.py; see its docstring.
@@ -167,7 +168,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   The three `<Task 1>` values are given in the dispatch; they are not left in
   the file.
 
-- [ ] **Step 2: Failing tests** in `robot/test_tools.py`, new group
+- [x] **Step 2: Failing tests** in `robot/test_tools.py`, new group
   `skate_catalogue` (add it to `GROUPS` and to `PARTS["skate"]`), using the
   file's existing `_write_skate` / `_load_error` helper style (extend the
   helpers to write the new schema; update `fixture_skate()` to the new
@@ -198,10 +199,10 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
     `start_skating(placed=True)` answers with that message while `stand_up`
     and walking tools still work.
 
-- [ ] **Step 3: Run** `uv run --no-project --with pyyaml python lab/test.py skate_catalogue`.
+- [x] **Step 3: Run** `uv run --no-project --with pyyaml python lab/test.py skate_catalogue`.
   Expected: FAIL (group or names missing).
 
-- [ ] **Step 4: Implement** in `robot/skateboard.py`: the schema above
+- [x] **Step 4: Implement** in `robot/skateboard.py`: the schema above
   (top-level `travel_m_per_s`, `turn_deg_per_s`, `coast_m` and a file-valued
   `policy` are no longer accepted: a yaml in the old shape is a
   `SkateConfigError` saying "skate.yaml uses the old single-policy layout;
@@ -215,10 +216,10 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   `not_installed_message(robot.skate_error)`; the registry's `{skate}`
   fallback text uses it too. The `Rig` gains a way to inject a load error.
 
-- [ ] **Step 5: Run** the full suite. Expected: `All N checks passed.` with
+- [x] **Step 5: Run** the full suite. Expected: `All N checks passed.` with
   N greater than 313 and no FAIL line.
 
-- [ ] **Step 6: Commit** `feat: skate policy catalogue with a safe loader`.
+- [x] **Step 6: Commit** `feat: skate policy catalogue with a safe loader`.
 
 ### Task 3: Stop, disconnect and status on the board
 
@@ -233,7 +234,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 - Produces: `GET /system/status` returns an extra key
   `"skate": {"installed": bool, "policy": str | None, "tested": str | None, "error": str | None, "controller": "active" | "inactive" | "missing"}`.
 
-- [ ] **Step 1: Failing tests** in group `skate_guards` (use the existing
+- [x] **Step 1: Failing tests** in group `skate_guards` (use the existing
   `_load_server` helper):
   - on the board, `POST /move/velocity` with vx, vy, wz and duration all 0
     (what the debug panel's STOP sends) stops the ride: the queue is empty,
@@ -253,18 +254,18 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
     `installed` false, `error` null, `controller` "missing". The existing
     keys of the status reply are unchanged.
 
-- [ ] **Step 2: Run** `... lab/test.py skate_guards`. Expected: FAIL.
+- [x] **Step 2: Run** `... lab/test.py skate_guards`. Expected: FAIL.
 
-- [ ] **Step 3: Implement** in `robot/server.py`. The battery, cpu and
+- [x] **Step 3: Implement** in `robot/server.py`. The battery, cpu and
   internet parts of `/system/status` are untouched; the skate block reads
   `tools.robot` state without moving anything (if controller states are
   only available asynchronously, use the same call the existing endpoints
   use). A zero `/move/velocity` and `/walking/deactivate` on the board call
   the same stop the voice `stop` tool uses.
 
-- [ ] **Step 4: Run** the full suite. Expected: all pass.
+- [x] **Step 4: Run** the full suite. Expected: all pass.
 
-- [ ] **Step 5: Commit** `fix: stop and disconnect work on the board, status reports skate`.
+- [x] **Step 5: Commit** `fix: stop and disconnect work on the board, status reports skate`.
 
 ### Task 4: What Gemini reads
 
@@ -277,7 +278,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 **Interfaces:**
 - Consumes: `SkateConfig.name` (Task 2), `WALK_READY_S` (existing).
 
-- [ ] **Step 1: Failing tests** (groups `skate_tools` and the prompt checks):
+- [x] **Step 1: Failing tests** (groups `skate_tools` and the prompt checks):
   - `PLACEMENT` is exactly: `"Pupper beside the board on the board's right, body parallel to it and facing the end with the castle picture, left feet on the deck's middle line, one ahead of the middle and one behind, right feet on the floor, a hand on the harness"`;
   - the not-placed reply of `start_skating` contains `PLACEMENT`;
   - the `start_skating` description states the wait as
@@ -291,9 +292,9 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
     "castle", "drift", and the queue limit it states equals
     `queue_max_seconds` in the repo's `skate/skate.yaml`.
 
-- [ ] **Step 2: Run** the two groups. Expected: FAIL.
+- [x] **Step 2: Run** the two groups. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** In `lab/prompt.md` replace the placement
+- [x] **Step 3: Implement.** In `lab/prompt.md` replace the placement
   sentence with: "A person has to place you: beside the board on its right,
   facing the end with the castle picture, your left feet on the deck's
   middle line, one ahead of the middle and one behind, and your right feet
@@ -304,9 +305,9 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   review: the first wording invited someone to handle a rolling board
   without stopping.) Change nothing else in the section.
 
-- [ ] **Step 4: Run** the full suite. Expected: all pass.
+- [x] **Step 4: Run** the full suite. Expected: all pass.
 
-- [ ] **Step 5: Commit** `feat: tell Gemini where Pupper stands on the board and that it drifts`.
+- [x] **Step 5: Commit** `feat: tell Gemini where Pupper stands on the board and that it drifts`.
 
 ### Task 5: The demo, scripted on the desk, and the runbook
 
@@ -318,7 +319,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   (state list only)
 - Create: `skate/DEMO.md`
 
-- [ ] **Step 1: The demo test** (`skate_demo`), run once for every policy
+- [x] **Step 1: The demo test** (`skate_demo`), run once for every policy
   name in the repo's `skate/skate.yaml` (load that entry's real file):
   1. from motors idle: `start_skating(placed=False)` is refused with the
      placement text; `start_skating(placed=True)` succeeds; `robot_status`
@@ -339,11 +340,11 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
      of 0.5 rad/s, and no single command lasts longer than 5 s.
   The group fails loudly, naming the policy, if any step fails.
 
-- [ ] **Step 2: Run** `... lab/test.py skate_demo`. Expected: PASS for both
+- [x] **Step 2: Run** `... lab/test.py skate_demo`. Expected: PASS for both
   policies if Tasks 2 to 4 are right; a failure here is a real defect in an
   earlier task: stop and report it, do not adjust the test to pass.
 
-- [ ] **Step 3: `skate/DEMO.md`**, an operator runbook with these sections:
+- [x] **Step 3: `skate/DEMO.md`**, an operator runbook with these sections:
   "Before the day" (TA's OK for each policy file; `policy:` chosen in
   `skate.yaml`; `python3 lab/test.py skate` passes; board: loosened trucks,
   which end is the nose); "Start" (the repo's normal start steps, then open
@@ -364,7 +365,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   sticks). It says plainly that the skate tools have not run on the robot
   and that every number is a sim estimate.
 
-- [ ] **Step 4: Docs.** `skate/README.md`: describe the catalogue; replace
+- [x] **Step 4: Docs.** `skate/README.md`: describe the catalogue; replace
   "Its stop button works" with what Task 3 made true; point to `DEMO.md`.
   `README.md` "What's where": add `lab/part8_skate.py` and `skate/`; add
   skating to the state list. `docs/architecture.md`: add skating to the
@@ -373,24 +374,34 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
   `robot.fell_off_board` to the API list. `robot/spawn_controllers.py`
   docstring: mention `gemini_skate`.
 
-- [ ] **Step 5: Run** the full suite. Expected: all pass.
+- [x] **Step 5: Run** the full suite. Expected: all pass.
 
-- [ ] **Step 6: Commit** `test: script the skate demo on the desk` and
+- [x] **Step 6: Commit** `test: script the skate demo on the desk` and
   `docs: add the skate demo runbook`.
 
 ### Task 6: Ship the heading policy and choose the default (controller)
 
-- [ ] **Step 1:** When `PLAN_HEADING.md` exports its policy, run Task 1 for
+- [x] **Step 1:** When `PLAN_HEADING.md` exports its policy, run Task 1 for
   it, copy its `_max0.3_policy.json` into GP `skate/policies/`, and add its
   catalogue entry with `tested: "sim only: not run on the robot"`.
-- [ ] **Step 2:** Run `... lab/test.py skate`. Expected: all pass, with
+- [x] **Step 2:** Run `... lab/test.py skate`. Expected: all pass, with
   `skate_demo` covering the new entry.
-- [ ] **Step 3:** Default policy: `steer_v6` stays the `policy:` value unless
+- [x] **Step 3:** Default policy: `steer_v6` stays the `policy:` value unless
   Ethan chooses another; `DEMO.md` "Changing policy" lists the trade-offs.
-- [ ] **Step 4:** MJ `skateboard/HARDWARE_TEST.md` test 6 and
+- [x] **Step 4:** MJ `skateboard/HARDWARE_TEST.md` test 6 and
   `skateboard/README.md`: point to GP `skate/DEMO.md` and name the catalogue.
 - [ ] **Step 5:** Scan both diffs for secrets; push MJ to `team` and GP
   `skate-voice` to `origin`.
+
+## Result (2026-11-27)
+
+- GP's `skate/skate.yaml` is a catalogue of three policies: `steer_v6` (the
+  default `policy:`), and `steer_v10` and `steer_v13` as options. v13's
+  `tested` line says sim only.
+- GP's desk suite: 526 checks pass.
+- The runbook is GP `skate/DEMO.md`.
+- Nothing in this plan has run on the robot. Task 6 Step 5 (the pushes) is
+  not done.
 
 ## Accounting
 
