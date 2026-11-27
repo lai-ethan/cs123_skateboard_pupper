@@ -116,6 +116,80 @@ file.
   same audit, steering checks and this baseline before it goes near the
   robot.
 
+## Baseline result (2026-11-26): sim rides straight, so the swing is a sim-to-real gap
+
+`timed_ride.py`, stick 0, 16 boards, 5 s ride, hard-floor ranges with the
+wheel drag pinned. Sim only.
+
+| Policy | Asked m/s | Drag | Speed (share of asked) | Resets | Turn (deg/s) | Drift (m sideways per m forward) | Worst board's drift (cm) | Nose swing (deg) | Side sway (cm) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| v6 | 0.3 | x1 | 1.01 | 0 | -0.29 | -0.015 | 9.5 | 0.89 | 0.20 |
+| v6 | 0.3 | x3 | 0.92 | 0 | -0.30 | -0.013 | 8.5 | 0.82 | 0.14 |
+| v6 | 0.3 | x6 | 0.70 | 2 | -0.59 | -0.024 | 8.0 | 0.65 | 0.10 |
+| v6 | 0.15 | x1 | 1.04 | 0 | -0.43 | -0.018 | 3.9 | 0.33 | 0.05 |
+| v6 | 0.15 | x3 | 0.89 | 0 | -0.38 | -0.015 | 3.0 | 0.34 | 0.04 |
+| v6 | 0.15 | x6 | 0.59 | 0 | -0.29 | -0.013 | 1.6 | 0.30 | 0.04 |
+| v10 | 0.3 | x1 | 1.02 | 0 | -0.38 | -0.024 | 11.9 | 0.85 | 0.20 |
+| v10 | 0.3 | x3 | 0.99 | 0 | -0.29 | -0.018 | 10.7 | 0.95 | 0.21 |
+| v10 | 0.3 | x6 | 0.92 | 0 | -0.27 | -0.015 | 9.5 | 1.06 | 0.20 |
+| v10 | 0.15 | x1 | 1.10 | 0 | -0.45 | -0.020 | 4.1 | 0.28 | 0.05 |
+| v10 | 0.15 | x3 | 1.05 | 0 | -0.35 | -0.016 | 3.6 | 0.37 | 0.06 |
+| v10 | 0.15 | x6 | 0.97 | 0 | -0.31 | -0.014 | 3.2 | 0.48 | 0.07 |
+
+Negative turn and drift are to the right. Swings read 6 to 15% high for a
+pure sine (the detrend), so they are upper estimates.
+
+- v10's nose swing is at most 1.06 degrees and its mean drift at most 2.4 cm
+  per metre. Both are under the Task 3 thresholds (2 degrees, 0.05), so the
+  swing seen on the robot is not in sim. A reward cannot train out what the
+  sim does not show; no training task is added.
+- The worst single board drifts 8 to 12 cm over a 5 s ride at 0.3 m/s, so
+  some drift is expected on the robot too. The video shows more than that.
+- What the sim does not model, and so the likely causes on the robot: the
+  gamepad cable dragging from the body, the trucks leaning under each kick if
+  they are loose, and the wheels scrubbing sideways on carpet. None is
+  measured.
+- A side result: at x6 drag v10 holds 0.92 of the asked speed at 0.3 m/s and
+  0.97 at 0.15 m/s; v6 holds 0.70 and 0.59. If the robot is slower than
+  asked on carpet, v10 should be the faster of the two.
+
+## Task 4: hardware checklist for a straight ride
+
+Files: `skateboard/HARDWARE_TEST.md`, `skateboard/SIM2REAL.md`,
+`skateboard/README.md` (Status only).
+
+1. `skateboard/HARDWARE_TEST.md`:
+   - In the "2026-11-24 run" area, a "2026-11-26 run" note: with the
+     placement guide, split balance held and both steer v6 and steer v10
+     rolled the board forward on the Gates carpet for the whole clip (about
+     29 s and 28 s); the nose swung on each kick and the board drifted to one
+     side; speed was not measured; a wired gamepad cable dragged from the
+     robot; truck tightness was not recorded. Say plainly that this is the
+     first run that counts as a test, and update the intro sentence that says
+     nothing has been tested on the robot.
+   - In test 5, a short "Straight ride" block before the carves, for each of
+     v6 and v10: gamepad cable held slack above the robot or a wireless
+     gamepad; record whether the trucks are stock or loosened, and if the
+     board swings, repeat once with the trucks tightened; lay a 2 m tape line
+     on the floor, board on the line, camera fixed (not hand-held) looking
+     down the line; stick fully forward for 5 s. Record: distance along the
+     line, sideways distance from the line at the end, and whether the nose
+     swings on each kick.
+   - What sim predicts for that ride, from the table above: about 1.4 to 1.5
+     m in 5 s on a hard floor; at x6 drag about 1.4 m for v10 and about 1.05
+     m for v6; a few cm of drift to one side (the worst sim board 8 to 12
+     cm); about 1 degree of nose swing. More than that on the robot is the
+     sim-to-real gap this test is measuring.
+2. `skateboard/SIM2REAL.md`: a short "Straightness" section with the table
+   and the conclusion above, and how to run the tool
+   (`timed_ride.py ... --wheel-drag X`), including that swings are only
+   comparable at the same `--ride-s`.
+3. `skateboard/README.md` Status: the first working hardware run
+   (2026-11-26) and a v10 row or line, replacing the "As of 2026-11-20"
+   wording.
+4. Docs only. Every number comes from the table above or from the note in
+   item 1; write "not measured" where there is no number.
+
 ## Accounting
 
 - Skipped: the backward gait; any change to the Gemini voice estimates.
