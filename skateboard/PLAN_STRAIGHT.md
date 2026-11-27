@@ -68,8 +68,11 @@ Files: `skateboard/tools/timed_ride.py`, `tests/test_skate_timed_ride.py`,
      the ride after the first 1.0 s, subtract its least-squares straight
      line, and take the peak-to-peak of what is left, in degrees. Mean over
      envs. This is the nose swing with any steady turn removed.
-   - `side_swing_cm_mean`: the same detrended peak-to-peak for the leftward
-     position, in cm.
+   - `side_swing_cm_mean`: the peak-to-peak of the leftward position over
+     the same window after subtracting its least-squares quadratic, in cm. A
+     quadratic, not a line, because a steady turn bends the path into a
+     parabola in the starting frame; a steady turn with no sway must read
+     about 0.
    - `wheel_drag`: X, or `null` when the option is not given.
 3. The new maths are small pure functions next to `path_length` and
    `turn_so_far`, so they are tested without a sim.
@@ -82,6 +85,8 @@ Files: `skateboard/tools/timed_ride.py`, `tests/test_skate_timed_ride.py`,
      0.01;
    - a yaw of `2 * sin(2*pi*1.5*t)` degrees on top of a steady turn has
      `yaw_swing_deg_mean` of 4 to within 0.1;
+   - a steady turn at 3 degrees a second with no sway, at 0.3 m/s for 5 s,
+     has `side_swing_cm_mean` under 0.1;
    - a ride shorter than 1.5 s gives `null` for the two swings instead of an
      error;
    - `--wheel-drag 6` pins the wheel joints' damping and frictionloss at 6
