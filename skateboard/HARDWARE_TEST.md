@@ -6,11 +6,11 @@ Tests 1 and 2 use policies that pass the gait check in sim on the 103 mm deck. T
 is skipped this session: its policy, split ride v4, is not to be used. Test
 4 uses one that fails one limit. Test 5 steers: it passes all 16 ride audit rows but
 one sim board in 48 slid off on left carves. Its fallback, v7, slides less but fails
-hard right carves. The first run that counts as a test was on 2026-11-26, with
+hard right carves. The first run with the right setup was on 2026-11-26, with
 the placement guide: split balance held (test 1, seen in video only), and steer v6
-and v10 rolled the board forward on carpet ("2026-11-26 run" below). It
-recorded no speed or distance, so no test is recorded on this sheet yet: test 1
-still needs a recorded pass, and tests 2, 4 and 6 are not run. The run on 2026-11-24 had the wrong
+and v10 rolled the board forward on carpet ("2026-11-26 run" below). Nothing
+was measured, so no test is recorded on this sheet yet: test 1 still needs a
+recorded pass, test 5 is not recorded, and tests 2, 4 and 6 are not run. The run on 2026-11-24 had the wrong
 placement and an unconfirmed policy, so it does not count ("2026-11-24 run"
 below). Sim first, then robot.
 
@@ -140,7 +140,9 @@ says"). Takes five minutes.
 - Steering by lean needs about 7.5 to 15 degrees at 3 kg (9 to 18 N·m/rad,
   worked out below). Under 7.5 degrees the trucks are stiffer than the steer
   policy trained on; over 15 degrees they are softer (under 9 N·m/rad). Either
-  way, do not run test 5.
+  way, do not run test 5. The one exception: test 5's single straight repeat
+  with the trucks tightened (stick centred, no carve, hands on), which is
+  outside this range on purpose.
 - Tilt at 1 / 2 / 3 kg, stock: ______ / ______ / ______ degrees
 - Tilt at 1 / 2 / 3 kg, loosened: ______ / ______ / ______ degrees
 - Stiffness k = m x 9.81 x d / tilt, with m in kg, d the weight's distance from
@@ -243,8 +245,9 @@ at yaw 0. Do not install any `split_ride_*` file.
   reset limit, so "no resets" does not mean it slides less than v6. v10:
   stop at about ±0.5; ±0.6 is checked on one seed only. Expect, in sim:
   gentle left carves turn up to about twice what is asked, right carves
-  about 0.6 to 1.0 of asked, and a slight pull to the left with the stick
-  centred (about 2 to 4 degrees in 5 s).
+  about 0.6 to 1.0 of asked, and a slight pull with the stick centred to
+  either side, depending on the board: a few degrees in 5 s (the two sim
+  tools disagree on its sign; they use different windows).
 - If the robot slides along the deck with v6, on a hard floor or once the
   board rolls: try `policies/split_steer_v7_max0.3_policy.json` (run
   `n5m2zsks`, resumed from v6), after v6 and v10. Keep the stick within
@@ -263,25 +266,37 @@ at yaw 0. Do not install any `split_ride_*` file.
   this measures how much.
   - Wireless gamepad, or a second person holds the cable slack above the
     robot: the cable dragged from the robot in both 2026-11-26 clips.
-  - Note whether the trucks are stock or loosened (test 0 reading). If the
-    board swings, repeat once with the trucks tightened. The loosened run
-    comes first; the tightened repeat is out of the trained range, so stop if
-    the board will not roll.
-  - Lay a 2 m tape line on the floor, board on the line. Fix the camera (not
-    hand-held) looking down the line.
-  - Stick fully forward for 5 s from the first push. Record the distance along
-    the line, the sideways distance of the deck's middle from the line at the end, whether the nose
-    swings on each kick, and whether the feet slid along the deck.
+  - Record the truck state: loosened (the test 0 reading, 9 to 18 N·m/rad)
+    is the trained range; stock and tightened are both outside it. Run
+    loosened first. If the nose swings more than about 1 cm side to side on
+    each kick, repeat that policy's straight ride once with the trucks
+    tightened (the one exception in test 0): stick centred, no carve, hands
+    on. Stop if the board will not roll. Loosen the trucks back to the test
+    0 range before any further run.
+  - Lay a 2 m tape line on the floor with a mark every 10 cm, board on the
+    line. Fix the camera (not hand-held) looking down the line. It sees
+    sideways motion well and distance badly, so read distance from the tape
+    marks, not by eye from the picture.
+  - Stick fully forward for 5 s from the first push, yaw centred. Record: the
+    distance along the line (the tape mark beside the deck's middle at 5 s);
+    the sideways distance of the deck's middle from the line at the end, in
+    cm; the nose's side-to-side travel on each kick against the tape, in cm
+    (if it cannot be read, y/n for whether it swings); and whether the feet
+    slid along the deck.
   - Sim, steer v6 and v10 on a hard floor (`PLAN_STRAIGHT.md`, baseline): about
     1.5 m in 5 s. At wheel drag x6, about 1.4 m for v10 and about 1.05 m for
-    v6. A few cm of drift to one side (the worst sim board 8 to 12 cm)
-    and about 1 degree of nose swing. More than that on the robot is the
-    sim-to-real gap this test measures.
+    v6. Drift: a single sim board ends up to about 10 cm to either side in
+    5 s (the worst 8 to 12 cm), and tens of cm over a 25 s ride, so drift is
+    expected and is not by itself a sim-to-real gap. On rides longer than
+    this 5 s one, steer back with the stick; do not expect the board to hold
+    the line. Nose swing in sim: about 0.5 to 1.5 degrees per board, under
+    1 cm of side-to-side travel at the nose. A clearly larger swing points
+    to something the sim does not model or did not exercise.
 - On carpet, compare the straight ride first; carve only if the board rolls.
   Carves at carpet drag are not checked in sim for either file.
 - If neither file rolls on carpet with correct placement, repeat the straight
   ride on a hard floor, hands on, and record the same things as the straight ride
-  (distance, sideways cm, nose swing y/n, feet slid y/n). That run tells "placement or policy" apart from "carpet".
+  (distance, sideways cm, nose travel cm, feet slid y/n). That run tells "placement or policy" apart from "carpet".
 - v10 standing still without stroking, or the board creeping sideways, is its
   known sim behaviour at high drag (at x15 it rides 0.26 of asked, at x25
   0.03, and the board drifts sideways at x10 and x15): stop and note it.
@@ -291,7 +306,8 @@ at yaw 0. Do not install any `split_ride_*` file.
   straight ride on stock trucks this session: the first roll test depends on
   the loosened trucks.
 - Trucks: loosen the kingpin nuts until test 0 reads 9 to 18 N·m/rad. The
-  policy trained only on that range. The stock trucks have not been
+  policy trained only on that range. The single tightened straight repeat
+  above is the only run outside it. The stock trucks have not been
   measured; they are assumed much stiffer, and then the board will not turn.
 - There is no foot stop or ridge on the deck, and none will be fitted.
   Staying on the board comes from the policy alone. Sliding along the deck is
@@ -327,15 +343,20 @@ at yaw 0. Do not install any `split_ride_*` file.
 - Notes carve right, small stick: ____________________________________________
 - Notes carve, more stick: ____________________________________________
 - v6 on carpet: distance in 5 s ______ m; sideways from the line ______ cm;
-  nose swings on each kick (y/n) ____; feet slid along the deck (y/n) ____;
-  trucks stock / loosened / tightened ____; cable slack (y/n) ____
+  nose travel on each kick ______ cm (or swings y/n ____); feet slid along
+  the deck (y/n) ____; trucks stock / loosened / tightened ____; cable slack
+  (y/n) ____
 - v10 on carpet: distance in 5 s ______ m; sideways from the line ______ cm;
-  nose swings on each kick (y/n) ____; feet slid along the deck (y/n) ____;
-  trucks stock / loosened / tightened ____; cable slack (y/n) ____
+  nose travel on each kick ______ cm (or swings y/n ____); feet slid along
+  the deck (y/n) ____; trucks stock / loosened / tightened ____; cable slack
+  (y/n) ____
+- Tightened repeat, if run (v6 / v10): ____; distance in 5 s ______ m;
+  sideways ______ cm; nose travel ______ cm (or swings y/n ____); rolled
+  (y/n) ____
 - v10 stood still or the board crept sideways (y/n, which): ________________
 - Hard floor, only if neither rolled on carpet: v6 ______ m, ______ cm
-  sideways, swing (y/n) ____, slid (y/n) ____; v10 ______ m, ______ cm
-  sideways, swing (y/n) ____, slid (y/n) ____
+  sideways, nose ______ cm (or y/n ____), slid (y/n) ____; v10 ______ m,
+  ______ cm sideways, nose ______ cm (or y/n ____), slid (y/n) ____
 - Notes v7, if used (straight, then stick ±0.15, ±0.3): ______________________
 
 ## 6. Voice control (Gemini Pupper)
@@ -428,9 +449,9 @@ The sim numbers come from `skateboard/tools/timed_ride.py` on steer v6 (16 envs,
 
 ## 2026-11-26 run
 
-Gates carpet, with the placement guide. This is the first run that counts as
-a test, though it is video only and nothing was measured. From the
-teammates' report and clips:
+Gates carpet, with the placement guide. This is the first run with the right
+setup. It is video only and nothing was measured, so no test is recorded
+from it. From the teammates' report and clips:
 
 - Split balance held.
 - Steer v6 and steer v10 each rolled the board forward for the whole clip,
@@ -441,10 +462,14 @@ teammates' report and clips:
 - A wired gamepad cable dragged from the robot in both clips.
 - Truck tightness was not recorded.
 
-Sim shows no such swing (`PLAN_STRAIGHT.md`, baseline), so the cable, truck
-lean and the carpet are the suspects. None is measured. This run does not
-say v10 passed its bar or replaces v6. The straight ride block in test 5
-measures it.
+In sim (`PLAN_STRAIGHT.md`, baseline and long ride) the nose swings only
+about 0.5 to 1.5 degrees per kick, so a clearly visible swing points to
+something the sim does not model or did not exercise: the cable, truck
+stiffness on the day, or the carpet. The board drifts sideways in sim too,
+tens of cm over a clip-length ride, either side, so the drift in the clips
+is not shown to be a sim-to-real gap. Neither speed nor drift has been
+measured on the robot. This run does not say v10 passed its bar or replaces
+v6. The straight ride block in test 5 measures it.
 
 ## 2026-11-24 run
 

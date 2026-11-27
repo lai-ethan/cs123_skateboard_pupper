@@ -650,30 +650,68 @@ stick 0, 16 boards, 5 s ride, hard-floor ranges with the wheel drag pinned
 Negative turn and drift are to the right. Swings read 6 to 15% high for a
 pure sine (the detrend), so they are upper estimates.
 
-- Sim rides straight: v10's nose swing is at most 1.06 degrees and its mean
-  drift at most 2.4 cm per metre. So the swing seen on the robot is not in
-  sim, and it is a sim-to-real gap, not something a reward can train out.
-- The worst single board drifts 8 to 12 cm over a 5 s ride at 0.3 m/s, so
-  some drift is expected on the robot too.
-- Not modelled, so the likely causes on the robot: the gamepad cable dragging
-  from the body, the trucks leaning under each kick if they are loose, and the
-  wheels scrubbing sideways on carpet. None is measured. The straight ride in
-  `HARDWARE_TEST.md` test 5 measures the ride.
+- These numbers apply only to a 5 s ride from a standing start. The clips are
+  28 to 29 s long; the long ride below is 25 s.
+- Nose swing per kick is small in sim: v10's mean is at most 1.06 degrees,
+  about 0.5 to 1.5 degrees per board. 1 degree is about half a centimetre at
+  the nose (an estimate, nose about 0.3 m from the board's middle). The 2
+  degree threshold in `PLAN_STRAIGHT.md` was not tied to a number from the
+  video. So a clearly visible swing on the robot points to something the sim
+  does not model or did not exercise (below).
+- Sideways drift is in sim too. The mean is at most 2.4 cm per metre, but the
+  worst single board drifts 8 to 12 cm over a 5 s ride at 0.3 m/s (v10's
+  worst, 11.9 cm over 1.53 m, is about 0.078 per metre), and over a 25 s ride
+  single boards end tens of cm to either side (table below). The heading hold
+  keeps the heading within a few degrees; nothing holds sideways position. So
+  the drift in the video is not shown to be a sim-to-real gap.
+- Neither speed nor drift has been measured on the robot. No retrain follows
+  from this: there is no hardware number yet, and the policy has no sideways
+  position to observe. A tighter heading hold would be separate work.
+- Not modelled: the gamepad cable dragging from the body or any other tug,
+  and the wheels scrubbing sideways on carpet. Not exercised: truck stiffness
+  outside the loosened 9 to 18 N·m/rad range (the robot's trucks on the day
+  are unknown); deck friction, floor grip and deck height other than
+  hard-floor values (only the wheel drag is pinned); more than one seed and
+  16 boards. The sim's heading hold references the board's heading
+  (`src/mjlab/tasks/pupper_skate/mdp/commands.py:32`), the robot's its own
+  IMU yaw. None is measured. The straight ride in `HARDWARE_TEST.md` test 5
+  measures the ride.
 - At x6 drag v10 holds 0.92 of the asked speed at 0.3 m/s and 0.97 at 0.15
   m/s; v6 holds 0.70 (with 2 resets) and 0.59. If the robot is slower than asked on carpet,
   v10 should be the faster of the two.
 
-To rerun a row (repo root; drop `FORCE_CPU=1` on a machine with an NVIDIA GPU):
+Long ride (final review, 2026-11-26): the steer v10 checkpoint, stick 0, 0.3
+m/s, drag x3, 16 boards, seed 0, 25 s ride, no resets, 7.6 m forward on
+average; its first 5 s reproduce the baseline row.
+
+| Time | Sideways drift per board | Mean |
+| --- | --- | --- |
+| 5 s | -10.7 to +9.4 cm | not recorded |
+| 10 s | -28.6 to +31.1 cm | not recorded |
+| 25 s | -56 to +85 cm (6 of 16 boards past 25 cm) | -15.5 cm |
+
+- Per-board heading is off by -7 to +6.7 degrees at 5 s and wanders after.
+- Per-board nose swing: 0.48 to 1.48 degrees over 1 to 5 s; one board reached
+  2.36 degrees over 10 to 14 s; including the start-up second, 0.57 to 1.95.
+- 12 of 16 boards ended to the right; mean turn rate -0.07 deg/s.
+- At 25 s `yaw_swing_deg_mean` reads 5.07 and `side_swing_cm_mean` 6.3:
+  slow wander dominates a long window.
+
+To rerun a row (repo root; drop `FORCE_CPU=1` on a machine with an NVIDIA GPU).
+The baseline ran on the checkpoints, `split_steer_v6_model_26998.pt` and
+`split_steer_v10_model_31996.pt`:
 
 ```bash
 FORCE_CPU=1 uv run python skateboard/tools/timed_ride.py \
-  skateboard/policies/split_steer_v10_max0.3_policy.json \
-  --speed 0.3 --ride-s 5 --wheel-drag 6
+  skateboard/policies/split_steer_v10_model_31996.pt \
+  --speed 0.3 --envs 16 --ride-s 5 --coast-s 1 --wheel-drag 6
 ```
 
 The straightness fields are `side_m_mean`, `side_m_abs_max`, `side_per_m_mean`,
 `yaw_swing_deg_mean` and `side_swing_cm_mean`. Swings are only comparable
-between runs at the same `--ride-s` (the tool's docstring says why).
+between runs at the same `--ride-s` (the tool's docstring says why). On a long
+ride the two swing fields are dominated by slow wander, not the kicks, so use
+`--ride-s 5` for per-kick swing.
 
 ## Carpet
 
@@ -794,8 +832,11 @@ Evidence: `policies/split_steer_v10_gait.txt`.
   carves 0.63 to 0.87 at 0.15, 0.72 to 0.78 at 0.3, 0.79 to 1.01 at 0.5,
   1.05 at 0.6. So gentle left carves can turn up to about twice what is
   asked and right carves about 0.6 to 1.0 of asked.
-- Stick 0: mean board yaw rate +0.010, +0.013, +0.007 rad/s on seeds 0, 1, 2,
-  a slight pull to the left (about 2 to 4 degrees in 5 s).
+- Stick 0: mean board yaw rate +0.010, +0.013, +0.007 rad/s on seeds 0, 1, 2
+  (after a 2 s skip). The pull goes either side, depending on the board: a
+  few degrees in 5 s. The two tools disagree on the sign: `timed_ride.py`
+  ("Straightness", whole 5 s ride) reads v10 turning right in every row, and
+  in its 25 s ride 12 of 16 boards ended to the right. The windows differ.
 - Largest fore-aft deck slide 3.8 to 7.2 cm (reset limit 8 cm).
 - ±0.6 passes on seed 0 only; it is not run on seeds 1 and 2, so the stop at
   about ±0.5 stays.

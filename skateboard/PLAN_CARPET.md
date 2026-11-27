@@ -289,6 +289,9 @@ Files: `skateboard/policies/` (new `split_steer_v10_*` files),
   1.05 at 0.6.
 - Stick 0: mean board yaw rate +0.010, +0.013, +0.007 rad/s on seeds 0, 1, 2
   (a slight pull to the left, about 2 to 4 degrees in 5 s).
+  [2026-11-26: `timed_ride.py` reads v10 turning right at stick 0, and the
+  pull goes either side depending on the board; see `PLAN_STRAIGHT.md`,
+  baseline and long ride.]
 - Largest fore-aft deck slide 3.8 to 7.2 cm (reset limit 8 cm).
 - ±0.6 passes on seed 0 only; it is not run on seeds 1 and 2.
 

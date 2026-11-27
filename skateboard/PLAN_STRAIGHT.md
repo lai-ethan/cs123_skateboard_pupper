@@ -111,12 +111,14 @@ file.
 - Otherwise the swing is a sim-to-real gap. Record that, and add to the
   hardware checklist: cable held slack or wireless, trucks tightened for
   straight rides, and a fixed-camera clip with a tape line to measure speed
-  and drift.
+  and drift. [The checklist in `HARDWARE_TEST.md` does the tightened trucks
+  only as one straight repeat, outside the trained range, not for every
+  straight ride.]
 - Either way: when the teammate's v12 branch is pushed, run it through the
   same audit, steering checks and this baseline before it goes near the
   robot.
 
-## Baseline result (2026-11-26): sim rides straight, so the swing is a sim-to-real gap
+## Baseline result (2026-11-26): per-kick nose swing is small in sim; sim drifts too
 
 `timed_ride.py`, stick 0, 16 boards, 5 s ride, hard-floor ranges with the
 wheel drag pinned. Sim only.
@@ -139,19 +141,62 @@ wheel drag pinned. Sim only.
 Negative turn and drift are to the right. Swings read 6 to 15% high for a
 pure sine (the detrend), so they are upper estimates.
 
-- v10's nose swing is at most 1.06 degrees and its mean drift at most 2.4 cm
-  per metre. Both are under the Task 3 thresholds (2 degrees, 0.05), so the
-  swing seen on the robot is not in sim. A reward cannot train out what the
-  sim does not show; no training task is added.
-- The worst single board drifts 8 to 12 cm over a 5 s ride at 0.3 m/s, so
-  some drift is expected on the robot too. The video shows more than that.
-- What the sim does not model, and so the likely causes on the robot: the
-  gamepad cable dragging from the body, the trucks leaning under each kick if
-  they are loose, and the wheels scrubbing sideways on carpet. None is
-  measured.
+- These numbers apply only to this test: a 5 s ride from a standing start.
+  The 2026-11-26 clips are 28 to 29 s long; see "Long ride" below for a
+  25 s ride.
+- Nose swing per kick is small in sim: v10's mean is at most 1.06 degrees,
+  under the Task 3 threshold of 2 degrees, and per board it is about 0.5 to
+  1.5 degrees ("Long ride"). 1 degree is about half a centimetre at the nose
+  (an estimate, with the nose about 0.3 m from the board's middle). The 2
+  degree threshold was not tied to a number from the video. So a clearly
+  visible swing on the robot points to something the sim does not model or
+  did not exercise (next bullets).
+- Sideways drift is in sim too. The mean drift is at most 2.4 cm per metre,
+  under the 0.05 threshold, but the mean hides it: the worst v10 board drifts
+  11.9 cm over 1.53 m, about 0.078 per metre, over the threshold, and the
+  robot is one board, not the mean of 16. Over a 25 s ride single boards end
+  tens of cm to either side ("Long ride"). The heading hold keeps the heading
+  within a few degrees, but nothing holds sideways position. So the drift in
+  the video is not shown to be a sim-to-real gap. No distance was recorded
+  and the camera moved, so the video does not say how large the drift was.
+- Neither speed nor drift has been measured on the robot.
+- No training task is added in this plan. The reason: there is no hardware
+  number yet, and the policy has no sideways position to observe. What could
+  be trained is a tighter hold on heading, which is a separate piece of work.
+- What the sim does not model: the gamepad cable dragging from the body, any
+  other tug on the robot, and the wheels scrubbing sideways on carpet. None
+  is measured.
+- What the sim did not exercise: truck stiffness only in the loosened 9 to 18
+  N·m/rad range (the robot's trucks on the day are unknown, so trucks leaning
+  under each kick if they are looser, or stiffer stock trucks, are outside
+  it); deck friction, floor grip and deck height held at hard-floor values,
+  with only the wheel drag pinned; one seed, 16 boards. The sim's heading
+  hold references the board's heading
+  (`src/mjlab/tasks/pupper_skate/mdp/commands.py:32`), while the robot's uses
+  its own IMU yaw.
 - A side result: at x6 drag v10 holds 0.92 of the asked speed at 0.3 m/s and
   0.97 at 0.15 m/s; v6 holds 0.70 and 0.59. If the robot is slower than
   asked on carpet, v10 should be the faster of the two.
+
+## Long ride (final review, 2026-11-26)
+
+`timed_ride.py` on the steer v10 checkpoint, stick 0, 0.3 m/s, wheel drag
+x3, 16 boards, seed 0, 25 s ride, no resets, 7.6 m forward on average. Its
+first 5 s reproduce the baseline row. Sim only.
+
+| Time | Sideways drift per board | Mean |
+| --- | --- | --- |
+| 5 s | -10.7 to +9.4 cm | not recorded |
+| 10 s | -28.6 to +31.1 cm | not recorded |
+| 25 s | -56 to +85 cm (6 of 16 boards past 25 cm) | -15.5 cm |
+
+- Per-board heading is off by -7 to +6.7 degrees at 5 s and wanders after.
+- Per-board nose swing: 0.48 to 1.48 degrees over 1 to 5 s; one board reached
+  2.36 degrees over 10 to 14 s; including the start-up second, 0.57 to 1.95.
+- 12 of 16 boards ended to the right; mean turn rate -0.07 deg/s.
+- At 25 s the tool's `yaw_swing_deg_mean` reads 5.07 and `side_swing_cm_mean`
+  6.3, because slow wander dominates a long window. Use `--ride-s 5` for
+  per-kick swing.
 
 ## Task 4: hardware checklist for a straight ride
 
