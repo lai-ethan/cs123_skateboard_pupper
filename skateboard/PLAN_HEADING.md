@@ -175,3 +175,39 @@ Push to the team repo, then resume from steer v10 (`74jsd4gb`,
   medium carves; removing the creep charge is what separates this from v8.
 - Issues: the investigation is one seed at one drag level; the pass bar's
   drift numbers come from that one setup.
+
+## Result of v13 (2026-11-27): drift nearly halved, narrowly misses the drift bar
+
+Run `k43t9fqw`, 2000 of 2000 iterations, resumed from v10, T4 GPU.
+Checkpoint `model_33995.pt`. Sim only. Not exported.
+
+25 s ride (`timed_ride.py`, 0.3 m/s, stick 0, x3 drag, 16 boards, seed 0, no
+resets in either run):
+
+| | v10 | v13 | Bar |
+| --- | --- | --- | --- |
+| Mean size of sideways drift | 29.0 cm | 16.8 cm | at most 15 |
+| Worst board | 84.7 cm | 41.4 cm | at most 40 |
+| Mean drift (signed) | -15.5 cm | -15.5 cm | - |
+| Distance | 7.57 m | 7.44 m | - |
+
+- Drift: misses the bar on both lines, by 1.8 cm and 1.4 cm. The spread
+  between boards is much smaller; the mean drift to the right is unchanged
+  at -15.5 cm, so the steady offset (the robot standing about 1 degree
+  rotated on the board, which the hold cannot see) is still there. The
+  tighter `board_alignment` did not remove it: that reward's episode value
+  ended at 0.67.
+- Ride audit: 18 of 21 rows, the same three failures as v10 (`wheel_drag_x10`,
+  `x15`, `x25`). Every row v10 passes still passes, and no row has more than
+  one reset. `wheel_drag_x6` holds 0.91 of the asked speed (v10 0.96; bar
+  0.9). `wheel_drag_x10` 0.51 with no resets (v10 0.58 with 4).
+- Gait report, stick 0, ±0.15, ±0.3, ±0.5 on seeds 0, 1, 2: 20 of 21 runs
+  pass (bar: at most 1 failing). The failure is seed 0 at +0.5: one board
+  slid 9.5 cm along the deck (limit 8). At ±0.3 and ±0.5 the board turns 0.54
+  to 1.20 of what is asked on every seed (bar 0.5 to 1.5). At ±0.15 it turns
+  0.87 to 1.91. Stick 0: +0.006, +0.006, +0.010 rad/s.
+- Decision, per the pass bar: v13 misses the drift bar, so it is not
+  exported. v6 stays first and v10 the provisional second file.
+- Not determined: whether the remaining -15.5 cm is the stance rotation
+  (inferred from the investigation, not measured on v13); whether more
+  iterations would close the last 2 cm; anything on hardware.
