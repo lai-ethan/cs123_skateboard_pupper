@@ -312,6 +312,33 @@ def track_board_yaw_rate(
   return torch.where(carving, reward, straight)
 
 
+def board_heading_hold(
+  env: ManagerBasedRlEnv,
+  command_name: str,
+  std: float,
+  min_speed: float,
+  board_cfg: SceneEntityCfg = _BOARD,
+) -> torch.Tensor:
+  """Reward the board for staying on the heading hold's target (steer task).
+
+  exp(-(wrap(board heading - target) / std)^2) in envs where the command's
+  heading hold is active and the speed command (dim 0) is at least
+  ``min_speed``; 0 elsewhere (carves, standing, under the speed). The skate
+  tasks' hold captures the board's heading, but measures the error from the
+  robot's, so a board rotated against the robot drifts sideways unseen. This
+  term sees it.
+  """
+  board: Entity = env.scene[board_cfg.name]
+  command = env.command_manager.get_command(command_name)
+  assert command is not None
+  term = env.command_manager.get_term(command_name)
+  active, target = term.heading_hold_state()  # type: ignore[attr-defined]
+  error = wrap_to_pi(board.data.heading_w - target)
+  reward = torch.exp(-torch.square(error / std))
+  paid = active & (command[:, 0] >= min_speed)
+  return reward * paid.float()
+
+
 def board_progress(
   env: ManagerBasedRlEnv,
   command_name: str,

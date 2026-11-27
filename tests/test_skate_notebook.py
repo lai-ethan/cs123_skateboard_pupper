@@ -1,6 +1,8 @@
 """The skate notebook's REWARD_WEIGHTS cell matches the env configs."""
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -165,3 +167,30 @@ def test_steer_trains_on_steer_v6s_rewards():
       assert "board_side_creep" not in scope["REWARD_WEIGHTS"]
       assert "board_side_creep" not in rewards
   assert "board_side_creep" in NOTEBOOK.read_text()
+
+
+@pytest.mark.parametrize("task", (*TASKS, "Mjlab-SkateSplit-Steer-Pupper-v3"))
+def test_only_the_steer_table_pays_the_board_heading_hold(task):
+  # A term missing from the table could train at the wrong weight.
+  scope: dict = {"TASK": task}
+  exec(_reward_weights_cell(), scope)
+  weights = scope["REWARD_WEIGHTS"]
+  if "-Steer-" in task:
+    assert weights["board_heading_hold"] == 1.0
+  else:
+    assert "board_heading_hold" not in weights
+
+
+def test_notebook_is_the_tools_output(tmp_path):
+  out = tmp_path / "CS123_Pupper_Skate.ipynb"
+  subprocess.run(
+    [
+      sys.executable,
+      str(REPO / "skateboard" / "tools" / "make_notebook.py"),
+      str(REPO / "notebooks" / "CS123_Pupper_mjlab.ipynb"),
+      str(out),
+    ],
+    check=True,
+    capture_output=True,
+  )
+  assert out.read_bytes() == NOTEBOOK.read_bytes()

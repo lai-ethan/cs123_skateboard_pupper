@@ -32,6 +32,7 @@ from mjlab.asset_zoo.robots.pupper_v3.pupper_constants import (
 )
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.envs.mdp import dr
+from mjlab.managers.command_manager import CommandTerm
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sim import MujocoCfg
 from mjlab.tasks.pupper_gait.export import (
@@ -56,6 +57,8 @@ from mjlab.tasks.pupper_skate.pupper_skate_env_cfg import (
 from mjlab.tasks.pupper_skate.pupper_skate_split_env_cfg import (
   BOARD_CREEP_CAP,
   BOARD_CREEP_TAU,
+  BOARD_HEADING_HOLD_STD,
+  BOARD_HEADING_HOLD_WEIGHT,
   BOARD_MAX_SLIDE,
   BOARD_MAX_SLIDE_ABS,
   BOARD_SIDE_CREEP_WEIGHT,
@@ -88,6 +91,7 @@ from mjlab.utils.lab_api.math import (
   euler_xyz_from_quat,
   quat_from_euler_xyz,
   quat_mul,
+  wrap_to_pi,
 )
 
 NUM_ENVS = 4
@@ -1826,6 +1830,48 @@ def test_track_board_yaw_rate_answers_the_hold_outside_carves():
   assert torch.equal(reward(straight_min_speed=None, straight_gain=0.3), today)
 
 
+def _fake_hold_env(rows: list[tuple[float, float, bool, float, float]]) -> Any:
+  """Enough of an env for board_heading_hold, from rows of (speed command, yaw
+  command, hold active, hold target, board heading)."""
+  command = torch.tensor([[vx, 0.0, wz] for vx, wz, *_ in rows])
+  active = torch.tensor([row[2] for row in rows])
+  target = torch.tensor([row[3] for row in rows])
+  heading = torch.tensor([row[4] for row in rows])
+  term = SimpleNamespace(heading_hold_state=lambda: (active, target))
+  return SimpleNamespace(
+    scene={"board": SimpleNamespace(data=SimpleNamespace(heading_w=heading))},
+    command_manager=SimpleNamespace(
+      get_command=lambda name: command, get_term=lambda name: term
+    ),
+  )
+
+
+def test_board_heading_hold_pays_the_board_on_the_hold_target():
+  # Rows: the board on the target; 0.03 rad off either way; a 0.02 rad error
+  # across the +-pi wrap; a carve (the hold lets go), a standing env (hold
+  # off), and a hold-active env under the 0.1 m/s minimum, which pay 0.
+  wrap = math.pi - 0.01
+  rows = [
+    (0.3, 0.0, True, 0.2, 0.2),
+    (0.3, 0.05, True, 0.2, 0.23),
+    (0.1, 0.0, True, 0.2, 0.17),
+    (0.3, 0.0, True, wrap, -wrap),
+    (0.3, 0.5, False, 0.2, 0.2),
+    (0.0, 0.0, False, 0.2, 0.2),
+    (0.06, 0.0, True, 0.2, 0.2),
+  ]
+  env = _fake_hold_env(rows)
+  reward = mdp.board_heading_hold(
+    env, command_name="twist", std=0.03, min_speed=STEER_YAW_MIN_SPEED
+  )
+  assert reward.shape == (len(rows),)
+  assert reward[0].item() == pytest.approx(1.0)
+  assert reward[1].item() == pytest.approx(math.exp(-1.0), abs=1e-3)
+  assert reward[2].item() == pytest.approx(math.exp(-1.0), abs=1e-3)
+  assert reward[3].item() == pytest.approx(math.exp(-((0.02 / 0.03) ** 2)), abs=1e-3)
+  assert reward[4:].abs().max().item() == 0.0
+
+
 def test_board_turn_progress_pays_only_carves_against_the_scaled_target():
   # Rows: half, all, more and the wrong way of a 0.5 carve's 0.05 target, half
   # of a -0.6 carve's -0.06, half of a partial 0.2 carve's 0.02, then hold
@@ -1942,6 +1988,45 @@ def test_steer_pays_the_board_for_answering_the_hold():
     assert "track_board_yaw_rate" not in ride.rewards
 
 
+def test_steer_pays_the_board_for_holding_the_hold_heading():
+  # v14: the board is paid for staying on the hold's target heading. At the
+  # 1.5 degree rotation v13 measured, the term pays 0.47.
+  assert BOARD_HEADING_HOLD_WEIGHT == 1.0
+  assert BOARD_HEADING_HOLD_STD == 0.03
+  rotated = math.radians(1.5) / BOARD_HEADING_HOLD_STD
+  assert math.exp(-(rotated**2)) == pytest.approx(0.47, abs=0.005)
+  for play in (False, True):
+    steer = pupper_skate_split_steer_env_cfg(play=play)
+    term = steer.rewards["board_heading_hold"]
+    assert term.func is mdp.board_heading_hold
+    assert term.weight == 1.0
+    assert term.params == {
+      "command_name": "twist",
+      "std": 0.03,
+      "min_speed": STEER_YAW_MIN_SPEED,
+    }
+    # Everything v13 set stays.
+    assert HOLD_BOARD_GAIN == 0.3 and STEER_BOARD_ALIGN_STD_YAW == 0.04
+    assert steer.rewards["board_side_creep"].weight == 0.0
+    assert steer.rewards["deck_feet_slide"].weight == -2.0
+
+
+@pytest.mark.parametrize(
+  "make_cfg",
+  [
+    pupper_skate_balance_env_cfg,
+    pupper_skate_ride_env_cfg,
+    pupper_skate_split_balance_env_cfg,
+    pupper_skate_split_ride_env_cfg,
+  ],
+)
+def test_only_the_steer_pays_the_board_heading_hold(make_cfg):
+  for play in (False, True):
+    rewards = make_cfg(play=play).rewards
+    assert "board_heading_hold" not in rewards
+    assert all(t.func is not mdp.board_heading_hold for t in rewards.values())
+
+
 def test_steer_trains_on_steer_v6s_rewards():
   # v9 resumes from steer v6 and changes only the carpet ranges, so the steer
   # task's weights are v6's (commit 9743be3): the deck-foot scuff at -2, not
@@ -1970,6 +2055,7 @@ def test_steer_is_the_split_ride_plus_a_carve_command():
     expected["board_turn_progress"] = 1.0
     expected["board_side_creep"] = 0.0
     expected["deck_feet_slide"] = -2.0
+    expected["board_heading_hold"] = 1.0
     assert _weights(steer) == pytest.approx(expected)
     term = steer.rewards["track_board_yaw_rate"]
     assert term.func is mdp.track_board_yaw_rate
@@ -2357,6 +2443,106 @@ def test_heading_hold_reference_defaults_to_robot_heading(hold_env):
   torch.testing.assert_close(base, robot.data.heading_w)
   # The ride's own hook reads the board.
   torch.testing.assert_close(term._heading_hold_reference(), board.data.heading_w)
+
+
+@pytest.mark.slow
+def test_heading_hold_state_is_the_hold_that_made_the_command(hold_env):
+  # Rewards run before the step's command update, so after a step the state
+  # is the one the next step's rewards read: the hold that made the command
+  # the policy acts on.
+  env = hold_env
+  env.reset()
+  term = env.command_manager.get_term("twist")
+  assert isinstance(term, mdp.BoardHeadingHoldCommand)
+  board = env.scene["board"]
+  term._hh_prev_active[:] = False
+  env.step(torch.zeros(2, 12, device=env.device))
+  active, target = term.heading_hold_state()
+  assert active.dtype == torch.bool and bool(active.all())
+  torch.testing.assert_close(target, board.data.heading_w, atol=0.01, rtol=0)
+  assert torch.equal(target, term._hh_target)
+  reward = mdp.board_heading_hold(
+    env, command_name="twist", std=0.03, min_speed=STEER_YAW_MIN_SPEED
+  )
+  assert bool((reward > 0.9).all())
+
+
+##
+# The heading hold's state accessor, on a bare command term (no simulator).
+##
+
+
+def _bare_hold_term(heading_hold_kp: float | None, num_envs: int):
+  """A velocity command term with just what the heading hold reads."""
+  cfg = dataclasses.replace(
+    pupper_skate_split_ride_env_cfg().commands["twist"],
+    heading_hold_kp=heading_hold_kp,
+  )
+  term = object.__new__(UniformVelocityCommand)
+  term.cfg = cfg
+  term._env = SimpleNamespace(num_envs=num_envs, device="cpu")
+  heading = torch.zeros(num_envs)
+  term.robot = SimpleNamespace(data=SimpleNamespace(heading_w=heading))
+  term.vel_command_b = torch.zeros(num_envs, 3)
+  term._hh_cmd_b = torch.zeros(num_envs, 3)
+  term._hh_target = torch.zeros(num_envs)
+  term._hh_prev_active = torch.zeros(num_envs, dtype=torch.bool)
+  term._joystick_enabled = None
+  return term
+
+
+def _run_hold(term, steps: int, seed: int, read_state: bool) -> list[torch.Tensor]:
+  """Drive the hold with random commands and headings; returns the commands
+  emitted, and checks the accessor against an independent copy of the hold."""
+  gen = torch.Generator().manual_seed(seed)
+  n = term.vel_command_b.shape[0]
+  cfg = term.cfg
+  prev = torch.zeros(n, dtype=torch.bool)
+  target = torch.zeros(n)
+  emitted = []
+  for _ in range(steps):
+    raw = torch.rand(n, 3, generator=gen) * 0.6 - 0.3
+    # Quiet yaw in half the envs, standing in a quarter.
+    raw[torch.rand(n, generator=gen) < 0.5, 2] = 0.0
+    raw[torch.rand(n, generator=gen) < 0.25, :2] = 0.0
+    heading = (torch.rand(n, generator=gen) * 2 - 1) * math.pi
+    term.vel_command_b[:] = raw
+    term.robot.data.heading_w[:] = heading
+    term.compute(0.02)
+    emitted.append(term.command.clone())
+    if not read_state:
+      continue
+    active, held = term.heading_hold_state()
+    if cfg.heading_hold_kp is None:
+      assert not bool(active.any())
+      continue
+    want = (raw[:, 2].abs() < cfg.heading_hold_yaw_threshold) & (
+      torch.norm(raw[:, :2], dim=1) > cfg.heading_hold_walk_threshold
+    )
+    target = torch.where(want & ~prev, heading, target)
+    prev = want
+    assert torch.equal(active, want)
+    assert torch.equal(held, target)
+    err = wrap_to_pi(target - heading)
+    clip = cfg.heading_hold_clip
+    corr = torch.clamp(cfg.heading_hold_kp * err, -clip, clip)
+    expected = raw.clone()
+    expected[:, 2] = torch.where(want, corr, raw[:, 2])
+    assert torch.equal(term.command, expected)
+    # The accessor hands out copies: writing to them leaves the hold alone.
+    active[:] = ~active
+    held += 1.0
+  return emitted
+
+
+@pytest.mark.parametrize("kp", [GAIT_HEADING_HOLD_KP, None])
+def test_heading_hold_state_reads_the_hold_without_changing_it(monkeypatch, kp):
+  # Only the hold itself runs: the base compute (resampling) is stubbed.
+  monkeypatch.setattr(CommandTerm, "compute", lambda self, dt: None)
+  read = _run_hold(_bare_hold_term(kp, 64), steps=20, seed=0, read_state=True)
+  blind = _run_hold(_bare_hold_term(kp, 64), steps=20, seed=0, read_state=False)
+  for a, b in zip(read, blind, strict=True):
+    assert torch.equal(a, b)
 
 
 ##

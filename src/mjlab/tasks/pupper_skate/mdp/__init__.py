@@ -19,6 +19,7 @@ from .rewards import (  # noqa: F401
   board_alignment,
   board_creep,
   board_fore_aft,
+  board_heading_hold,
   board_progress,
   board_side_creep,
   board_speed_l2,

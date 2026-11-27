@@ -247,6 +247,17 @@ class UniformVelocityCommand(CommandTerm):
       self._hh_cmd_b[:] = raw
       self._hh_cmd_b[:, 2] = torch.where(active, corr, raw[:, 2])
 
+  def heading_hold_state(self) -> tuple[torch.Tensor, torch.Tensor]:
+    """Copies of the heading hold's per-env active mask and target heading.
+
+    As of the last ``compute()``, so the hold that made ``command``. Rewards
+    run before the step's command update and so read the hold the policy acted
+    on. Without a hold (``heading_hold_kp`` None) no env is active.
+    """
+    if self.cfg.heading_hold_kp is None:
+      return torch.zeros_like(self._hh_prev_active), self._hh_target.clone()
+    return self._hh_prev_active.clone(), self._hh_target.clone()
+
   def _heading_hold_reference(self) -> torch.Tensor:
     """The heading [num_envs] the hold captures at its activation edge.
 

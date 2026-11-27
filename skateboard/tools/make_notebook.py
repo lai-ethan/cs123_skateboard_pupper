@@ -200,12 +200,14 @@ if SPLIT:
     REWARD_WEIGHTS["board_still"] = -2.0
   if STEER:
     # Steer v6's weights: the ride's deck-foot scuff at a tenth (v7 tried the
-    # ride's -20) and no sideways creep charge (v8 tried -1.0).
+    # ride's -20) and no sideways creep charge (v8 tried -1.0). v14 pays the
+    # board for staying on the heading hold's target.
     REWARD_WEIGHTS.update({
       "track_board_yaw_rate": 2.0,
       "board_turn_progress": 1.0,
       "deck_feet_slide": -2.0,
       "board_side_creep": 0.0,
+      "board_heading_hold": 1.0,
     })
 else:
   REWARD_WEIGHTS = {
