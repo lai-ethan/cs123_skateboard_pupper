@@ -278,7 +278,7 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 - Consumes: `SkateConfig.name` (Task 2), `WALK_READY_S` (existing).
 
 - [ ] **Step 1: Failing tests** (groups `skate_tools` and the prompt checks):
-  - `PLACEMENT` is exactly: `"Pupper beside the board on the board's right, body parallel to it and facing the end with the castle picture, left feet on the middle of the deck, right feet on the floor, a hand on the harness"`;
+  - `PLACEMENT` is exactly: `"Pupper beside the board on the board's right, body parallel to it and facing the end with the castle picture, left feet on the deck's middle line, one ahead of the middle and one behind, right feet on the floor, a hand on the harness"`;
   - the not-placed reply of `start_skating` contains `PLACEMENT`;
   - the `start_skating` description states the wait as
     `f"about {WALK_READY_S:.0f} s"` (no hard-coded 4);
@@ -295,11 +295,14 @@ Written 2026-11-27. Repos: **GP** = `/Users/ethan/claude/cs123/pupper/gemini_pup
 
 - [ ] **Step 3: Implement.** In `lab/prompt.md` replace the placement
   sentence with: "A person has to place you: beside the board on its right,
-  facing the end with the castle picture, your left feet on the middle of
-  the deck and your right feet on the floor." and add after the sentence
+  facing the end with the castle picture, your left feet on the deck's
+  middle line, one ahead of the middle and one behind, and your right feet
+  on the floor." and add after the sentence
   about wide, slow curves: "On a long ride you also drift a little to one
-  side, so keep rides short and ask the person to straighten the board when
-  it has wandered." Change nothing else in the section.
+  side, so keep rides short. If the board has wandered, call stop first,
+  then ask a person to hold you and straighten the board." (Amended after
+  review: the first wording invited someone to handle a rolling board
+  without stopping.) Change nothing else in the section.
 
 - [ ] **Step 4: Run** the full suite. Expected: all pass.
 
